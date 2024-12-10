@@ -4,10 +4,11 @@ from src.preprocessing import filter_songs
 
 
 def main():
-    df = load_spotify_history("listening_history")
-    df_2024 = filter_songs(df, 2024)
-    top_songs_2024 = get_most_played_tracks(df_2024)
-    top_songs_2024.to_excel("top_songs_2024.xlsx")
+    for i in range(2023, 2025):
+        df = load_spotify_history("listening_history")
+        df_i = filter_songs(df, i, remove_incognito=False)
+        top_songs_i = get_most_played_tracks(df_i)
+        top_songs_i.to_excel(f"tmp/top_songs_{i}.xlsx")
 
 
 if __name__ == "__main__":
