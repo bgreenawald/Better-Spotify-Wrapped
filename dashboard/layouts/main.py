@@ -9,15 +9,36 @@ def create_layout(df: pd.DataFrame):
     return html.Div(
         [
             # Header
-            html.H1(
-                "Spotify Listening History Dashboard",
-                style={"textAlign": "center", "marginBottom": "30px"},
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.H1(
+                                "Spotify Listening History", className="dashboard-title"
+                            )
+                        ],
+                        className="container",
+                    )
+                ],
+                className="dashboard-header",
             ),
-            # Filters
-            create_filters_section(df),
-            # Graphs
-            create_graphs_section(),
-            # Stats
-            html.Div(id="detailed-stats"),
+            # Main content
+            html.Div(
+                [
+                    # Filters Card
+                    html.Div([create_filters_section(df)], className="card"),
+                    # Graphs Section
+                    create_graphs_section(),
+                    # Stats Card
+                    html.Div(
+                        [
+                            html.H3("Detailed Statistics", className="card-title"),
+                            html.Div(id="detailed-stats"),
+                        ],
+                        className="card",
+                    ),
+                ],
+                className="container",
+            ),
         ]
     )

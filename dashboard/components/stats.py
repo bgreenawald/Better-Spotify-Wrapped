@@ -2,52 +2,36 @@ import pandas as pd
 from dash import html
 
 
+def format_stat(value):
+    """Format statistics for display"""
+    if isinstance(value, float):
+        return f"{value:,.1f}"
+    return f"{value:,}"
+
+
 def create_stats_table(filtered_df: pd.DataFrame):
-    return html.Div(
+    stats = {
+        "Total Listening Time": f"{filtered_df['ms_played'].sum() / (1000 * 60 * 60):.1f} hours",
+        "Unique Tracks": len(filtered_df["master_metadata_track_name"].unique()),
+        "Unique Artists": len(
+            filtered_df["master_metadata_album_artist_name"].unique()
+        ),
+        "Average Daily Listening Time": f"{(filtered_df['ms_played'].sum() / (1000 * 60 * 60)) / len(filtered_df['ts'].dt.date.unique()):.1f} hours",
+        "Most Active Day": filtered_df.groupby(filtered_df["ts"].dt.date)["ms_played"]
+        .sum()
+        .idxmax()
+        .strftime("%Y-%m-%d"),
+    }
+
+    return html.Table(
         [
-            html.H3("Detailed Statistics"),
-            html.Table(
+            html.Thead(html.Tr([html.Th("Metric"), html.Th("Value")])),
+            html.Tbody(
                 [
-                    html.Thead(html.Tr([html.Th("Metric"), html.Th("Value")])),
-                    html.Tbody(
-                        [
-                            html.Tr(
-                                [
-                                    html.Td("Total Listening Time"),
-                                    html.Td(
-                                        f"{filtered_df['ms_played'].sum() / (1000 * 60 * 60):.1f} hours"
-                                    ),
-                                ]
-                            ),
-                            html.Tr(
-                                [
-                                    html.Td("Unique Tracks"),
-                                    html.Td(
-                                        len(
-                                            filtered_df[
-                                                "master_metadata_track_name"
-                                            ].unique()
-                                        )
-                                    ),
-                                ]
-                            ),
-                            html.Tr(
-                                [
-                                    html.Td("Unique Artists"),
-                                    html.Td(
-                                        len(
-                                            filtered_df[
-                                                "master_metadata_album_artist_name"
-                                            ].unique()
-                                        )
-                                    ),
-                                ]
-                            ),
-                        ]
-                    ),
-                ],
-                style={"width": "100%", "textAlign": "left"},
+                    html.Tr([html.Td(metric), html.Td(value)])
+                    for metric, value in stats.items()
+                ]
             ),
         ],
-        style={"marginTop": "30px"},
+        className="stats-table",
     )

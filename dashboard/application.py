@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from dash import Dash
 
 from dashboard.callbacks.main import register_callbacks
@@ -7,8 +9,8 @@ from src.io import load_spotify_history
 
 
 def create_app():
-    # Initialize the app
-    app = Dash(__name__)
+    assets_path = Path(__file__).parent / "assets"
+    app = Dash(__name__, assets_folder=str(assets_path))
 
     # Load data
     df = load_spotify_history("data/listening_history")
