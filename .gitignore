@@ -71,6 +71,7 @@ settings_local.py
 
 # Temporary files
 tmp/
+.cache
 
 # Needed data
 listening_history
