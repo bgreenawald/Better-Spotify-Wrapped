@@ -64,6 +64,8 @@ body {
 .graph-card {
     flex: 1;
     min-width: 45%;
+    width: 100%;  /* Ensure full width */
+    max-width: 800px;  /* Prevent excessive stretching */
 }
 
 /* Stats table styles */
