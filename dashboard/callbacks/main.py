@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pandas as pd
 from dash import Input, Output
 
@@ -28,10 +30,17 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         ],
     )
     def update_dashboard(selected_year, exclude_december, remove_incognito):
+        # Check if a valid year is selected
+        if not selected_year:
+            # Return empty figures if no year is selected
+            empty_figure = {"data": [], "layout": create_graph_style()}
+            return empty_figure, empty_figure, empty_figure, empty_figure, []
+
         # Filter the data based on selections
         filtered_df = filter_songs(
             df,
-            year=selected_year,
+            start_date=pd.Timestamp(datetime(selected_year, 1, 1)),
+            end_date=pd.Timestamp(datetime(selected_year, 12, 31)),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
         )

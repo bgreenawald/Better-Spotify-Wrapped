@@ -1,9 +1,12 @@
+from typing import Optional
+
 import pandas as pd
 
 
 def filter_songs(
     df: pd.DataFrame,
-    year: int,
+    start_date: Optional[pd.Timestamp] = None,
+    end_date: Optional[pd.Timestamp] = None,
     exclude_december: bool = True,
     remove_incognito: bool = True,
 ) -> pd.DataFrame:
@@ -12,7 +15,8 @@ def filter_songs(
 
     Args:
         df (pd.DataFrame): DataFrame containing Spotify listening history
-        year (int): Year to filter for
+        start_date (pd.Timestamp): Start date (inclusive) for filtering
+        end_date (pd.Timestamp): End date (inclusive) for filtering
         exclude_december (bool): If True, only include songs from Jan 1 to Dec 1
         remove_incognito (bool): If True, remove songs played in incognito mode
 
@@ -22,8 +26,12 @@ def filter_songs(
     # Start with basic song filter (excluding podcasts)
     filtered_df = df[df["episode_name"].isna()]
 
-    # Filter by year
-    filtered_df = filtered_df[filtered_df["ts"].dt.year == year]
+    # Filter by date range
+    if start_date:
+        filtered_df = filtered_df[(filtered_df["ts"] >= start_date)]
+
+    if end_date:
+        filtered_df = filtered_df[(filtered_df["ts"] <= end_date)]
 
     # Optionally exclude December
     if exclude_december:
