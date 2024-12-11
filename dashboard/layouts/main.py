@@ -1,5 +1,5 @@
 import pandas as pd
-from dash import html
+from dash import dcc, html
 
 from dashboard.components.filters import create_filters_section
 from dashboard.components.graphs import create_graphs_section
@@ -23,22 +23,41 @@ def create_layout(df: pd.DataFrame):
                 className="dashboard-header",
             ),
             # Main content
-            html.Div(
-                [
-                    # Filters Card
-                    html.Div([create_filters_section(df)], className="card"),
-                    # Graphs Section
-                    create_graphs_section(),
-                    # Stats Card
-                    html.Div(
-                        [
-                            html.H3("Detailed Statistics", className="card-title"),
-                            html.Div(id="detailed-stats"),
-                        ],
-                        className="card",
+            dcc.Tabs(
+                children=[
+                    dcc.Tab(
+                        label="Wrapped",
+                        children=[create_tab_one_layout(df)],
                     ),
-                ],
-                className="container",
+                    dcc.Tab(
+                        label="Testing",
+                        children=[create_tab_two_layout(df)],
+                    ),
+                ]
             ),
         ]
     )
+
+
+def create_tab_one_layout(df: pd.DataFrame):
+    return html.Div(
+        [
+            # Filters Card
+            html.Div([create_filters_section(df)], className="card"),
+            # Graphs Section
+            create_graphs_section(),
+            # Stats Card
+            html.Div(
+                [
+                    html.H3("Detailed Statistics", className="card-title"),
+                    html.Div(id="detailed-stats"),
+                ],
+                className="card",
+            ),
+        ],
+        className="container",
+    )
+
+
+def create_tab_two_layout(df: pd.DataFrame):
+    return html.Div(["Testing"], className="container")
