@@ -2,14 +2,12 @@ import pandas as pd
 from dash import dcc, html
 
 from dashboard.components.filters import (
+    create_genre_trends_layout,
     create_monthly_trend_filter,
     create_trend_filters_section,
     create_wrapped_filters_section,
 )
-from dashboard.components.graphs import (
-    create_graphs_section_tab_one,
-    create_trends_graph,
-)
+from dashboard.components.graphs import create_graphs_section_tab_one
 
 
 def create_layout(df: pd.DataFrame):
@@ -37,7 +35,7 @@ def create_layout(df: pd.DataFrame):
                         children=[create_tab_one_layout(df)],
                     ),
                     dcc.Tab(
-                        label="Testing",
+                        label="Trends",
                         children=[create_tab_two_layout(df)],
                     ),
                 ]
@@ -76,9 +74,48 @@ def create_tab_two_layout(df: pd.DataFrame):
                 [
                     html.H3("Listening Over Time", className="card-title"),
                     create_monthly_trend_filter(),
-                    create_trends_graph(),
+                    html.Div(
+                        [
+                            html.H3("Listening Trends", className="card-title"),
+                            dcc.Graph(
+                                id="trends-graph",
+                                figure={},
+                                config={"displayModeBar": False},
+                            ),
+                        ],
+                        className="graph-card card",
+                    ),
                 ],
                 className="card",
+            ),
+            html.Div(
+                [
+                    html.H3("Top Genre Over Time", className="card-title"),
+                    create_genre_trends_layout(),
+                    html.Div(
+                        [
+                            # Main Trend Graph
+                            html.Div(
+                                [
+                                    dcc.Graph(
+                                        id="genre-trends-graph",
+                                        config={"displayModeBar": False},
+                                    )
+                                ],
+                                className="graph-card card",
+                            ),
+                            # Genre Rankings Table
+                            html.Div(
+                                [
+                                    html.H3("Genre Rankings", className="card-title"),
+                                    html.Div(id="genre-rankings-table"),
+                                ],
+                                className="card",
+                            ),
+                        ],
+                        className="graph-container",
+                    ),
+                ]
             ),
         ],
         className="container",

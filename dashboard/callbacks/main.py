@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output
+from dash import Input, Output, html
 
 from dashboard.components.graphs import create_graph_style
 from dashboard.components.stats import create_stats_table
@@ -12,7 +12,7 @@ from src.metrics.metrics import (
     get_top_albums,
     get_top_artist_genres,
 )
-from src.metrics.trends import get_listening_time_by_month
+from src.metrics.trends import get_genre_trends, get_listening_time_by_month
 from src.preprocessing import filter_songs
 
 
@@ -200,3 +200,150 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         fig.update_traces(line_color="#1DB954")
 
         return fig
+
+    @app.callback(
+        Output("genre-filter-dropdown", "options"),
+        [
+            Input("date-range", "start_date"),
+            Input("date-range", "end_date"),
+            Input("exclude-december-tab-two", "value"),
+            Input("remove-incognito-tab-two", "value"),
+        ],
+    )
+    def update_genre_options(start_date, end_date, exclude_december, remove_incognito):
+        filtered_df = filter_songs(
+            df,
+            start_date=pd.to_datetime(start_date),
+            end_date=pd.to_datetime(end_date),
+            exclude_december=exclude_december,
+            remove_incognito=remove_incognito,
+        )
+        trends_df = get_genre_trends(filtered_df, spotify_data)
+        genres = trends_df["genre"].unique()
+        return [{"label": genre.title(), "value": genre} for genre in genres]
+
+    # Callback to update the graph
+    @app.callback(
+        [
+            Output("genre-trends-graph", "figure"),
+            Output("genre-rankings-table", "children"),
+        ],
+        [
+            Input("date-range", "start_date"),
+            Input("date-range", "end_date"),
+            Input("exclude-december-tab-two", "value"),
+            Input("remove-incognito-tab-two", "value"),
+            Input("genre-filter-dropdown", "value"),
+            Input("top-genres-slider", "value"),
+            Input("display-type-radio", "value"),
+        ],
+    )
+    def update_genre_trends_graph(
+        start_date,
+        end_date,
+        exclude_december,
+        remove_incognito,
+        selected_genres,
+        top_n,
+        display_type,
+    ):
+        # Filter data for selected year
+        # Filter the data based on selections
+        filtered_df = filter_songs(
+            df,
+            start_date=pd.to_datetime(start_date),
+            end_date=pd.to_datetime(end_date),
+            exclude_december=exclude_december,
+            remove_incognito=remove_incognito,
+        )
+        trends_df = get_genre_trends(filtered_df, spotify_data)
+
+        if display_type == "percentage":
+            y_column = "percentage"
+            y_title = "Percentage of Tracks"
+        else:
+            y_column = "play_count"
+            y_title = "Number of Plays"
+
+        if not selected_genres:
+            # If no genres selected, show top N genres by average percentage
+            avg_by_genre = (
+                trends_df.groupby("genre")[y_column].mean().sort_values(ascending=False)
+            )
+            selected_genres = avg_by_genre.head(top_n).index.tolist()
+
+        # Filter for selected genres
+        plot_df = trends_df[trends_df["genre"].isin(selected_genres)]
+
+        # Create line plot
+        fig = px.line(
+            plot_df,
+            x="month",
+            y=y_column,
+            color="genre",
+            labels={"month": "Month", y_column: y_title, "genre": "Genre"},
+            title="Genre Trends Over Time",
+        )
+
+        # Update layout
+        fig.update_layout(
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font={"family": "Segoe UI, sans-serif"},
+            margin={"t": 50, "b": 30, "l": 30, "r": 30},
+            xaxis={"gridcolor": "#eee"},
+            yaxis={"gridcolor": "#eee"},
+        )
+
+        # Create rankings table
+        latest_month = trends_df["month"].max()
+        rankings = (
+            trends_df[trends_df["month"] == latest_month]
+            .sort_values(y_column, ascending=False)
+            .head(10)
+        )
+
+        table = html.Table(
+            [
+                html.Thead(
+                    html.Tr(
+                        [
+                            html.Th("Genre"),
+                            html.Th(
+                                "Plays"
+                                if display_type == "play_count"
+                                else "Percentage"
+                            ),
+                            html.Th("Change"),
+                        ]
+                    )
+                )
+            ]
+            + [
+                html.Tr(
+                    [
+                        html.Td(row["genre"].title()),
+                        html.Td(
+                            f"{row[y_column]:.1f}"
+                            + ("%" if display_type == "percentage" else "")
+                        ),
+                        html.Td(
+                            [
+                                html.Span(
+                                    f"{row['percentage_change']:+.1f}%",
+                                    style={
+                                        "color": "green"
+                                        if row["percentage_change"] > 0
+                                        else "red"
+                                    },
+                                )
+                            ]
+                        ),
+                    ]
+                )
+                for _, row in rankings.iterrows()
+            ],
+            className="stats-table",
+        )
+
+        return fig, table
