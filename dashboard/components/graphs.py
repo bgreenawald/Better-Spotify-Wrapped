@@ -151,7 +151,21 @@ def create_top_albums_graph(top_albums: pd.DataFrame = None):
     )
 
 
-def create_graphs_section():
+def create_trends_graph():
+    return html.Div(
+        [
+            html.H3("Listening Trends", className="card-title"),
+            dcc.Graph(
+                id="trends-graph",
+                figure={},
+                config={"displayModeBar": False},
+            ),
+        ],
+        className="graph-card card",
+    )
+
+
+def create_graphs_section_tab_one():
     return html.Div(
         [
             # Row 1: Tracks and Artists

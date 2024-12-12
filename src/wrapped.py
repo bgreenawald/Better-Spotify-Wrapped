@@ -1,5 +1,5 @@
 from src.io import load_spotify_history
-from src.metrics import get_most_played_tracks
+from src.metrics.metrics import get_most_played_tracks
 from src.preprocessing import filter_songs
 
 

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pandas as pd
 from dash import dcc, html
 
@@ -20,12 +22,12 @@ def create_year_dropdown(df: pd.DataFrame):
     )
 
 
-def create_december_toggle():
+def create_december_toggle(tab_id: str):
     return html.Div(
         [
             html.Label("Exclude December", className="filter-label"),
             dcc.RadioItems(
-                id="exclude-december",
+                id=f"exclude-december-{tab_id}",
                 options=[
                     {"label": "Yes", "value": True},
                     {"label": "No", "value": False},
@@ -38,12 +40,12 @@ def create_december_toggle():
     )
 
 
-def create_incognito_toggle():
+def create_incognito_toggle(tab_id: str):
     return html.Div(
         [
             html.Label("Remove Incognito", className="filter-label"),
             dcc.RadioItems(
-                id="remove-incognito",
+                id=f"remove-incognito-{tab_id}",
                 options=[
                     {"label": "Yes", "value": True},
                     {"label": "No", "value": False},
@@ -56,15 +58,71 @@ def create_incognito_toggle():
     )
 
 
-def create_filters_section(df: pd.DataFrame):
+def create_wrapped_filters_section(df: pd.DataFrame):
     return html.Div(
         [
             html.H3("Filters", className="card-title"),
             html.Div(
                 [
                     create_year_dropdown(df),
-                    create_december_toggle(),
-                    create_incognito_toggle(),
+                    create_december_toggle("tab-one"),
+                    create_incognito_toggle("tab-one"),
+                ],
+                className="filters-section",
+            ),
+        ]
+    )
+
+
+def create_year_range_filter(df: pd.DataFrame) -> html.Div:
+    min_date = datetime(df["ts"].min().year, df["ts"].min().month, df["ts"].min().day)
+    max_date = datetime(df["ts"].max().year, df["ts"].max().month, df["ts"].max().day)
+
+    return html.Div(
+        [
+            html.Label("Select Date Range", className="filter-label"),
+            dcc.DatePickerRange(
+                id="date-range",
+                min_date_allowed=min_date,
+                max_date_allowed=max_date,
+                start_date=min_date,
+                end_date=max_date,
+                className="datepicker",
+            ),
+        ],
+        className="filter-item",
+    )
+
+
+def create_monthly_trend_filter() -> html.Div:
+    return html.Div(
+        [
+            html.Label("Select Metric", className="filter-label"),
+            dcc.Dropdown(
+                id="metric-dropdown",
+                options=[
+                    {"label": "Total Hours", "value": "total_hours"},
+                    {"label": "Unique Tracks", "value": "unique_tracks"},
+                    {"label": "Unique Artists", "value": "unique_artists"},
+                    {"label": "Average Hours per Day", "value": "avg_hours_per_day"},
+                ],
+                value="total_hours",
+                className="dropdown",
+            ),
+        ],
+        className="filter-item",
+    )
+
+
+def create_trend_filters_section(df: pd.DataFrame):
+    return html.Div(
+        [
+            html.H3("Filters", className="card-title"),
+            html.Div(
+                [
+                    create_year_range_filter(df),
+                    create_december_toggle("tab-two"),
+                    create_incognito_toggle("tab-two"),
                 ],
                 className="filters-section",
             ),

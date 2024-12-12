@@ -1,8 +1,15 @@
 import pandas as pd
 from dash import dcc, html
 
-from dashboard.components.filters import create_filters_section
-from dashboard.components.graphs import create_graphs_section
+from dashboard.components.filters import (
+    create_monthly_trend_filter,
+    create_trend_filters_section,
+    create_wrapped_filters_section,
+)
+from dashboard.components.graphs import (
+    create_graphs_section_tab_one,
+    create_trends_graph,
+)
 
 
 def create_layout(df: pd.DataFrame):
@@ -43,9 +50,9 @@ def create_tab_one_layout(df: pd.DataFrame):
     return html.Div(
         [
             # Filters Card
-            html.Div([create_filters_section(df)], className="card"),
+            html.Div([create_wrapped_filters_section(df)], className="card"),
             # Graphs Section
-            create_graphs_section(),
+            create_graphs_section_tab_one(),
             # Stats Card
             html.Div(
                 [
@@ -60,4 +67,19 @@ def create_tab_one_layout(df: pd.DataFrame):
 
 
 def create_tab_two_layout(df: pd.DataFrame):
-    return html.Div(["Testing"], className="container")
+    return html.Div(
+        [
+            # Main filters cards
+            html.Div([create_trend_filters_section(df)], className="card"),
+            # Graphs Section
+            html.Div(
+                [
+                    html.H3("Listening Over Time", className="card-title"),
+                    create_monthly_trend_filter(),
+                    create_trends_graph(),
+                ],
+                className="card",
+            ),
+        ],
+        className="container",
+    )

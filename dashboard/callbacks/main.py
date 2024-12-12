@@ -1,16 +1,18 @@
 from datetime import datetime
 
 import pandas as pd
+import plotly.express as px
 from dash import Input, Output
 
 from dashboard.components.graphs import create_graph_style
 from dashboard.components.stats import create_stats_table
-from src.metrics import (
+from src.metrics.metrics import (
     get_most_played_artists,
     get_most_played_tracks,
     get_top_albums,
     get_top_artist_genres,
 )
+from src.metrics.trends import get_listening_time_by_month
 from src.preprocessing import filter_songs
 
 
@@ -25,8 +27,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         ],
         [
             Input("year-dropdown", "value"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
+            Input("exclude-december-tab-one", "value"),
+            Input("remove-incognito-tab-one", "value"),
         ],
     )
     def update_dashboard(selected_year, exclude_december, remove_incognito):
@@ -141,3 +143,60 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         stats_table = create_stats_table(filtered_df)
 
         return tracks_fig, artists_fig, albums_fig, genres_fig, stats_table
+
+    @app.callback(
+        Output("trends-graph", "figure"),
+        [
+            Input("date-range", "start_date"),
+            Input("date-range", "end_date"),
+            Input("exclude-december-tab-two", "value"),
+            Input("remove-incognito-tab-two", "value"),
+            Input("metric-dropdown", "value"),
+        ],
+    )
+    def update_trend_dashboard(
+        start_date, end_date, exclude_december, remove_incognito, selected_metric
+    ):
+        # Filter the data based on selections
+        filtered_df = filter_songs(
+            df,
+            start_date=pd.to_datetime(start_date),
+            end_date=pd.to_datetime(end_date),
+            exclude_december=exclude_december,
+            remove_incognito=remove_incognito,
+        )
+
+        # Calculate monthly statistics
+        monthly_stats = get_listening_time_by_month(filtered_df)
+
+        # Create the figure using plotly express
+        metric_labels = {
+            "total_hours": "Total Listening Hours",
+            "unique_tracks": "Unique Tracks",
+            "unique_artists": "Unique Artists",
+            "avg_hours_per_day": "Average Hours per Day",
+        }
+
+        fig = px.line(
+            monthly_stats,
+            x="month",
+            y=selected_metric,
+            labels={"month": "Month", selected_metric: metric_labels[selected_metric]},
+            title=f"Monthly {metric_labels[selected_metric]}",
+        )
+
+        # Update layout
+        fig.update_layout(
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font={"family": "Segoe UI, sans-serif"},
+            margin={"t": 50, "b": 30, "l": 30, "r": 30},
+            xaxis={"gridcolor": "#eee"},
+            yaxis={"gridcolor": "#eee"},
+            showlegend=False,
+        )
+
+        # Update line color to match Spotify theme
+        fig.update_traces(line_color="#1DB954")
+
+        return fig
