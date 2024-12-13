@@ -2,8 +2,8 @@ from pathlib import Path
 
 from dash import Dash
 
-from dashboard.callbacks.main import register_callbacks
-from dashboard.layouts.main import create_layout
+from dashboard.callbacks.callbacks import register_callbacks
+from dashboard.layouts.layouts import create_layout
 from src.api.api import load_api_data
 from src.io import load_spotify_history
 
@@ -27,4 +27,4 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run_server(debug=True)
+    app.run_server()
