@@ -145,6 +145,58 @@ def create_genre_trends_layout():
     )
 
 
+def create_artist_trends_layout():
+    """Create the layout for the genre trends analysis section"""
+    return html.Div(
+        [
+            # Genre Filter
+            html.Div(
+                [
+                    html.Label("Select Artists", className="filter-label"),
+                    dcc.Dropdown(
+                        id="artist-filter-dropdown", multi=True, className="dropdown"
+                    ),
+                ],
+                className="filter-item",
+            ),
+            # Top N Genres Slider
+            html.Div(
+                [
+                    html.Label("Number of Top Artists", className="filter-label"),
+                    dcc.Slider(
+                        id="top-artist-slider",
+                        min=3,
+                        max=15,
+                        step=1,
+                        value=5,
+                        marks={i: str(i) for i in range(3, 16, 3)},
+                        className="slider",
+                    ),
+                ],
+                className="filter-item",
+            ),
+            # Display Type Selector
+            html.Div(
+                [
+                    html.Label("Display Type", className="filter-label"),
+                    dcc.RadioItems(
+                        id="artist-display-type-radio",
+                        options=[
+                            {"label": "Percentage", "value": "percentage"},
+                            {"label": "Play Count", "value": "play_count"},
+                            {"label": "Unique Tracks", "value": "unique_tracks"},
+                        ],
+                        value="percentage",
+                        className="radio-group",
+                    ),
+                ],
+                className="filter-item",
+            ),
+        ],
+        className="filters-section",
+    )
+
+
 def create_monthly_trend_filter() -> html.Div:
     return html.Div(
         [

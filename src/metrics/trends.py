@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import pandas as pd
 
 from src.api.api import SpotifyData
@@ -65,6 +63,7 @@ def get_genre_trends(
 ) -> pd.DataFrame:
     """
     Calculate genre listening trends over time from a filtered Spotify listening history DataFrame.
+    Optimized version using vectorized operations.
 
     Args:
         filtered_df (pd.DataFrame): DataFrame that has already been filtered using filter_songs()
@@ -72,81 +71,211 @@ def get_genre_trends(
 
     Returns:
         pd.DataFrame: DataFrame containing genre trends with columns:
-                     'month', 'genre', 'play_count', 'percentage'
+                     'month', 'genre', 'play_count', 'percentage', 'top_artists'
+    """
+    # Convert timestamp to month format
+    filtered_df = filtered_df.copy()
+    filtered_df["month"] = filtered_df["ts"].dt.strftime("%Y-%m")
+
+    # Create a DataFrame mapping tracks to their artists and genres
+    track_mappings = []
+    for track_uri in filtered_df["spotify_track_uri"].unique():
+        track_id = track_uri.split(":")[-1]
+        if track_id in spotify_data.tracks:
+            artist_id = spotify_data.tracks[track_id]["artists"][0]["id"]
+            if artist_id in spotify_data.artists:
+                artist_data = spotify_data.artists[artist_id]
+                genres = artist_data.get("genres", [])
+                if genres:
+                    track_mappings.extend(
+                        [
+                            {
+                                "spotify_track_uri": track_uri,  # Keep the full URI
+                                "artist_name": artist_data["name"],
+                                "genre": genre,
+                            }
+                            for genre in genres
+                        ]
+                    )
+
+    if not track_mappings:
+        return pd.DataFrame(
+            columns=["month", "genre", "play_count", "percentage", "top_artists"]
+        )
+
+    # Convert to DataFrame
+    track_info_df = pd.DataFrame(track_mappings)
+
+    # Merge with listening history to get all plays
+    merged_df = filtered_df.merge(track_info_df, on="spotify_track_uri")
+
+    # Calculate genre play counts and artist contributions per month
+    genre_plays = (
+        merged_df.groupby(["month", "genre", "artist_name"])
+        .size()
+        .reset_index(name="artist_plays")
+    )
+
+    # Get total plays per genre per month
+    genre_totals = (
+        genre_plays.groupby(["month", "genre"])["artist_plays"]
+        .sum()
+        .reset_index(name="play_count")
+    )
+
+    # Calculate monthly totals for percentage calculation
+    monthly_totals = (
+        genre_totals.groupby("month")["play_count"]
+        .sum()
+        .reset_index(name="total_plays")
+    )
+
+    # Get top artists per genre per month
+    top_artists = (
+        genre_plays.sort_values("artist_plays", ascending=False)
+        .groupby(["month", "genre"])
+        .agg(
+            {
+                "artist_name": lambda x: ", ".join(f"{artist}" for artist in x.head(2)),
+                "artist_plays": lambda x: ", ".join(
+                    f"({plays} plays)" for plays in x.head(2)
+                ),
+            }
+        )
+        .reset_index()
+    )
+
+    # Combine artist names and play counts
+    top_artists["top_artists"] = top_artists.apply(
+        lambda row: " ".join(
+            [
+                n + " " + p
+                for n, p in zip(
+                    row["artist_name"].split(", "), row["artist_plays"].split(", ")
+                )
+            ]
+        ),
+        axis=1,
+    )
+
+    # Merge all data together
+    results_df = genre_totals.merge(monthly_totals, on="month").merge(
+        top_artists[["month", "genre", "top_artists"]], on=["month", "genre"]
+    )
+
+    # Calculate percentages
+    results_df["percentage"] = (
+        results_df["play_count"] / results_df["total_plays"] * 100
+    ).round(2)
+
+    # Clean up and sort
+    results_df = results_df.drop("total_plays", axis=1)
+    results_df = results_df.sort_values(
+        ["month", "play_count"], ascending=[True, False]
+    )
+
+    # Add rank within each month
+    results_df["rank"] = results_df.groupby("month")["play_count"].rank(
+        method="dense", ascending=False
+    )
+
+    return results_df
+
+
+def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate artist listening trends over time from a filtered Spotify listening history DataFrame.
+
+    Args:
+        filtered_df (pd.DataFrame): DataFrame that has already been filtered using filter_songs()
+
+    Returns:
+        pd.DataFrame: DataFrame containing artist trends with columns:
+                     'month', 'artist', 'play_count', 'percentage', 'unique_tracks',
+                     'avg_duration_min', 'top_tracks'
     """
     # Convert timestamp to month format
     filtered_df["month"] = filtered_df["ts"].dt.strftime("%Y-%m")
 
-    # Create mapping of tracks to genres
-    track_genres: Dict[str, List[str]] = {}
+    # Calculate top tracks for each artist and month in one go
+    top_tracks_df = (
+        filtered_df.groupby(
+            ["month", "master_metadata_album_artist_name", "master_metadata_track_name"]
+        )
+        .size()
+        .reset_index(name="track_plays")
+    )
 
-    for _, row in filtered_df.iterrows():
-        track_uri = row["spotify_track_uri"]
-        track_id = track_uri.split(":")[-1]
+    # Sort and get top 3 tracks per artist per month
+    top_tracks_df["track_rank"] = top_tracks_df.groupby(
+        ["month", "master_metadata_album_artist_name"]
+    )["track_plays"].rank(method="dense", ascending=False)
 
-        # Skip if track not in Spotify data
-        if track_id not in spotify_data.tracks:
-            continue
+    top_tracks_df = top_tracks_df[top_tracks_df["track_rank"] <= 2]
 
-        # Get artist ID for this track
-        artist_id = spotify_data.tracks[track_id]["artists"][0]["id"]
+    # Create the top tracks string for each artist and month
+    top_tracks_agg = (
+        top_tracks_df.sort_values("track_plays", ascending=False)
+        .groupby(["month", "master_metadata_album_artist_name"])
+        .apply(
+            lambda x: ", ".join(
+                f"{row['master_metadata_track_name']} ({row['track_plays']} plays)"
+                for _, row in x.iloc[:2].iterrows()
+            )
+        )
+        .reset_index(name="top_tracks")
+    )
 
-        # Skip if artist not in Spotify data
-        if artist_id not in spotify_data.artists:
-            continue
+    # Calculate main artist metrics
+    artist_metrics = filtered_df.groupby(
+        ["month", "master_metadata_album_artist_name"]
+    ).agg(
+        {
+            "master_metadata_track_name": [
+                "count",
+                "nunique",
+            ],  # play count and unique tracks
+            "ms_played": "mean",  # average duration
+        }
+    )
 
-        # Get artist genres
-        artist_genres = spotify_data.artists[artist_id].get("genres", [])
+    # Flatten column names
+    artist_metrics.columns = ["play_count", "unique_tracks", "avg_duration_ms"]
+    artist_metrics = artist_metrics.reset_index()
 
-        if artist_genres:
-            track_genres[track_uri] = artist_genres
+    # Calculate total plays per month for percentage calculation
+    monthly_totals = (
+        artist_metrics.groupby("month")["play_count"]
+        .sum()
+        .reset_index(name="total_plays")
+    )
 
-    # Create a list to store all genre occurrences
-    genre_data = []
+    # Merge monthly totals back to calculate percentages
+    artist_metrics = artist_metrics.merge(monthly_totals, on="month")
+    artist_metrics["percentage"] = (
+        artist_metrics["play_count"] / artist_metrics["total_plays"] * 100
+    ).round(2)
 
-    # Process each month's data
-    for month in filtered_df["month"].unique():
-        month_df = filtered_df[filtered_df["month"] == month]
+    # Convert average duration to minutes
+    artist_metrics["avg_duration_min"] = (
+        artist_metrics["avg_duration_ms"] / (1000 * 60)
+    ).round(2)
 
-        # Count total tracks played this month
-        total_tracks = 0
-        month_genre_counts = {}
+    # Merge with top tracks data
+    final_df = artist_metrics.merge(
+        top_tracks_agg, on=["month", "master_metadata_album_artist_name"], how="left"
+    )
 
-        # Count genre occurrences for this month
-        for _, row in month_df.iterrows():
-            track_uri = row["spotify_track_uri"]
-            if track_uri in track_genres:
-                total_tracks += 1
-                for genre in track_genres[track_uri]:
-                    month_genre_counts[genre] = month_genre_counts.get(genre, 0) + 1
-
-        # Calculate percentages and add to results
-        if total_tracks > 0:
-            for genre, count in month_genre_counts.items():
-                genre_data.append(
-                    {
-                        "month": month,
-                        "genre": genre,
-                        "play_count": count,
-                        "percentage": round(count / total_tracks * 100, 2),
-                    }
-                )
-
-    # Convert to DataFrame
-    trends_df = pd.DataFrame(genre_data)
+    # Clean up and rename columns
+    final_df = final_df.drop(["avg_duration_ms", "total_plays"], axis=1)
+    final_df = final_df.rename(columns={"master_metadata_album_artist_name": "artist"})
 
     # Sort by month and play count
-    trends_df = trends_df.sort_values(["month", "play_count"], ascending=[True, False])
+    final_df = final_df.sort_values(["month", "play_count"], ascending=[True, False])
 
     # Add rank within each month
-    trends_df["rank"] = trends_df.groupby("month")["play_count"].rank(
+    final_df["rank"] = final_df.groupby("month")["play_count"].rank(
         method="dense", ascending=False
     )
 
-    # Calculate month-over-month change
-    trends_df["prev_percentage"] = trends_df.groupby("genre")["percentage"].shift(1)
-    trends_df["percentage_change"] = (
-        trends_df["percentage"] - trends_df["prev_percentage"]
-    ).round(2)
-
-    return trends_df
+    return final_df

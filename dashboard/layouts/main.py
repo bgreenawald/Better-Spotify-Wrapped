@@ -2,6 +2,7 @@ import pandas as pd
 from dash import dcc, html
 
 from dashboard.components.filters import (
+    create_artist_trends_layout,
     create_genre_trends_layout,
     create_monthly_trend_filter,
     create_trend_filters_section,
@@ -77,45 +78,59 @@ def create_tab_two_layout(df: pd.DataFrame):
                     html.Div(
                         [
                             html.H3("Listening Trends", className="card-title"),
-                            dcc.Graph(
-                                id="trends-graph",
-                                figure={},
-                                config={"displayModeBar": False},
+                            dcc.Loading(
+                                [
+                                    dcc.Graph(
+                                        id="trends-graph",
+                                        figure={},
+                                        config={"displayModeBar": False},
+                                    ),
+                                ]
                             ),
                         ],
-                        className="graph-card card",
                     ),
                 ],
                 className="card",
             ),
             html.Div(
                 [
-                    html.H3("Top Genre Over Time", className="card-title"),
+                    html.H3("Genres Over Time", className="card-title"),
                     create_genre_trends_layout(),
                     html.Div(
                         [
                             # Main Trend Graph
-                            html.Div(
+                            dcc.Loading(
                                 [
                                     dcc.Graph(
                                         id="genre-trends-graph",
                                         config={"displayModeBar": False},
                                     )
                                 ],
-                                className="graph-card card",
-                            ),
-                            # Genre Rankings Table
-                            html.Div(
-                                [
-                                    html.H3("Genre Rankings", className="card-title"),
-                                    html.Div(id="genre-rankings-table"),
-                                ],
-                                className="card",
                             ),
                         ],
-                        className="graph-container",
                     ),
-                ]
+                ],
+                className="card",
+            ),
+            html.Div(
+                [
+                    html.H3("Artists Over Time", className="card-title"),
+                    create_artist_trends_layout(),
+                    html.Div(
+                        [
+                            # Main Trend Graph
+                            dcc.Loading(
+                                [
+                                    dcc.Graph(
+                                        id="artist-trends-graph",
+                                        config={"displayModeBar": False},
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+                className="card",
             ),
         ],
         className="container",
