@@ -131,10 +131,10 @@ def create_genre_trends_layout():
                     dcc.RadioItems(
                         id="display-type-radio",
                         options=[
+                            {"label": "Track Count", "value": "track_count"},
                             {"label": "Percentage", "value": "percentage"},
-                            {"label": "Play Count", "value": "play_count"},
                         ],
-                        value="percentage",
+                        value="track_count",
                         className="radio-group",
                     ),
                 ],
@@ -182,11 +182,62 @@ def create_artist_trends_layout():
                     dcc.RadioItems(
                         id="artist-display-type-radio",
                         options=[
-                            {"label": "Percentage", "value": "percentage"},
                             {"label": "Play Count", "value": "play_count"},
                             {"label": "Unique Tracks", "value": "unique_tracks"},
+                            {"label": "Percentage", "value": "percentage"},
                         ],
-                        value="percentage",
+                        value="play_count",
+                        className="radio-group",
+                    ),
+                ],
+                className="filter-item",
+            ),
+        ],
+        className="filters-section",
+    )
+
+
+def create_track_trends_layout():
+    """Create the layout for the track trends analysis section"""
+    return html.Div(
+        [
+            # Track Filter
+            html.Div(
+                [
+                    html.Label("Select Tracks", className="filter-label"),
+                    dcc.Dropdown(
+                        id="track-filter-dropdown", multi=True, className="dropdown"
+                    ),
+                ],
+                className="filter-item",
+            ),
+            # Top N Tracks Slider
+            html.Div(
+                [
+                    html.Label("Number of Top Tracks", className="filter-label"),
+                    dcc.Slider(
+                        id="top-track-slider",
+                        min=3,
+                        max=15,
+                        step=1,
+                        value=5,
+                        marks={i: str(i) for i in range(3, 16, 3)},
+                        className="slider",
+                    ),
+                ],
+                className="filter-item",
+            ),
+            # Display Type Selector
+            html.Div(
+                [
+                    html.Label("Display Type", className="filter-label"),
+                    dcc.RadioItems(
+                        id="track-display-type-radio",
+                        options=[
+                            {"label": "Track Count", "value": "track_count"},
+                            {"label": "Percentage", "value": "percentage"},
+                        ],
+                        value="track_count",
                         className="radio-group",
                     ),
                 ],

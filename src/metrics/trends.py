@@ -279,3 +279,70 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return final_df
+
+
+def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate track listening trends over time from a filtered Spotify listening history DataFrame.
+
+    Args:
+        filtered_df (pd.DataFrame): DataFrame that has already been filtered using filter_songs()
+
+    Returns:
+        pd.DataFrame: DataFrame containing track trends with columns:
+                     'month', 'track', 'artist', 'play_count', 'percentage',
+                     'avg_duration_min'
+    """
+    # Convert timestamp to month format
+    filtered_df["month"] = filtered_df["ts"].dt.strftime("%Y-%m")
+
+    # Calculate main track metrics
+    track_metrics = filtered_df.groupby(
+        ["month", "master_metadata_track_name", "master_metadata_album_artist_name"]
+    ).agg(
+        {
+            "master_metadata_track_name": "count",  # play count
+            "ms_played": "mean",  # average duration
+        }
+    )
+
+    # Flatten column names
+    track_metrics.columns = ["play_count", "avg_duration_ms"]
+    track_metrics = track_metrics.reset_index()
+
+    # Calculate total plays per month for percentage calculation
+    monthly_totals = (
+        track_metrics.groupby("month")["play_count"]
+        .sum()
+        .reset_index(name="total_plays")
+    )
+
+    # Merge monthly totals back to calculate percentages
+    track_metrics = track_metrics.merge(monthly_totals, on="month")
+    track_metrics["percentage"] = (
+        track_metrics["play_count"] / track_metrics["total_plays"] * 100
+    ).round(2)
+
+    # Convert average duration to minutes
+    track_metrics["avg_duration_min"] = (
+        track_metrics["avg_duration_ms"] / (1000 * 60)
+    ).round(2)
+
+    # Clean up and rename columns
+    final_df = track_metrics.drop(["avg_duration_ms", "total_plays"], axis=1)
+    final_df = final_df.rename(
+        columns={
+            "master_metadata_track_name": "track",
+            "master_metadata_album_artist_name": "artist",
+        }
+    )
+
+    # Sort by month and play count
+    final_df = final_df.sort_values(["month", "play_count"], ascending=[True, False])
+
+    # Add rank within each month
+    final_df["rank"] = final_df.groupby("month")["play_count"].rank(
+        method="dense", ascending=False
+    )
+
+    return final_df

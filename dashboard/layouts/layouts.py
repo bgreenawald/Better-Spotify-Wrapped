@@ -5,6 +5,7 @@ from dashboard.components.filters import (
     create_artist_trends_layout,
     create_genre_trends_layout,
     create_monthly_trend_filter,
+    create_track_trends_layout,
     create_trend_filters_section,
     create_wrapped_filters_section,
 )
@@ -109,6 +110,7 @@ def create_tab_two_layout(df: pd.DataFrame):
                             ),
                         ],
                     ),
+                    html.Div([dcc.Loading([html.Div(id="genre-trends-table")])]),
                 ],
                 className="card",
             ),
@@ -129,6 +131,28 @@ def create_tab_two_layout(df: pd.DataFrame):
                             ),
                         ],
                     ),
+                    html.Div([dcc.Loading([html.Div(id="artist-trends-table")])]),
+                ],
+                className="card",
+            ),
+            html.Div(
+                [
+                    html.H3("Tracks Over Time", className="card-title"),
+                    create_track_trends_layout(),
+                    html.Div(
+                        [
+                            # Main Trend Graph
+                            dcc.Loading(
+                                [
+                                    dcc.Graph(
+                                        id="track-trends-graph",
+                                        config={"displayModeBar": False},
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                    html.Div([dcc.Loading([html.Div(id="track-trends-table")])]),
                 ],
                 className="card",
             ),

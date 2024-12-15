@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output
+from dash import Input, Output, dash_table
 
 from dashboard.components.graphs import create_graph_style
 from dashboard.components.stats import create_stats_table
@@ -16,6 +16,7 @@ from src.metrics.trends import (
     get_artist_trends,
     get_genre_trends,
     get_listening_time_by_month,
+    get_track_trends,
 )
 from src.preprocessing import filter_songs
 
@@ -247,9 +248,39 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         artists = trends_df["artist"].unique()
         return [{"label": artist.title(), "value": artist} for artist in artists]
 
+    @app.callback(
+        Output("track-filter-dropdown", "options"),
+        [
+            Input("date-range", "start_date"),
+            Input("date-range", "end_date"),
+            Input("exclude-december-tab-two", "value"),
+            Input("remove-incognito-tab-two", "value"),
+        ],
+    )
+    def update_track_options(start_date, end_date, exclude_december, remove_incognito):
+        filtered_df = filter_songs(
+            df,
+            start_date=pd.to_datetime(start_date),
+            end_date=pd.to_datetime(end_date),
+            exclude_december=exclude_december,
+            remove_incognito=remove_incognito,
+        )
+        trends_df = get_track_trends(filtered_df)
+        tracks = trends_df["track"].unique()
+        return [
+            {
+                "label": f"{track} - {trends_df[trends_df['track'] == track]['artist'].iloc[0]}",
+                "value": track,
+            }
+            for track in tracks
+        ]
+
     # Callback to update the graph
     @app.callback(
-        Output("genre-trends-graph", "figure"),
+        [
+            Output("genre-trends-graph", "figure"),
+            Output("genre-trends-table", "children"),
+        ],
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
@@ -283,13 +314,18 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             y_column = "percentage"
             y_title = "Percentage of Tracks"
         else:
-            y_column = "play_count"
-            y_title = "Number of Plays"
+            y_column = "track_count"
+            y_title = "Number of Tracks"
+
+        # Overall trends
+        overall_trends = get_top_artist_genres(filtered_df, spotify_data)
 
         if not selected_genres:
             # If no genres selected, show top N genres by average percentage
             avg_by_genre = (
-                trends_df.groupby("genre")[y_column].mean().sort_values(ascending=False)
+                overall_trends.groupby("genre")[y_column]
+                .mean()
+                .sort_values(ascending=False)
             )
             selected_genres = avg_by_genre.head(top_n).index.tolist()
 
@@ -322,10 +358,24 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             yaxis={"gridcolor": "#eee"},
         )
 
-        return fig
+        return fig, [
+            dash_table.DataTable(
+                overall_trends.to_dict("records"),
+                [{"name": i, "id": i} for i in overall_trends.columns],
+                filter_action="native",
+                sort_action="native",
+                sort_mode="multi",
+                column_selectable="single",
+                row_selectable="multi",
+                page_size=25,
+            )
+        ]
 
     @app.callback(
-        Output("artist-trends-graph", "figure"),
+        [
+            Output("artist-trends-graph", "figure"),
+            Output("artist-trends-table", "children"),
+        ],
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
@@ -365,10 +415,13 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             y_column = "unique_tracks"
             y_title = "Unique Tracks"
 
+        # Overall artists
+        overall_artists = get_most_played_artists(filtered_df)
+
         if not selected_artists:
-            # If no artists selected, show top N artists by average percentage
+            # If no artists selected, show top N artists by overall
             avg_by_artist = (
-                trends_df.groupby("artist")[y_column]
+                overall_artists.groupby("artist")[y_column]
                 .mean()
                 .sort_values(ascending=False)
             )
@@ -403,4 +456,110 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             yaxis={"gridcolor": "#eee"},
         )
 
-        return fig
+        return fig, [
+            dash_table.DataTable(
+                overall_artists.to_dict("records"),
+                [{"name": i, "id": i} for i in overall_artists.columns],
+                filter_action="native",
+                sort_action="native",
+                sort_mode="multi",
+                column_selectable="single",
+                row_selectable="multi",
+                page_size=25,
+            )
+        ]
+
+    @app.callback(
+        [
+            Output("track-trends-graph", "figure"),
+            Output("track-trends-table", "children"),
+        ],
+        [
+            Input("date-range", "start_date"),
+            Input("date-range", "end_date"),
+            Input("exclude-december-tab-two", "value"),
+            Input("remove-incognito-tab-two", "value"),
+            Input("track-filter-dropdown", "value"),
+            Input("top-track-slider", "value"),
+            Input("track-display-type-radio", "value"),
+        ],
+    )
+    def update_track_trends_graph(
+        start_date,
+        end_date,
+        exclude_december,
+        remove_incognito,
+        selected_tracks,
+        top_n,
+        display_type,
+    ):
+        # Filter the data based on selections
+        filtered_df = filter_songs(
+            df,
+            start_date=pd.to_datetime(start_date),
+            end_date=pd.to_datetime(end_date),
+            exclude_december=exclude_december,
+            remove_incognito=remove_incognito,
+        )
+        trends_df = get_track_trends(filtered_df)
+
+        if display_type == "percentage":
+            y_column = "percentage"
+            y_title = "Percentage of Plays"
+        else:
+            y_column = "play_count"
+            y_title = "Number of Plays"
+
+        # Overall tracks
+        overall_tracks = get_most_played_tracks(filtered_df)
+
+        if not selected_tracks:
+            # If no tracks selected, show top N tracks by overall
+            avg_by_track = (
+                overall_tracks.groupby("track_name")[y_column]
+                .mean()
+                .sort_values(ascending=False)
+            )
+            selected_tracks = avg_by_track.head(top_n).index.tolist()
+
+        # Filter for selected tracks
+        plot_df = trends_df[trends_df["track"].isin(selected_tracks)]
+
+        # Create line plot
+        fig = px.line(
+            plot_df,
+            x="month",
+            y=y_column,
+            color="track",
+            labels={
+                "month": "Month",
+                y_column: y_title,
+                "track": "Track",
+                "artist": "Artist",
+            },
+            hover_data=["artist", y_column, "month", "track"],
+            title="Track Trends Over Time",
+        )
+
+        # Update layout
+        fig.update_layout(
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font={"family": "Segoe UI, sans-serif"},
+            margin={"t": 50, "b": 30, "l": 30, "r": 30},
+            xaxis={"gridcolor": "#eee"},
+            yaxis={"gridcolor": "#eee"},
+        )
+
+        return fig, [
+            dash_table.DataTable(
+                overall_tracks.to_dict("records"),
+                [{"name": i, "id": i} for i in overall_tracks.columns],
+                filter_action="native",
+                sort_action="native",
+                sort_mode="multi",
+                column_selectable="single",
+                row_selectable="multi",
+                page_size=25,
+            )
+        ]

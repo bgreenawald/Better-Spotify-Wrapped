@@ -29,8 +29,12 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     # Sort by play count in descending order
     sorted_tracks = play_counts.sort_values("play_count", ascending=False)
 
+    # Get track percentage
+    total_plays = sorted_tracks["play_count"].sum()
+    sorted_tracks["percentage"] = sorted_tracks["play_count"] / total_plays
+
     # Rename columns for clarity
-    sorted_tracks.columns = ["track_name", "artist", "play_count"]
+    sorted_tracks.columns = ["track_name", "artist", "play_count", "percentage"]
 
     return sorted_tracks
 
@@ -247,7 +251,12 @@ def get_most_played_artists(filtered_df: pd.DataFrame) -> pd.DataFrame:
     # Sort by play count in descending order
     sorted_artists = artist_stats.sort_values("play_count", ascending=False)
 
+    total_play_count = sorted_artists["play_count"].sum()
+    sorted_artists["percentage"] = (
+        sorted_artists["play_count"] / total_play_count * 100
+    ).round(2)
+
     # Rename columns for clarity
-    sorted_artists.columns = ["artist", "play_count", "unique_tracks"]
+    sorted_artists.columns = ["artist", "play_count", "unique_tracks", "percentage"]
 
     return sorted_artists
