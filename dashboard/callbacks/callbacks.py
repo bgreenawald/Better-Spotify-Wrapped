@@ -54,95 +54,110 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
 
         # Get top tracks
         top_tracks = get_most_played_tracks(filtered_df)
-        tracks_fig = {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": top_tracks["play_count"].head(10),
-                    "y": top_tracks["track_name"].head(10),
-                    "orientation": "h",
-                    "text": top_tracks["play_count"].head(10),
-                    "marker": {"color": "#1DB954"},
-                }
-            ],
-            "layout": {
-                **create_graph_style(),
-                "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
-                "yaxis": {"gridcolor": "#eee", "title": ""},
-            },
-        }
+        if top_tracks.empty:
+            tracks_fig = {"data": [], "layout": create_graph_style()}
+        else:
+            tracks_fig = {
+                "data": [
+                    {
+                        "type": "bar",
+                        "x": top_tracks["play_count"].head(10),
+                        "y": top_tracks["track_name"].head(10),
+                        "orientation": "h",
+                        "text": top_tracks["play_count"].head(10),
+                        "marker": {"color": "#1DB954"},
+                    }
+                ],
+                "layout": {
+                    **create_graph_style(),
+                    "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
+                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                },
+            }
 
         # Get top artists
         top_artists = get_most_played_artists(filtered_df)
-        artists_fig = {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": top_artists["play_count"].head(10),
-                    "y": top_artists["artist"].head(10),
-                    "orientation": "h",
-                    "text": top_artists["play_count"].head(10),
-                    "customdata": top_artists["unique_tracks"].head(10),
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": "Artist: %{y}<br>Plays: %{x}<br>Unique Tracks: %{customdata}<extra></extra>",
-                }
-            ],
-            "layout": {
-                **create_graph_style(),
-                "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
-                "yaxis": {"gridcolor": "#eee", "title": ""},
-            },
-        }
+        if top_artists.empty:
+            artists_fig = {"data": [], "layout": create_graph_style()}
+        else:
+            artists_fig = {
+                "data": [
+                    {
+                        "type": "bar",
+                        "x": top_artists["play_count"].head(10),
+                        "y": top_artists["artist"].head(10),
+                        "orientation": "h",
+                        "text": top_artists["play_count"].head(10),
+                        "customdata": top_artists["unique_tracks"].head(10),
+                        "marker": {"color": "#1DB954"},
+                        "hovertemplate": "Artist: %{y}<br>Plays: %{x}<br>Unique Tracks: %{customdata}<extra></extra>",
+                    }
+                ],
+                "layout": {
+                    **create_graph_style(),
+                    "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
+                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                },
+            }
 
         # Get top albums
         top_albums = get_top_albums(filtered_df, spotify_data)
-        albums_fig = {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": top_albums["median_plays"].head(10),
-                    "y": top_albums["album_name"].head(10),
-                    "orientation": "h",
-                    "text": top_albums["median_plays"].round(1).head(10),
-                    "customdata": top_albums[
-                        ["artist", "tracks_played", "total_tracks"]
-                    ]
-                    .head(10)
-                    .values,
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<br>Tracks Played: %{customdata[1]}/{customdata[2]}<extra></extra>",
-                }
-            ],
-            "layout": {
-                **create_graph_style(),
-                "xaxis": {"gridcolor": "#eee", "title": "Median Plays"},
-                "yaxis": {"gridcolor": "#eee", "title": ""},
-            },
-        }
+        print(top_albums)
+        if top_albums.empty:
+            albums_fig = {"data": [], "layout": create_graph_style()}
+        else:
+            albums_fig = {
+                "data": [
+                    {
+                        "type": "bar",
+                        "x": top_albums["median_plays"].head(10),
+                        "y": top_albums["album_name"].head(10),
+                        "orientation": "h",
+                        "text": top_albums["median_plays"].round(1).head(10),
+                        "customdata": top_albums[
+                            ["artist", "tracks_played", "total_tracks"]
+                        ]
+                        .head(10)
+                        .values,
+                        "marker": {"color": "#1DB954"},
+                        "hovertemplate": "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<br>Tracks Played: %{customdata[1]}/{customdata[2]}<extra></extra>",
+                    }
+                ],
+                "layout": {
+                    **create_graph_style(),
+                    "xaxis": {"gridcolor": "#eee", "title": "Median Plays"},
+                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                },
+            }
 
         # Get top genres
         top_genres = get_top_artist_genres(filtered_df, spotify_data)
-        genres_fig = {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": top_genres["track_count"].head(10),
-                    "y": top_genres["genre"].head(10),
-                    "orientation": "h",
-                    "text": [f"{x:.1f}%" for x in top_genres["percentage"].head(10)],
-                    "customdata": top_genres[["percentage", "top_artists"]]
-                    .head(10)
-                    .values,
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": "Genre: %{y}<br>Tracks: %{x}<br>Percentage: %{customdata[0]:.1f}%<br>Top Artists: %{customdata[1]}<extra></extra>",
-                }
-            ],
-            "layout": {
-                **create_graph_style(),
-                "xaxis": {"gridcolor": "#eee", "title": "Track Count"},
-                "yaxis": {"gridcolor": "#eee", "title": ""},
-            },
-        }
+        if top_genres.empty:
+            genres_fig = {"data": [], "layout": create_graph_style()}
+        else:
+            genres_fig = {
+                "data": [
+                    {
+                        "type": "bar",
+                        "x": top_genres["play_count"].head(10),
+                        "y": top_genres["genre"].head(10),
+                        "orientation": "h",
+                        "text": [
+                            f"{x:.1f}%" for x in top_genres["percentage"].head(10)
+                        ],
+                        "customdata": top_genres[["percentage", "top_artists"]]
+                        .head(10)
+                        .values,
+                        "marker": {"color": "#1DB954"},
+                        "hovertemplate": "Genre: %{y}<br>Tracks: %{x}<br>Percentage: %{customdata[0]:.1f}%<br>Top Artists: %{customdata[1]}<extra></extra>",
+                    }
+                ],
+                "layout": {
+                    **create_graph_style(),
+                    "xaxis": {"gridcolor": "#eee", "title": "Track Count"},
+                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                },
+            }
 
         # Create stats table
         stats_table = create_stats_table(filtered_df)
@@ -288,7 +303,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("remove-incognito-tab-two", "value"),
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
-            Input("display-type-radio", "value"),
+            Input("genre-display-type-radio", "value"),
         ],
     )
     def update_genre_trends_graph(
@@ -314,8 +329,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             y_column = "percentage"
             y_title = "Percentage of Tracks"
         else:
-            y_column = "track_count"
-            y_title = "Number of Tracks"
+            y_column = "play_count"
+            y_title = "Number of Plays"
 
         # Overall trends
         overall_trends = get_top_artist_genres(filtered_df, spotify_data)

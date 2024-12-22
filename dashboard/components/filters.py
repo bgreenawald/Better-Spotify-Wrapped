@@ -129,12 +129,12 @@ def create_genre_trends_layout():
                 [
                     html.Label("Display Type", className="filter-label"),
                     dcc.RadioItems(
-                        id="display-type-radio",
+                        id="genre-display-type-radio",
                         options=[
-                            {"label": "Track Count", "value": "track_count"},
+                            {"label": "Play Count", "value": "play_count"},
                             {"label": "Percentage", "value": "percentage"},
                         ],
-                        value="track_count",
+                        value="play_count",
                         className="radio-group",
                     ),
                 ],

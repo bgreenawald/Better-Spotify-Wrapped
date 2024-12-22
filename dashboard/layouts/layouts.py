@@ -95,64 +95,64 @@ def create_tab_two_layout(df: pd.DataFrame):
             ),
             html.Div(
                 [
-                    html.H3("Genres Over Time", className="card-title"),
-                    create_genre_trends_layout(),
-                    html.Div(
+                    dcc.Loading(
                         [
-                            # Main Trend Graph
-                            dcc.Loading(
+                            html.H3("Genres Over Time", className="card-title"),
+                            create_genre_trends_layout(),
+                            html.Div(
                                 [
+                                    # Main Trend Graph
                                     dcc.Graph(
                                         id="genre-trends-graph",
                                         config={"displayModeBar": False},
                                     )
                                 ],
                             ),
-                        ],
-                    ),
-                    html.Div([dcc.Loading([html.Div(id="genre-trends-table")])]),
+                            html.Div([html.Div(id="genre-trends-table")]),
+                        ]
+                    )
                 ],
                 className="card",
             ),
             html.Div(
                 [
-                    html.H3("Artists Over Time", className="card-title"),
-                    create_artist_trends_layout(),
-                    html.Div(
+                    dcc.Loading(
                         [
-                            # Main Trend Graph
-                            dcc.Loading(
+                            html.H3("Artists Over Time", className="card-title"),
+                            create_artist_trends_layout(),
+                            html.Div(
                                 [
+                                    # Main Trend Graph
                                     dcc.Graph(
                                         id="artist-trends-graph",
                                         config={"displayModeBar": False},
                                     )
                                 ],
                             ),
-                        ],
-                    ),
-                    html.Div([dcc.Loading([html.Div(id="artist-trends-table")])]),
+                            html.Div([html.Div(id="artist-trends-table")]),
+                        ]
+                    )
                 ],
                 className="card",
             ),
             html.Div(
                 [
-                    html.H3("Tracks Over Time", className="card-title"),
-                    create_track_trends_layout(),
                     html.Div(
                         [
-                            # Main Trend Graph
                             dcc.Loading(
                                 [
+                                    html.H3("Tracks Over Time", className="card-title"),
+                                    create_track_trends_layout(),
+                                    # Main Trend Graph
                                     dcc.Graph(
                                         id="track-trends-graph",
                                         config={"displayModeBar": False},
-                                    )
+                                    ),
+                                    html.Div([html.Div(id="track-trends-table")]),
                                 ],
                             ),
-                        ],
+                        ]
                     ),
-                    html.Div([dcc.Loading([html.Div(id="track-trends-table")])]),
                 ],
                 className="card",
             ),

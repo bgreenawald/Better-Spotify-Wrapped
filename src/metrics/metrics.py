@@ -105,6 +105,9 @@ def get_top_albums(
             }
         )
 
+    if not album_stats:
+        return pd.DataFrame()
+
     # Convert to DataFrame and sort by median plays
     results_df = pd.DataFrame(album_stats)
     results_df = results_df.sort_values("median_plays", ascending=False)
@@ -188,7 +191,7 @@ def get_top_artist_genres(
         [
             {
                 "genre": genre,
-                "track_count": count,
+                "play_count": count,
                 "top_artists": ", ".join(
                     f"{artist} ({plays} plays)"
                     for artist, plays in sorted(
@@ -205,13 +208,13 @@ def get_top_artist_genres(
     )
 
     if len(genre_df) == 0:
-        return pd.DataFrame(columns=["genre", "track_count", "percentage"])
+        return pd.DataFrame(columns=["genre", "play_count", "percentage"])
 
     # Calculate percentages
-    genre_df["percentage"] = (genre_df["track_count"] / total_tracks * 100).round(2)
+    genre_df["percentage"] = (genre_df["play_count"] / total_tracks * 100).round(2)
 
     # Sort by track count
-    genre_df = genre_df.sort_values("track_count", ascending=False)
+    genre_df = genre_df.sort_values("play_count", ascending=False)
 
     return genre_df
 
