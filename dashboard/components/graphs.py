@@ -45,12 +45,16 @@ def create_top_tracks_graph(top_tracks: pd.DataFrame = None):
 
     return html.Div(
         [
-            html.H3("Most Played Tracks", className="card-title"),
-            dcc.Graph(
-                id="top-tracks-graph",
-                figure=fig if top_tracks is not None else {},
-                config={"displayModeBar": False},
-            ),
+            dcc.Loading(
+                [
+                    html.H3("Most Played Tracks", className="card-title"),
+                    dcc.Graph(
+                        id="top-tracks-graph",
+                        figure=fig if top_tracks is not None else {},
+                        config={"displayModeBar": False},
+                    ),
+                ]
+            )
         ],
         className="graph-card card",
     )
@@ -74,12 +78,16 @@ def create_top_artists_graph(top_artists: pd.DataFrame = None):
 
     return html.Div(
         [
-            html.H3("Top Artists", className="card-title"),
-            dcc.Graph(
-                id="top-artists-graph",
-                figure=fig if top_artists is not None else {},
-                config={"displayModeBar": False},
-            ),
+            dcc.Loading(
+                [
+                    html.H3("Top Artists", className="card-title"),
+                    dcc.Graph(
+                        id="top-artists-graph",
+                        figure=fig if top_artists is not None else {},
+                        config={"displayModeBar": False},
+                    ),
+                ]
+            )
         ],
         className="graph-card card",
     )
@@ -103,12 +111,16 @@ def create_top_genres_graph(top_genres: pd.DataFrame = None):
 
     return html.Div(
         [
-            html.H3("Top Genres", className="card-title"),
-            dcc.Graph(
-                id="top-genres-graph",
-                figure=fig if top_genres is not None else {},
-                config={"displayModeBar": False},
-            ),
+            dcc.Loading(
+                [
+                    html.H3("Top Genres", className="card-title"),
+                    dcc.Graph(
+                        id="top-genres-graph",
+                        figure=fig if top_genres is not None else {},
+                        config={"displayModeBar": False},
+                    ),
+                ],
+            )
         ],
         className="graph-card card",
     )
@@ -140,12 +152,16 @@ def create_top_albums_graph(top_albums: pd.DataFrame = None):
 
     return html.Div(
         [
-            html.H3("Top Albums", className="card-title"),
-            dcc.Graph(
-                id="top-albums-graph",
-                figure=fig if top_albums is not None else {},
-                config={"displayModeBar": False},
-            ),
+            dcc.Loading(
+                [
+                    html.H3("Top Albums", className="card-title"),
+                    dcc.Graph(
+                        id="top-albums-graph",
+                        figure=fig if top_albums is not None else {},
+                        config={"displayModeBar": False},
+                    ),
+                ]
+            )
         ],
         className="graph-card card",
     )
