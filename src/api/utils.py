@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict, List, Set
 
 import click
 from dotenv import load_dotenv
@@ -54,6 +54,42 @@ def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
     return {"artist_ids": artist_ids, "album_ids": album_ids}
 
 
+def extract_track_ids_from_history(history_dir: Path) -> List[str]:
+    """
+    Parse streaming history JSON files and extract all track IDs.
+
+    Args:
+        history_dir: Path to directory containing streaming history JSON files
+
+    Returns:
+        List of track IDs (without spotify:track prefix)
+    """
+    track_ids = set()
+
+    # Get all JSON files in directory
+    history_files = history_dir.glob("*.json")
+
+    for history_file in history_files:
+        try:
+            with open(history_file, "r") as f:
+                history_data = json.load(f)
+
+            # Process each record in the file
+            for record in history_data:
+                track_uri = record.get("spotify_track_uri")
+                if track_uri and track_uri.startswith("spotify:track:"):
+                    # Remove the spotify:track: prefix and add to set
+                    track_id = track_uri.split(":")[-1]
+                    track_ids.add(track_id)
+
+        except json.JSONDecodeError:
+            click.echo(f"Warning: Skipping malformed JSON file: {history_file}")
+        except Exception as e:
+            click.echo(f"Warning: Unexpected error processing {history_file}: {e}")
+
+    return sorted(list(track_ids))
+
+
 def save_ids_to_file(ids: Set[str], output_file: Path):
     """
     Save a set of IDs to a text file, one ID per line.
@@ -69,7 +105,7 @@ def save_ids_to_file(ids: Set[str], output_file: Path):
 
 @click.group()
 def cli():
-    """Extract artist and album IDs from Spotify track cache."""
+    """Utility commands for processing Spotify data files."""
     pass
 
 
@@ -105,6 +141,33 @@ def extract(tracks_dir: Path, artists_output: Path, albums_output: Path):
     click.echo(f"Extracted {len(ids['album_ids'])} unique album IDs")
     click.echo(f"\nArtist IDs saved to: {artists_output}")
     click.echo(f"Album IDs saved to: {albums_output}")
+
+
+@cli.command()
+@click.argument(
+    "history_dir",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path(DATA_DIR) / "track_ids.txt" if DATA_DIR else Path("track_ids.txt"),
+    help="Output file for track IDs",
+)
+def extract_history(history_dir: Path, output: Path):
+    """Extract track IDs from streaming history JSON files."""
+    click.echo(f"Processing streaming history files from {history_dir}...")
+
+    # Extract track IDs
+    track_ids = extract_track_ids_from_history(history_dir)
+
+    # Save to file
+    with open(output, "w") as f:
+        for track_id in track_ids:
+            f.write(f"{track_id}\n")
+
+    click.echo(f"\nExtracted {len(track_ids)} unique track IDs")
+    click.echo(f"Track IDs saved to: {output}")
 
 
 if __name__ == "__main__":
