@@ -102,7 +102,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
 
         # Get top albums
         top_albums = get_top_albums(filtered_df, spotify_data)
-        print(top_albums)
         if top_albums.empty:
             albums_fig = {"data": [], "layout": create_graph_style()}
         else:
