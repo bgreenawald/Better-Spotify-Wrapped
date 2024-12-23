@@ -71,7 +71,11 @@ def create_tab_one_layout(df: pd.DataFrame):
             # Filters Card
             html.Div([create_wrapped_filters_section(df)], className="card"),
             # Graphs Section
-            create_graphs_section_tab_one(),
+            dcc.Loading(
+                overlay_style={"visibility": "visible", "filter": "blur(2px)"},
+                delay_show=2000,
+                children=create_graphs_section_tab_one(),
+            ),
             # Stats Card
             html.Div(
                 [
@@ -91,7 +95,9 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
             # Main filters cards
             html.Div([create_trend_filters_section(df)], className="card"),
             dcc.Loading(
-                [
+                overlay_style={"visibility": "visible", "filter": "blur(2px)"},
+                delay_show=2000,
+                children=[
                     # Graphs Section
                     html.Div(
                         [
@@ -116,10 +122,10 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                     ),
                     html.Div(
                         [
+                            html.H3("Genres Over Time", className="card-title"),
+                            create_genre_trends_layout(df, spotify_data),
                             dcc.Loading(
                                 [
-                                    html.H3("Genres Over Time", className="card-title"),
-                                    create_genre_trends_layout(df, spotify_data),
                                     html.Div(
                                         [
                                             # Main Trend Graph
@@ -131,18 +137,16 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                                     ),
                                     html.Div([html.Div(id="genre-trends-table")]),
                                 ]
-                            )
+                            ),
                         ],
                         className="card",
                     ),
                     html.Div(
                         [
+                            html.H3("Artists Over Time", className="card-title"),
+                            create_artist_trends_layout(df),
                             dcc.Loading(
                                 [
-                                    html.H3(
-                                        "Artists Over Time", className="card-title"
-                                    ),
-                                    create_artist_trends_layout(df),
                                     html.Div(
                                         [
                                             # Main Trend Graph
@@ -154,7 +158,7 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                                     ),
                                     html.Div([html.Div(id="artist-trends-table")]),
                                 ]
-                            )
+                            ),
                         ],
                         className="card",
                     ),
@@ -162,13 +166,13 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                         [
                             html.Div(
                                 [
+                                    html.H3(
+                                        "Tracks Over Time",
+                                        className="card-title",
+                                    ),
+                                    create_track_trends_layout(df),
                                     dcc.Loading(
                                         [
-                                            html.H3(
-                                                "Tracks Over Time",
-                                                className="card-title",
-                                            ),
-                                            create_track_trends_layout(df),
                                             # Main Trend Graph
                                             dcc.Graph(
                                                 id="track-trends-graph",
@@ -186,7 +190,7 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                     ),
                     # dcc.Store stores the intermediate value
                     dcc.Store(id="tab-2-data"),
-                ]
+                ],
             ),
         ],
         className="container",
