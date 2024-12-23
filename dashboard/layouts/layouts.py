@@ -175,6 +175,8 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                 ],
                 className="card",
             ),
+            # dcc.Store stores the intermediate value
+            dcc.Store(id="tab-2-data"),
         ],
         className="container",
     )

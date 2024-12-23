@@ -187,29 +187,26 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         return tracks_fig, artists_fig, albums_fig, genres_fig, stats_table
 
     @app.callback(
-        Output("trends-graph", "figure"),
+        Output("tab-2-data", "data"),
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
             Input("exclude-december", "value"),
             Input("remove-incognito", "value"),
-            Input("metric-dropdown", "value"),
             Input("excluded-tracks-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
             Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
-    def update_trend_dashboard(
+    def update_tab_2_data(
         start_date,
         end_date,
         exclude_december,
         remove_incognito,
-        selected_metric,
         excluded_tracks,
         excluded_artists,
         excluded_albums,
     ):
-        # Filter the data based on selections
         filtered_df = filter_songs(
             df,
             start_date=pd.to_datetime(start_date),
@@ -224,6 +221,22 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         # Calculate monthly statistics
         monthly_stats = get_listening_time_by_month(filtered_df)
 
+        return {
+            "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split")
+        }
+
+    @app.callback(
+        Output("trends-graph", "figure"),
+        [
+            Input("metric-dropdown", "value"),
+            Input("tab-2-data", "data"),
+        ],
+    )
+    def update_trend_dashboard(
+        selected_metric,
+        data,
+    ):
+        monthly_stats = pd.read_json(data["monthly_stats"], orient="split")
         # Create the figure using plotly express
         metric_labels = {
             "total_hours": "Total Listening Hours",
