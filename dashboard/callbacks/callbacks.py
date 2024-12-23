@@ -1,4 +1,5 @@
 from datetime import datetime
+from io import StringIO
 
 import pandas as pd
 import plotly.express as px
@@ -221,8 +222,34 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         # Calculate monthly statistics
         monthly_stats = get_listening_time_by_month(filtered_df)
 
+        # Get artist trends
+        artist_trends_df = get_artist_trends(filtered_df)
+        # Overall artists
+        overall_artists = get_most_played_artists(filtered_df)
+
+        # Get track trends
+        track_trends_df = get_track_trends(filtered_df)
+        # Overall tracks
+        overall_tracks = get_most_played_tracks(filtered_df)
+
+        # Genre data
+        genre_trends_df = get_genre_trends(filtered_df, spotify_data)
+
+        # Overall trends
+        overall_genres = get_top_artist_genres(filtered_df, spotify_data)
+
         return {
-            "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split")
+            "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),
+            "artist_trends": artist_trends_df.to_json(
+                date_format="iso", orient="split"
+            ),
+            "overall_artists": overall_artists.to_json(
+                date_format="iso", orient="split"
+            ),
+            "track_trends": track_trends_df.to_json(date_format="iso", orient="split"),
+            "overall_tracks": overall_tracks.to_json(date_format="iso", orient="split"),
+            "genre_trends": genre_trends_df.to_json(date_format="iso", orient="split"),
+            "overall_genres": overall_genres.to_json(date_format="iso", orient="split"),
         }
 
     @app.callback(
@@ -236,7 +263,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         selected_metric,
         data,
     ):
-        monthly_stats = pd.read_json(data["monthly_stats"], orient="split")
+        monthly_stats = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
         # Create the figure using plotly express
         metric_labels = {
             "total_hours": "Total Listening Hours",
@@ -276,42 +303,15 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Output("genre-trends-table", "children"),
         ],
         [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
-            Input("excluded-tracks-filter-dropdown", "value"),
-            Input("excluded-artists-filter-dropdown", "value"),
-            Input("excluded-albums-filter-dropdown", "value"),
+            Input("tab-2-data", "data"),
         ],
     )
-    def update_genre_trends_graph(
-        start_date,
-        end_date,
-        exclude_december,
-        remove_incognito,
-        selected_genres,
-        top_n,
-        display_type,
-        excluded_tracks,
-        excluded_artists,
-        excluded_albums,
-    ):
-        # Filter the data based on selections
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-            excluded_tracks=excluded_tracks,
-            excluded_artists=excluded_artists,
-            excluded_albums=excluded_albums,
-        )
-        trends_df = get_genre_trends(filtered_df, spotify_data)
+    def update_genre_trends_graph(selected_genres, top_n, display_type, data):
+        trends_df = pd.read_json(StringIO(data["genre_trends"]), orient="split")
+        overall_trends = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
         if display_type == "percentage":
             y_column = "percentage"
@@ -319,9 +319,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         else:
             y_column = "play_count"
             y_title = "Number of Plays"
-
-        # Overall trends
-        overall_trends = get_top_artist_genres(filtered_df, spotify_data)
 
         if not selected_genres:
             # If no genres selected, show top N genres by average percentage
@@ -380,42 +377,22 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Output("artist-trends-table", "children"),
         ],
         [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
             Input("artist-filter-dropdown", "value"),
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
-            Input("excluded-tracks-filter-dropdown", "value"),
-            Input("excluded-artists-filter-dropdown", "value"),
-            Input("excluded-albums-filter-dropdown", "value"),
+            Input("tab-2-data", "data"),
         ],
     )
     def update_artist_trends_graph(
-        start_date,
-        end_date,
-        exclude_december,
-        remove_incognito,
         selected_artists,
         top_n,
         display_type,
-        excluded_tracks,
-        excluded_artists,
-        excluded_albums,
+        data,
     ):
-        # Filter the data based on selections
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-            excluded_tracks=excluded_tracks,
-            excluded_artists=excluded_artists,
-            excluded_albums=excluded_albums,
+        trends_df = pd.read_json(StringIO(data["artist_trends"]), orient="split")
+        overall_artists = pd.read_json(
+            StringIO(data["overall_artists"]), orient="split"
         )
-        trends_df = get_artist_trends(filtered_df)
 
         if display_type == "percentage":
             y_column = "percentage"
@@ -426,9 +403,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         else:
             y_column = "unique_tracks"
             y_title = "Unique Tracks"
-
-        # Overall artists
-        overall_artists = get_most_played_artists(filtered_df)
 
         if not selected_artists:
             # If no artists selected, show top N artists by overall
@@ -487,42 +461,15 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Output("track-trends-table", "children"),
         ],
         [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
             Input("track-filter-dropdown", "value"),
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),
-            Input("excluded-tracks-filter-dropdown", "value"),
-            Input("excluded-artists-filter-dropdown", "value"),
-            Input("excluded-albums-filter-dropdown", "value"),
+            Input("tab-2-data", "data"),
         ],
     )
-    def update_track_trends_graph(
-        start_date,
-        end_date,
-        exclude_december,
-        remove_incognito,
-        selected_tracks,
-        top_n,
-        display_type,
-        excluded_tracks,
-        excluded_artists,
-        excluded_albums,
-    ):
-        # Filter the data based on selections
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-            excluded_tracks=excluded_tracks,
-            excluded_artists=excluded_artists,
-            excluded_albums=excluded_albums,
-        )
-        trends_df = get_track_trends(filtered_df)
+    def update_track_trends_graph(selected_tracks, top_n, display_type, data):
+        trends_df = pd.read_json(StringIO(data["track_trends"]), orient="split")
+        overall_tracks = pd.read_json(StringIO(data["overall_tracks"]), orient="split")
 
         if display_type == "percentage":
             y_column = "percentage"
@@ -530,9 +477,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         else:
             y_column = "play_count"
             y_title = "Number of Plays"
-
-        # Overall tracks
-        overall_tracks = get_most_played_tracks(filtered_df)
 
         if not selected_tracks:
             # If no tracks selected, show top N tracks by overall

@@ -90,93 +90,104 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
         [
             # Main filters cards
             html.Div([create_trend_filters_section(df)], className="card"),
-            # Graphs Section
-            html.Div(
+            dcc.Loading(
                 [
-                    html.H3("Listening Over Time", className="card-title"),
-                    create_monthly_trend_filter(),
+                    # Graphs Section
                     html.Div(
                         [
-                            html.H3("Listening Trends", className="card-title"),
+                            html.H3("Listening Over Time", className="card-title"),
+                            create_monthly_trend_filter(),
+                            html.Div(
+                                [
+                                    html.H3("Listening Trends", className="card-title"),
+                                    dcc.Loading(
+                                        [
+                                            dcc.Graph(
+                                                id="trends-graph",
+                                                figure={},
+                                                config={"displayModeBar": False},
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                            ),
+                        ],
+                        className="card",
+                    ),
+                    html.Div(
+                        [
                             dcc.Loading(
                                 [
-                                    dcc.Graph(
-                                        id="trends-graph",
-                                        figure={},
-                                        config={"displayModeBar": False},
+                                    html.H3("Genres Over Time", className="card-title"),
+                                    create_genre_trends_layout(df, spotify_data),
+                                    html.Div(
+                                        [
+                                            # Main Trend Graph
+                                            dcc.Graph(
+                                                id="genre-trends-graph",
+                                                config={"displayModeBar": False},
+                                            )
+                                        ],
+                                    ),
+                                    html.Div([html.Div(id="genre-trends-table")]),
+                                ]
+                            )
+                        ],
+                        className="card",
+                    ),
+                    html.Div(
+                        [
+                            dcc.Loading(
+                                [
+                                    html.H3(
+                                        "Artists Over Time", className="card-title"
+                                    ),
+                                    create_artist_trends_layout(df),
+                                    html.Div(
+                                        [
+                                            # Main Trend Graph
+                                            dcc.Graph(
+                                                id="artist-trends-graph",
+                                                config={"displayModeBar": False},
+                                            )
+                                        ],
+                                    ),
+                                    html.Div([html.Div(id="artist-trends-table")]),
+                                ]
+                            )
+                        ],
+                        className="card",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    dcc.Loading(
+                                        [
+                                            html.H3(
+                                                "Tracks Over Time",
+                                                className="card-title",
+                                            ),
+                                            create_track_trends_layout(df),
+                                            # Main Trend Graph
+                                            dcc.Graph(
+                                                id="track-trends-graph",
+                                                config={"displayModeBar": False},
+                                            ),
+                                            html.Div(
+                                                [html.Div(id="track-trends-table")]
+                                            ),
+                                        ],
                                     ),
                                 ]
                             ),
                         ],
+                        className="card",
                     ),
-                ],
-                className="card",
+                    # dcc.Store stores the intermediate value
+                    dcc.Store(id="tab-2-data"),
+                ]
             ),
-            html.Div(
-                [
-                    dcc.Loading(
-                        [
-                            html.H3("Genres Over Time", className="card-title"),
-                            create_genre_trends_layout(df, spotify_data),
-                            html.Div(
-                                [
-                                    # Main Trend Graph
-                                    dcc.Graph(
-                                        id="genre-trends-graph",
-                                        config={"displayModeBar": False},
-                                    )
-                                ],
-                            ),
-                            html.Div([html.Div(id="genre-trends-table")]),
-                        ]
-                    )
-                ],
-                className="card",
-            ),
-            html.Div(
-                [
-                    dcc.Loading(
-                        [
-                            html.H3("Artists Over Time", className="card-title"),
-                            create_artist_trends_layout(df),
-                            html.Div(
-                                [
-                                    # Main Trend Graph
-                                    dcc.Graph(
-                                        id="artist-trends-graph",
-                                        config={"displayModeBar": False},
-                                    )
-                                ],
-                            ),
-                            html.Div([html.Div(id="artist-trends-table")]),
-                        ]
-                    )
-                ],
-                className="card",
-            ),
-            html.Div(
-                [
-                    html.Div(
-                        [
-                            dcc.Loading(
-                                [
-                                    html.H3("Tracks Over Time", className="card-title"),
-                                    create_track_trends_layout(df),
-                                    # Main Trend Graph
-                                    dcc.Graph(
-                                        id="track-trends-graph",
-                                        config={"displayModeBar": False},
-                                    ),
-                                    html.Div([html.Div(id="track-trends-table")]),
-                                ],
-                            ),
-                        ]
-                    ),
-                ],
-                className="card",
-            ),
-            # dcc.Store stores the intermediate value
-            dcc.Store(id="tab-2-data"),
         ],
         className="container",
     )
