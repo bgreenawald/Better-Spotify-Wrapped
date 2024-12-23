@@ -9,6 +9,9 @@ def filter_songs(
     end_date: Optional[pd.Timestamp] = None,
     exclude_december: bool = True,
     remove_incognito: bool = True,
+    excluded_tracks: Optional[list[str]] = None,
+    excluded_artists: Optional[list[str]] = None,
+    excluded_albums: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """
     Filter the Spotify listening history DataFrame based on various criteria.
@@ -19,6 +22,9 @@ def filter_songs(
         end_date (pd.Timestamp): End date (inclusive) for filtering
         exclude_december (bool): If True, only include songs from Jan 1 to Dec 1
         remove_incognito (bool): If True, remove songs played in incognito mode
+        excluded_tracks (list[str]): List of track names to exclude
+        excluded_artists (list[str]): List of artist names to exclude
+        excluded_albums (list[str]): List of album names to exclude
 
     Returns:
         pd.DataFrame: Filtered DataFrame containing only songs matching criteria
@@ -46,5 +52,21 @@ def filter_songs(
     # Optionally remove incognito mode songs
     if remove_incognito:
         filtered_df = filtered_df[~filtered_df["incognito_mode"]]
+
+    # Optionally exclude tracks, artists, and albums
+    if excluded_tracks:
+        filtered_df = filtered_df[
+            ~filtered_df["master_metadata_track_name"].isin(excluded_tracks)
+        ]
+
+    if excluded_artists:
+        filtered_df = filtered_df[
+            ~filtered_df["master_metadata_album_artist_name"].isin(excluded_artists)
+        ]
+
+    if excluded_albums:
+        filtered_df = filtered_df[
+            ~filtered_df["master_metadata_album_album_name"].isin(excluded_albums)
+        ]
 
     return filtered_df

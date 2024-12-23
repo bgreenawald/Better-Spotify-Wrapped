@@ -11,6 +11,11 @@ body {
     padding: 20px;
 }
 
+.global-settings-container {
+    margin: 0 auto;
+    padding: 10px;
+}
+
 /* Header styles */
 .dashboard-header {
     background-color: #1DB954;  /* Spotify green */
@@ -109,4 +114,12 @@ body {
     .filter-item {
         min-width: 100%;
     }
+}
+
+/* Button styles */
+.global-settings-button {
+    --bs-btn-bg: #1DB954;
+    --bs-btn-border-color: #1DB954;
+    --bs-btn-hover-bg: #269a4f;
+    --bs-btn-hover-border-color: #269a4f;
 }

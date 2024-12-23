@@ -74,6 +74,56 @@ def create_wrapped_filters_section(df: pd.DataFrame):
     )
 
 
+def create_global_settings(df: pd.DataFrame):
+    tracks = df["master_metadata_track_name"].dropna().unique().tolist()
+    artists = df["master_metadata_album_artist_name"].dropna().unique().tolist()
+    albums = df["master_metadata_album_album_name"].dropna().unique().tolist()
+    return html.Div(
+        [
+            # Genre Filter
+            html.Div(
+                [
+                    html.Label("Select Excluded Artists", className="filter-label"),
+                    dcc.Dropdown(
+                        id="excluded-artists-filter-dropdown",
+                        multi=True,
+                        className="dropdown",
+                        options=[
+                            {"label": artist, "value": artist} for artist in artists
+                        ],
+                    ),
+                ],
+                className="filter-item",
+            ),
+            html.Div(
+                [
+                    html.Label("Select Excluded Albums", className="filter-label"),
+                    dcc.Dropdown(
+                        id="excluded-albums-filter-dropdown",
+                        multi=True,
+                        className="dropdown",
+                        options=[{"label": album, "value": album} for album in albums],
+                    ),
+                ],
+                className="filter-item",
+            ),
+            html.Div(
+                [
+                    html.Label("Select Excluded Tracks", className="filter-label"),
+                    dcc.Dropdown(
+                        id="excluded-tracks-filter-dropdown",
+                        multi=True,
+                        className="dropdown",
+                        options=[{"label": track, "value": track} for track in tracks],
+                    ),
+                ],
+                className="filter-item",
+            ),
+        ],
+        className="filters-section",
+    )
+
+
 def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     min_date = datetime(df["ts"].min().year, df["ts"].min().month, df["ts"].min().day)
     max_date = datetime(df["ts"].max().year, df["ts"].max().month, df["ts"].max().day)

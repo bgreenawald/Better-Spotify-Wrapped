@@ -1,9 +1,11 @@
+import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import dcc, html
 
 from dashboard.components.filters import (
     create_artist_trends_layout,
     create_genre_trends_layout,
+    create_global_settings,
     create_monthly_trend_filter,
     create_track_trends_layout,
     create_trend_filters_section,
@@ -28,6 +30,23 @@ def create_layout(df: pd.DataFrame):
                     )
                 ],
                 className="dashboard-header",
+            ),
+            html.Div(
+                [
+                    dbc.Button(
+                        "Global Settings",
+                        id="collapse-button",
+                        className="mb-3 global-settings-button",
+                        color="primary",
+                        n_clicks=0,
+                    ),
+                    dbc.Collapse(
+                        dbc.Card(dbc.CardBody([create_global_settings(df)])),
+                        id="collapse",
+                        is_open=False,
+                    ),
+                ],
+                className="global-settings-container",
             ),
             # Main content
             dcc.Tabs(

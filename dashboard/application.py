@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+import dash_bootstrap_components as dbc
 from dash import Dash
 from dotenv import load_dotenv
 
@@ -14,7 +15,11 @@ load_dotenv()
 
 def create_app():
     assets_path = Path(__file__).parent / "assets"
-    app = Dash(__name__, assets_folder=str(assets_path))
+    app = Dash(
+        __name__,
+        assets_folder=str(assets_path),
+        external_stylesheets=[dbc.themes.BOOTSTRAP],
+    )
     DATA_DIR = Path(os.getenv("DATA_DIR"))
 
     # Load data

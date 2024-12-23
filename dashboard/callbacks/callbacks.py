@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output, dash_table
+from dash import Input, Output, State, dash_table
 
 from dashboard.components.graphs import create_graph_style
 from dashboard.components.stats import create_stats_table
@@ -23,6 +23,16 @@ from src.preprocessing import filter_songs
 
 def register_callbacks(app, df: pd.DataFrame, spotify_data):
     @app.callback(
+        Output("collapse", "is_open"),
+        [Input("collapse-button", "n_clicks")],
+        [State("collapse", "is_open")],
+    )
+    def toggle_collapse(n, is_open):
+        if n:
+            return not is_open
+        return is_open
+
+    @app.callback(
         [
             Output("top-tracks-graph", "figure"),
             Output("top-artists-graph", "figure"),
@@ -34,9 +44,19 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("year-dropdown", "value"),
             Input("exclude-december-tab-one", "value"),
             Input("remove-incognito-tab-one", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
-    def update_dashboard(selected_year, exclude_december, remove_incognito):
+    def update_dashboard(
+        selected_year,
+        exclude_december,
+        remove_incognito,
+        exluded_tracks,
+        excluded_artists,
+        excluded_albums,
+    ):
         # Check if a valid year is selected
         if not selected_year:
             # Return empty figures if no year is selected
@@ -50,6 +70,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.Timestamp(datetime(selected_year, 12, 31)),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            excluded_tracks=exluded_tracks,
+            excluded_artists=excluded_artists,
+            excluded_albums=excluded_albums,
         )
 
         # Get top tracks
@@ -171,10 +194,20 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("exclude-december-tab-two", "value"),
             Input("remove-incognito-tab-two", "value"),
             Input("metric-dropdown", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
     def update_trend_dashboard(
-        start_date, end_date, exclude_december, remove_incognito, selected_metric
+        start_date,
+        end_date,
+        exclude_december,
+        remove_incognito,
+        selected_metric,
+        excluded_tracks,
+        excluded_artists,
+        excluded_albums,
     ):
         # Filter the data based on selections
         filtered_df = filter_songs(
@@ -183,6 +216,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            excluded_tracks=excluded_tracks,
+            excluded_artists=excluded_artists,
+            excluded_albums=excluded_albums,
         )
 
         # Calculate monthly statistics
@@ -303,6 +339,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
     def update_genre_trends_graph(
@@ -313,6 +352,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         selected_genres,
         top_n,
         display_type,
+        excluded_tracks,
+        excluded_artists,
+        excluded_albums,
     ):
         # Filter the data based on selections
         filtered_df = filter_songs(
@@ -321,6 +363,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            excluded_tracks=excluded_tracks,
+            excluded_artists=excluded_artists,
+            excluded_albums=excluded_albums,
         )
         trends_df = get_genre_trends(filtered_df, spotify_data)
 
@@ -398,6 +443,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("artist-filter-dropdown", "value"),
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
     def update_artist_trends_graph(
@@ -408,6 +456,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         selected_artists,
         top_n,
         display_type,
+        excluded_tracks,
+        excluded_artists,
+        excluded_albums,
     ):
         # Filter the data based on selections
         filtered_df = filter_songs(
@@ -416,6 +467,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            excluded_tracks=excluded_tracks,
+            excluded_artists=excluded_artists,
+            excluded_albums=excluded_albums,
         )
         trends_df = get_artist_trends(filtered_df)
 
@@ -496,6 +550,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("track-filter-dropdown", "value"),
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
         ],
     )
     def update_track_trends_graph(
@@ -506,6 +563,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         selected_tracks,
         top_n,
         display_type,
+        excluded_tracks,
+        excluded_artists,
+        excluded_albums,
     ):
         # Filter the data based on selections
         filtered_df = filter_songs(
@@ -514,6 +574,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            excluded_tracks=excluded_tracks,
+            excluded_artists=excluded_artists,
+            excluded_albums=excluded_albums,
         )
         trends_df = get_track_trends(filtered_df)
 
