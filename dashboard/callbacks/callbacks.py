@@ -3,6 +3,7 @@ from io import StringIO
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from dash import Input, Output, State, dash_table
 
 from dashboard.components.graphs import create_graph_style
@@ -272,6 +273,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             "avg_hours_per_day": "Average Hours per Day",
         }
 
+        fig = go.Figure(layout=dict(template="plotly"))
         fig = px.line(
             monthly_stats,
             x="month",
@@ -333,6 +335,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         plot_df = trends_df[trends_df["genre"].isin(selected_genres)]
 
         # Create line plot
+        fig = go.Figure(layout=dict(template="plotly"))
         fig = px.line(
             plot_df,
             x="month",
@@ -417,6 +420,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         plot_df = trends_df[trends_df["artist"].isin(selected_artists)]
 
         # Create line plot
+        fig = go.Figure(layout=dict(template="plotly"))
         fig = px.line(
             plot_df,
             x="month",
@@ -491,6 +495,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         plot_df = trends_df[trends_df["track_artist"].isin(selected_tracks)]
 
         # Create line plot
+        fig = go.Figure(layout=dict(template="plotly"))
         fig = px.line(
             plot_df,
             x="month",
