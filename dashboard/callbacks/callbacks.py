@@ -256,27 +256,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
 
         return fig
 
-    @app.callback(
-        Output("genre-filter-dropdown", "options"),
-        [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
-        ],
-    )
-    def update_genre_options(start_date, end_date, exclude_december, remove_incognito):
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-        )
-        trends_df = get_genre_trends(filtered_df, spotify_data)
-        genres = trends_df["genre"].unique()
-        return [{"label": genre.title(), "value": genre} for genre in genres]
-
     # Callback to update the graph
     @app.callback(
         [
