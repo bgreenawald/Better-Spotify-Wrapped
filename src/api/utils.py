@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-import argparse
 import json
 import os
 from pathlib import Path
 from typing import Dict, Set
 
+import click
 from dotenv import load_dotenv
 
 load_dotenv()
+
+DATA_DIR = os.getenv("DATA_DIR")
 
 
 def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
@@ -43,11 +45,11 @@ def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
             album_ids.add(track_data["album"]["id"])
 
         except json.JSONDecodeError:
-            print(f"Warning: Skipping malformed JSON file: {track_file}")
+            click.echo(f"Warning: Skipping malformed JSON file: {track_file}")
         except KeyError as e:
-            print(f"Warning: Missing expected field {e} in file: {track_file}")
+            click.echo(f"Warning: Missing expected field {e} in file: {track_file}")
         except Exception as e:
-            print(f"Warning: Unexpected error processing {track_file}: {e}")
+            click.echo(f"Warning: Unexpected error processing {track_file}: {e}")
 
     return {"artist_ids": artist_ids, "album_ids": album_ids}
 
@@ -65,34 +67,32 @@ def save_ids_to_file(ids: Set[str], output_file: Path):
             f.write(f"{item_id}\n")
 
 
-def main():
-    DATA_DIR = os.getenv("DATA_DIR")
-    parser = argparse.ArgumentParser(
-        description="Extract artist and album IDs from Spotify track cache"
-    )
-    parser.add_argument(
-        "tracks_dir", type=str, help="Directory containing track JSON files"
-    )
-    parser.add_argument(
-        "--artists-output",
-        type=str,
-        default=f"{os.path.join(DATA_DIR, 'artist_ids.txt')}",
-        help=f"Output file for artist IDs (default: {os.path.join(DATA_DIR, 'artist_ids.txt')})",
-    )
-    parser.add_argument(
-        "--albums-output",
-        type=str,
-        default=f"{os.path.join(DATA_DIR, 'album_ids.txt')}",
-        help=f"Output file for album IDs (default: {os.path.join(DATA_DIR, 'album_ids.txt')})",
-    )
+@click.group()
+def cli():
+    """Extract artist and album IDs from Spotify track cache."""
+    pass
 
-    args = parser.parse_args()
 
-    tracks_dir = Path(args.tracks_dir)
-    artists_output = Path(args.artists_output)
-    albums_output = Path(args.albums_output)
-
-    print(f"Processing track files from {tracks_dir}...")
+@cli.command()
+@click.argument(
+    "tracks_dir",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
+@click.option(
+    "--artists-output",
+    type=click.Path(path_type=Path),
+    default=Path(DATA_DIR) / "artist_ids.txt" if DATA_DIR else Path("artist_ids.txt"),
+    help="Output file for artist IDs",
+)
+@click.option(
+    "--albums-output",
+    type=click.Path(path_type=Path),
+    default=Path(DATA_DIR) / "album_ids.txt" if DATA_DIR else Path("album_ids.txt"),
+    help="Output file for album IDs",
+)
+def extract(tracks_dir: Path, artists_output: Path, albums_output: Path):
+    """Extract artist and album IDs from track JSON files."""
+    click.echo(f"Processing track files from {tracks_dir}...")
 
     # Extract IDs
     ids = extract_ids_from_tracks(tracks_dir)
@@ -101,11 +101,11 @@ def main():
     save_ids_to_file(ids["artist_ids"], artists_output)
     save_ids_to_file(ids["album_ids"], albums_output)
 
-    print(f"\nExtracted {len(ids['artist_ids'])} unique artist IDs")
-    print(f"Extracted {len(ids['album_ids'])} unique album IDs")
-    print(f"\nArtist IDs saved to: {artists_output}")
-    print(f"Album IDs saved to: {albums_output}")
+    click.echo(f"\nExtracted {len(ids['artist_ids'])} unique artist IDs")
+    click.echo(f"Extracted {len(ids['album_ids'])} unique album IDs")
+    click.echo(f"\nArtist IDs saved to: {artists_output}")
+    click.echo(f"Album IDs saved to: {albums_output}")
 
 
 if __name__ == "__main__":
-    main()
+    cli()
