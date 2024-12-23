@@ -91,6 +91,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
                         "orientation": "h",
                         "text": top_tracks["play_count"].head(10),
                         "marker": {"color": "#1DB954"},
+                        "customdata": top_tracks["track_artist"].head(10),
+                        "hovertemplate": "Track: %{customdata}<br>Plays: %{x}<extra></extra>",
                     }
                 ],
                 "layout": {
@@ -138,13 +140,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
                         "y": top_albums["album_name"].head(10),
                         "orientation": "h",
                         "text": top_albums["median_plays"].round(1).head(10),
-                        "customdata": top_albums[
-                            ["artist", "tracks_played", "total_tracks"]
-                        ]
-                        .head(10)
-                        .values,
+                        "customdata": top_albums[["artist"]].head(10).values,
                         "marker": {"color": "#1DB954"},
-                        "hovertemplate": "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<br>Tracks Played: %{customdata[1]}/{customdata[2]}<extra></extra>",
+                        "hovertemplate": "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<br><extra></extra>",
                     }
                 ],
                 "layout": {
