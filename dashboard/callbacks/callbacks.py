@@ -42,8 +42,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         ],
         [
             Input("year-dropdown", "value"),
-            Input("exclude-december-tab-one", "value"),
-            Input("remove-incognito-tab-one", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
             Input("excluded-tracks-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
             Input("excluded-albums-filter-dropdown", "value"),
@@ -191,8 +191,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
             Input("metric-dropdown", "value"),
             Input("excluded-tracks-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
@@ -261,8 +261,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
         ],
     )
     def update_genre_options(start_date, end_date, exclude_december, remove_incognito):
@@ -282,8 +282,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
         ],
     )
     def update_artist_options(start_date, end_date, exclude_december, remove_incognito):
@@ -303,8 +303,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
         ],
     )
     def update_track_options(start_date, end_date, exclude_december, remove_incognito):
@@ -334,8 +334,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
@@ -438,8 +438,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
             Input("artist-filter-dropdown", "value"),
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
@@ -545,8 +545,8 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         [
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
-            Input("exclude-december-tab-two", "value"),
-            Input("remove-incognito-tab-two", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
             Input("track-filter-dropdown", "value"),
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),

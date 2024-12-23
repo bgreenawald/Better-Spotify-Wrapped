@@ -22,42 +22,6 @@ def create_year_dropdown(df: pd.DataFrame):
     )
 
 
-def create_december_toggle(tab_id: str):
-    return html.Div(
-        [
-            html.Label("Exclude December", className="filter-label"),
-            dcc.RadioItems(
-                id=f"exclude-december-{tab_id}",
-                options=[
-                    {"label": "Yes", "value": True},
-                    {"label": "No", "value": False},
-                ],
-                value=True,
-                className="radio-group",
-            ),
-        ],
-        className="filter-item",
-    )
-
-
-def create_incognito_toggle(tab_id: str):
-    return html.Div(
-        [
-            html.Label("Remove Incognito", className="filter-label"),
-            dcc.RadioItems(
-                id=f"remove-incognito-{tab_id}",
-                options=[
-                    {"label": "Yes", "value": True},
-                    {"label": "No", "value": False},
-                ],
-                value=True,
-                className="radio-group",
-            ),
-        ],
-        className="filter-item",
-    )
-
-
 def create_wrapped_filters_section(df: pd.DataFrame):
     return html.Div(
         [
@@ -65,8 +29,6 @@ def create_wrapped_filters_section(df: pd.DataFrame):
             html.Div(
                 [
                     create_year_dropdown(df),
-                    create_december_toggle("tab-one"),
-                    create_incognito_toggle("tab-one"),
                 ],
                 className="filters-section",
             ),
@@ -80,47 +42,97 @@ def create_global_settings(df: pd.DataFrame):
     albums = df["master_metadata_album_album_name"].dropna().unique().tolist()
     return html.Div(
         [
-            # Genre Filter
             html.Div(
                 [
-                    html.Label("Select Excluded Artists", className="filter-label"),
-                    dcc.Dropdown(
-                        id="excluded-artists-filter-dropdown",
-                        multi=True,
-                        className="dropdown",
-                        options=[
-                            {"label": artist, "value": artist} for artist in artists
+                    # Genre Filter
+                    html.Div(
+                        [
+                            html.Label(
+                                "Select Excluded Artists", className="filter-label"
+                            ),
+                            dcc.Dropdown(
+                                id="excluded-artists-filter-dropdown",
+                                multi=True,
+                                className="dropdown",
+                                options=[
+                                    {"label": artist, "value": artist}
+                                    for artist in artists
+                                ],
+                            ),
                         ],
+                        className="filter-item",
+                    ),
+                    html.Div(
+                        [
+                            html.Label(
+                                "Select Excluded Albums", className="filter-label"
+                            ),
+                            dcc.Dropdown(
+                                id="excluded-albums-filter-dropdown",
+                                multi=True,
+                                className="dropdown",
+                                options=[
+                                    {"label": album, "value": album} for album in albums
+                                ],
+                            ),
+                        ],
+                        className="filter-item",
+                    ),
+                    html.Div(
+                        [
+                            html.Label(
+                                "Select Excluded Tracks", className="filter-label"
+                            ),
+                            dcc.Dropdown(
+                                id="excluded-tracks-filter-dropdown",
+                                multi=True,
+                                className="dropdown",
+                                options=[
+                                    {"label": track, "value": track} for track in tracks
+                                ],
+                            ),
+                        ],
+                        className="filter-item",
                     ),
                 ],
-                className="filter-item",
+                className="filters-section",
             ),
             html.Div(
                 [
-                    html.Label("Select Excluded Albums", className="filter-label"),
-                    dcc.Dropdown(
-                        id="excluded-albums-filter-dropdown",
-                        multi=True,
-                        className="dropdown",
-                        options=[{"label": album, "value": album} for album in albums],
+                    html.Div(
+                        [
+                            html.Label("Exclude December", className="filter-label"),
+                            dcc.RadioItems(
+                                id="exclude-december",
+                                options=[
+                                    {"label": "Yes", "value": True},
+                                    {"label": "No", "value": False},
+                                ],
+                                value=True,
+                                className="radio-group",
+                            ),
+                        ],
+                        className="filter-item",
+                    ),
+                    html.Div(
+                        [
+                            html.Label("Remove Incognito", className="filter-label"),
+                            dcc.RadioItems(
+                                id="remove-incognito",
+                                options=[
+                                    {"label": "Yes", "value": True},
+                                    {"label": "No", "value": False},
+                                ],
+                                value=True,
+                                className="radio-group",
+                            ),
+                        ],
+                        className="filter-item",
                     ),
                 ],
-                className="filter-item",
+                className="filters-section",
             ),
-            html.Div(
-                [
-                    html.Label("Select Excluded Tracks", className="filter-label"),
-                    dcc.Dropdown(
-                        id="excluded-tracks-filter-dropdown",
-                        multi=True,
-                        className="dropdown",
-                        options=[{"label": track, "value": track} for track in tracks],
-                    ),
-                ],
-                className="filter-item",
-            ),
-        ],
-        className="filters-section",
+        ]
     )
 
 
@@ -325,8 +337,6 @@ def create_trend_filters_section(df: pd.DataFrame):
             html.Div(
                 [
                     create_year_range_filter(df),
-                    create_december_toggle("tab-two"),
-                    create_incognito_toggle("tab-two"),
                 ],
                 className="filters-section",
             ),
