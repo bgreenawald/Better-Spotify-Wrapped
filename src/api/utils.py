@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Dict, Set
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
@@ -61,6 +66,7 @@ def save_ids_to_file(ids: Set[str], output_file: Path):
 
 
 def main():
+    DATA_DIR = os.getenv("DATA_DIR")
     parser = argparse.ArgumentParser(
         description="Extract artist and album IDs from Spotify track cache"
     )
@@ -70,14 +76,14 @@ def main():
     parser.add_argument(
         "--artists-output",
         type=str,
-        default="artist_ids.txt",
-        help="Output file for artist IDs (default: artist_ids.txt)",
+        default=f"{os.path.join(DATA_DIR, 'artist_ids.txt')}",
+        help=f"Output file for artist IDs (default: {os.path.join(DATA_DIR, 'artist_ids.txt')})",
     )
     parser.add_argument(
         "--albums-output",
         type=str,
-        default="album_ids.txt",
-        help="Output file for album IDs (default: album_ids.txt)",
+        default=f"{os.path.join(DATA_DIR, 'album_ids.txt')}",
+        help=f"Output file for album IDs (default: {os.path.join(DATA_DIR, 'album_ids.txt')})",
     )
 
     args = parser.parse_args()

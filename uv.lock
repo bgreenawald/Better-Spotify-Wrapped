@@ -20,6 +20,7 @@ name = "better-spotify-wrapped"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "click" },
     { name = "dash" },
     { name = "numpy" },
     { name = "openpyxl" },
@@ -31,6 +32,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.7" },
     { name = "dash", specifier = ">=2.18.2" },
     { name = "numpy", specifier = ">=2.2.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
