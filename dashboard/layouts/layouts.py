@@ -14,7 +14,7 @@ from dashboard.components.filters import (
 from dashboard.components.graphs import create_graphs_section_tab_one
 
 
-def create_layout(df: pd.DataFrame):
+def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
     return html.Div(
         [
             # Header
@@ -57,7 +57,7 @@ def create_layout(df: pd.DataFrame):
                     ),
                     dcc.Tab(
                         label="Trends",
-                        children=[create_tab_two_layout(df)],
+                        children=[create_tab_two_layout(df, spotify_data)],
                     ),
                 ]
             ),
@@ -85,7 +85,7 @@ def create_tab_one_layout(df: pd.DataFrame):
     )
 
 
-def create_tab_two_layout(df: pd.DataFrame):
+def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
     return html.Div(
         [
             # Main filters cards
@@ -117,7 +117,7 @@ def create_tab_two_layout(df: pd.DataFrame):
                     dcc.Loading(
                         [
                             html.H3("Genres Over Time", className="card-title"),
-                            create_genre_trends_layout(),
+                            create_genre_trends_layout(df, spotify_data),
                             html.Div(
                                 [
                                     # Main Trend Graph
@@ -138,7 +138,7 @@ def create_tab_two_layout(df: pd.DataFrame):
                     dcc.Loading(
                         [
                             html.H3("Artists Over Time", className="card-title"),
-                            create_artist_trends_layout(),
+                            create_artist_trends_layout(df),
                             html.Div(
                                 [
                                     # Main Trend Graph
@@ -161,7 +161,7 @@ def create_tab_two_layout(df: pd.DataFrame):
                             dcc.Loading(
                                 [
                                     html.H3("Tracks Over Time", className="card-title"),
-                                    create_track_trends_layout(),
+                                    create_track_trends_layout(df),
                                     # Main Trend Graph
                                     dcc.Graph(
                                         id="track-trends-graph",

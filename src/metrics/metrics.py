@@ -18,9 +18,18 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
                      'track_name', 'artist', 'play_count'
     """
     # Group by track and artist, count plays
+    filtered_df["track_artist"] = (
+        filtered_df["master_metadata_track_name"]
+        + " - "
+        + filtered_df["master_metadata_album_artist_name"]
+    )
     play_counts = (
         filtered_df.groupby(
-            ["master_metadata_track_name", "master_metadata_album_artist_name"]
+            [
+                "track_artist",
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+            ]
         )
         .size()
         .reset_index(name="play_count")
@@ -34,7 +43,13 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     sorted_tracks["percentage"] = sorted_tracks["play_count"] / total_plays
 
     # Rename columns for clarity
-    sorted_tracks.columns = ["track_name", "artist", "play_count", "percentage"]
+    sorted_tracks.columns = [
+        "track_artist",
+        "track_name",
+        "artist",
+        "play_count",
+        "percentage",
+    ]
 
     return sorted_tracks
 

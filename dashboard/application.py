@@ -27,7 +27,7 @@ def create_app():
     spotify_data = load_api_data()
 
     # Create layout
-    app.layout = create_layout(df)
+    app.layout = create_layout(df, spotify_data)
 
     # Register callbacks
     register_callbacks(app, df, spotify_data)

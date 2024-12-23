@@ -277,54 +277,6 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         genres = trends_df["genre"].unique()
         return [{"label": genre.title(), "value": genre} for genre in genres]
 
-    @app.callback(
-        Output("artist-filter-dropdown", "options"),
-        [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
-        ],
-    )
-    def update_artist_options(start_date, end_date, exclude_december, remove_incognito):
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-        )
-        trends_df = get_artist_trends(filtered_df)
-        artists = trends_df["artist"].unique()
-        return [{"label": artist.title(), "value": artist} for artist in artists]
-
-    @app.callback(
-        Output("track-filter-dropdown", "options"),
-        [
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
-            Input("exclude-december", "value"),
-            Input("remove-incognito", "value"),
-        ],
-    )
-    def update_track_options(start_date, end_date, exclude_december, remove_incognito):
-        filtered_df = filter_songs(
-            df,
-            start_date=pd.to_datetime(start_date),
-            end_date=pd.to_datetime(end_date),
-            exclude_december=exclude_december,
-            remove_incognito=remove_incognito,
-        )
-        trends_df = get_track_trends(filtered_df)
-        tracks = trends_df["track"].unique()
-        return [
-            {
-                "label": f"{track} - {trends_df[trends_df['track'] == track]['artist'].iloc[0]}",
-                "value": track,
-            }
-            for track in tracks
-        ]
-
     # Callback to update the graph
     @app.callback(
         [
@@ -593,28 +545,27 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         if not selected_tracks:
             # If no tracks selected, show top N tracks by overall
             avg_by_track = (
-                overall_tracks.groupby("track_name")[y_column]
+                overall_tracks.groupby("track_artist")[y_column]
                 .mean()
                 .sort_values(ascending=False)
             )
             selected_tracks = avg_by_track.head(top_n).index.tolist()
 
         # Filter for selected tracks
-        plot_df = trends_df[trends_df["track"].isin(selected_tracks)]
+        plot_df = trends_df[trends_df["track_artist"].isin(selected_tracks)]
 
         # Create line plot
         fig = px.line(
             plot_df,
             x="month",
             y=y_column,
-            color="track",
+            color="track_artist",
             labels={
                 "month": "Month",
                 y_column: y_title,
-                "track": "Track",
-                "artist": "Artist",
+                "track_artist": "Track",
             },
-            hover_data=["artist", y_column, "month", "track"],
+            hover_data=["track_artist", y_column, "month"],
             title="Track Trends Over Time",
         )
 
@@ -627,6 +578,9 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             xaxis={"gridcolor": "#eee"},
             yaxis={"gridcolor": "#eee"},
         )
+
+        # Drop track_artist column
+        overall_tracks = overall_tracks.drop("track_artist", axis=1)
 
         return fig, [
             dash_table.DataTable(

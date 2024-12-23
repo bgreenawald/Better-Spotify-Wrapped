@@ -80,6 +80,8 @@ def get_genre_trends(
     # Create a DataFrame mapping tracks to their artists and genres
     track_mappings = []
     for track_uri in filtered_df["spotify_track_uri"].unique():
+        if track_uri is None:
+            continue
         track_id = track_uri.split(":")[-1]
         if track_id in spotify_data.tracks:
             artist_id = spotify_data.tracks[track_id]["artists"][0]["id"]
@@ -290,18 +292,30 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     Returns:
         pd.DataFrame: DataFrame containing track trends with columns:
-                     'month', 'track', 'artist', 'play_count', 'percentage',
+                     'month', 'track', 'artist', 'track_artist', 'play_count', 'percentage',
                      'avg_duration_min'
     """
     # Convert timestamp to month format
     filtered_df["month"] = filtered_df["ts"].dt.strftime("%Y-%m")
 
+    # Combine track and artist names
+    filtered_df["track_artist"] = (
+        filtered_df["master_metadata_track_name"]
+        + " - "
+        + filtered_df["master_metadata_album_artist_name"]
+    )
+
     # Calculate main track metrics
     track_metrics = filtered_df.groupby(
-        ["month", "master_metadata_track_name", "master_metadata_album_artist_name"]
+        [
+            "month",
+            "track_artist",
+            "master_metadata_track_name",
+            "master_metadata_album_artist_name",
+        ]
     ).agg(
         {
-            "master_metadata_track_name": "count",  # play count
+            "track_artist": "count",  # play count
             "ms_played": "mean",  # average duration
         }
     )
