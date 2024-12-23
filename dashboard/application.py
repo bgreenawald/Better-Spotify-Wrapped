@@ -1,19 +1,24 @@
+import os
 from pathlib import Path
 
 from dash import Dash
+from dotenv import load_dotenv
 
 from dashboard.callbacks.callbacks import register_callbacks
 from dashboard.layouts.layouts import create_layout
 from src.api.api import load_api_data
 from src.io import load_spotify_history
 
+load_dotenv()
+
 
 def create_app():
     assets_path = Path(__file__).parent / "assets"
     app = Dash(__name__, assets_folder=str(assets_path))
+    DATA_DIR = Path(os.getenv("DATA_DIR"))
 
     # Load data
-    df = load_spotify_history("data/listening_history")
+    df = load_spotify_history(DATA_DIR / "listening_history")
     spotify_data = load_api_data()
 
     # Create layout

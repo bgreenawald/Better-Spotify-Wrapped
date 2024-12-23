@@ -42,8 +42,8 @@ class SpotifyDataCollector:
             )
         )
 
-        self.data_dir = Path("data/api_data")
-        self.cache_dir = self.data_dir / "cache"
+        self.data_dir = Path(os.getenv("DATA_DIR"))
+        self.api_cache_dir = Path("data/api/cache")
         self._setup_cache_directories()
 
         # API batch limits
@@ -54,16 +54,16 @@ class SpotifyDataCollector:
     def _setup_cache_directories(self):
         """Create cache directories if they don't exist."""
         for subdir in ["tracks", "artists", "albums"]:
-            (self.cache_dir / subdir).mkdir(parents=True, exist_ok=True)
+            (self.api_cache_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     def _get_cached_ids(self, cache_type: str) -> Set[str]:
         """Get set of all cached IDs for a given type."""
-        cache_path = self.cache_dir / cache_type
+        cache_path = self.api_cache_dir / cache_type
         return {f.stem for f in cache_path.glob("*.json")}
 
     def _load_cache(self, cache_type: str, item_id: str) -> Dict:
         """Load item from cache."""
-        cache_path = self.cache_dir / cache_type / f"{item_id}.json"
+        cache_path = self.api_cache_dir / cache_type / f"{item_id}.json"
         with open(cache_path, "r") as f:
             return json.load(f)
 
@@ -71,7 +71,7 @@ class SpotifyDataCollector:
         """Save multiple items to cache."""
         for item in items:
             item_id = item["id"]
-            cache_path = self.cache_dir / cache_type / f"{item_id}.json"
+            cache_path = self.api_cache_dir / cache_type / f"{item_id}.json"
             with open(cache_path, "w") as f:
                 json.dump(item, f, indent=4, sort_keys=True)
 
