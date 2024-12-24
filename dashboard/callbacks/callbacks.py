@@ -4,7 +4,8 @@ from io import StringIO
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, dash_table
+from dash import Input, Output, State, dash_table, html
+from dash.exceptions import PreventUpdate
 
 from dashboard.components.graphs import create_graph_style
 from dashboard.components.stats import create_stats_table
@@ -33,6 +34,26 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         if n:
             return not is_open
         return is_open
+
+    @app.callback(
+        [
+            Output("date-range", "start_date"),
+            Output("date-range", "end_date"),
+        ],
+        Input("reset-date-range", "n_clicks"),
+    )
+    def reset_year_range_filter(n) -> html.Div:
+        if n:
+            min_date = datetime(
+                df["ts"].min().year, df["ts"].min().month, df["ts"].min().day
+            )
+            max_date = datetime(
+                df["ts"].max().year, df["ts"].max().month, df["ts"].max().day
+            )
+
+            return min_date, max_date
+        else:
+            raise PreventUpdate
 
     @app.callback(
         [

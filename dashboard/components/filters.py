@@ -155,6 +155,12 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
                 end_date=max_date,
                 className="datepicker",
             ),
+            html.Button(
+                "Reset Date Range",
+                id="reset-date-range",
+                className="reset-button",
+                n_clicks=0,
+            ),
         ],
         className="filter-item",
     )

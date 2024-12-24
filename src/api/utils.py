@@ -10,14 +10,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATA_DIR = os.getenv("DATA_DIR")
+API_DATA_CACHE = Path("data/api/cache")
 
 
-def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
+def extract_ids_from_tracks(tracks_file: str) -> Dict[str, Set[str]]:
     """
     Parse track JSON files and extract all unique artist and album IDs.
 
     Args:
-        tracks_cache_dir: Path to directory containing track JSON files
+        tracks_file: Path to list of track IDs
 
     Returns:
         Dictionary containing sets of artist_ids and album_ids
@@ -26,15 +27,18 @@ def extract_ids_from_tracks(tracks_cache_dir: Path) -> Dict[str, Set[str]]:
     album_ids = set()
 
     # Ensure directory exists
-    if not tracks_cache_dir.exists():
-        raise ValueError(f"Directory not found: {tracks_cache_dir}")
+    if not Path(tracks_file).exists():
+        raise ValueError(f"File not found: {tracks_file}")
 
     # Get all JSON files in directory
-    track_files = tracks_cache_dir.glob("*.json")
+    with open(tracks_file, "r") as f:
+        track_files = f.readlines()
+
+    track_files = [f"{file.strip()}.json" for file in track_files]
 
     for track_file in track_files:
         try:
-            with open(track_file, "r") as f:
+            with open(API_DATA_CACHE / "tracks" / track_file, "r") as f:
                 track_data = json.load(f)
 
             # Extract artist IDs
@@ -111,8 +115,8 @@ def cli():
 
 @cli.command()
 @click.argument(
-    "tracks_dir",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    "tracks_file",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
 )
 @click.option(
     "--artists-output",
@@ -126,12 +130,12 @@ def cli():
     default=Path(DATA_DIR) / "album_ids.txt" if DATA_DIR else Path("album_ids.txt"),
     help="Output file for album IDs",
 )
-def extract(tracks_dir: Path, artists_output: Path, albums_output: Path):
+def extract(tracks_file: Path, artists_output: Path, albums_output: Path):
     """Extract artist and album IDs from track JSON files."""
-    click.echo(f"Processing track files from {tracks_dir}...")
+    click.echo(f"Processing track files from {tracks_file}...")
 
     # Extract IDs
-    ids = extract_ids_from_tracks(tracks_dir)
+    ids = extract_ids_from_tracks(tracks_file)
 
     # Save to files
     save_ids_to_file(ids["artist_ids"], artists_output)
