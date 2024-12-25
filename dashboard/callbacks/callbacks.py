@@ -527,6 +527,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             },
             hover_data=["track_artist", y_column, "month"],
             title="Track Trends Over Time",
+            markers=True,
         )
 
         # Update layout
