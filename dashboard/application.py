@@ -10,7 +10,7 @@ from dashboard.layouts.layouts import create_layout
 from src.api.api import load_api_data
 from src.io import load_spotify_history
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 def create_app():

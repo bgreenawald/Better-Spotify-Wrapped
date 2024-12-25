@@ -32,6 +32,9 @@ def filter_songs(
     # Start with basic song filter (excluding podcasts)
     filtered_df = df[df["episode_name"].isna()]
 
+    # Exclude tracks without track ids
+    filtered_df = filtered_df[filtered_df["spotify_track_uri"].notna()]
+
     # Filter by date range
     if start_date:
         filtered_df = filtered_df[(filtered_df["ts"] >= start_date)]

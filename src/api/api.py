@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 @dataclass

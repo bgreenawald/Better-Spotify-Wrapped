@@ -7,7 +7,7 @@ from typing import Dict, List, Set
 import click
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 DATA_DIR = os.getenv("DATA_DIR")
 API_DATA_CACHE = Path("data/api/cache")
