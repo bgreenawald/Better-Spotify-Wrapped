@@ -11,6 +11,11 @@ body {
     padding: 20px;
 }
 
+.table-container {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
 .global-settings-container {
     margin: 0 auto;
     padding: 10px;

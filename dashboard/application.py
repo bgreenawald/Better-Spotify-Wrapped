@@ -9,6 +9,7 @@ from dashboard.callbacks.callbacks import register_callbacks
 from dashboard.layouts.layouts import create_layout
 from src.api.api import load_api_data
 from src.io import load_spotify_history
+from src.preprocessing import add_api_data
 
 load_dotenv(override=True)
 
@@ -25,6 +26,7 @@ def create_app():
     # Load data
     df = load_spotify_history(DATA_DIR / "listening_history")
     spotify_data = load_api_data()
+    df = add_api_data(df, spotify_data)
 
     # Create layout
     app.layout = create_layout(df, spotify_data)

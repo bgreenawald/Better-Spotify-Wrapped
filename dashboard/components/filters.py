@@ -1,4 +1,5 @@
 from datetime import datetime
+from itertools import chain
 
 import pandas as pd
 from dash import dcc, html
@@ -44,6 +45,7 @@ def create_global_settings(df: pd.DataFrame):
     tracks = df["master_metadata_track_name"].dropna().unique().tolist()
     artists = df["master_metadata_album_artist_name"].dropna().unique().tolist()
     albums = df["master_metadata_album_album_name"].dropna().unique().tolist()
+    genres = sorted(list(set(chain.from_iterable(df["artist_genres"].dropna()))))
     return html.Div(
         [
             html.Div(
@@ -66,6 +68,28 @@ def create_global_settings(df: pd.DataFrame):
                         ],
                         className="filter-item",
                     ),
+                    # Genre Filter
+                    html.Div(
+                        [
+                            html.Label(
+                                "Select Excluded Genre", className="filter-label"
+                            ),
+                            dcc.Dropdown(
+                                id="excluded-genres-filter-dropdown",
+                                multi=True,
+                                className="dropdown",
+                                options=[
+                                    {"label": genre, "value": genre} for genre in genres
+                                ],
+                            ),
+                        ],
+                        className="filter-item",
+                    ),
+                ],
+                className="filters-section",
+            ),
+            html.Div(
+                [
                     html.Div(
                         [
                             html.Label(
