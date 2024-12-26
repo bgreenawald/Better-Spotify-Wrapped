@@ -135,7 +135,14 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                                             )
                                         ],
                                     ),
-                                    html.Div([html.Div(id="genre-trends-table")]),
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                id="genre-trends-table",
+                                                className="table-container",
+                                            )
+                                        ]
+                                    ),
                                 ]
                             ),
                         ],
@@ -156,7 +163,14 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                                             )
                                         ],
                                     ),
-                                    html.Div([html.Div(id="artist-trends-table")]),
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                id="artist-trends-table",
+                                                className="table-container",
+                                            )
+                                        ]
+                                    ),
                                 ]
                             ),
                         ],
@@ -179,7 +193,12 @@ def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
                                                 config={"displayModeBar": False},
                                             ),
                                             html.Div(
-                                                [html.Div(id="track-trends-table")]
+                                                [
+                                                    html.Div(
+                                                        id="track-trends-table",
+                                                        className="table-container",
+                                                    )
+                                                ],
                                             ),
                                         ],
                                     ),

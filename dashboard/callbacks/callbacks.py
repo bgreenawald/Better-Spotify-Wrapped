@@ -215,6 +215,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             Input("exclude-december", "value"),
             Input("remove-incognito", "value"),
             Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-genres-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
             Input("excluded-albums-filter-dropdown", "value"),
         ],
@@ -225,6 +226,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
         exclude_december,
         remove_incognito,
         excluded_tracks,
+        excluded_genres,
         excluded_artists,
         excluded_albums,
     ):
@@ -234,6 +236,7 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
+            exluded_genres=excluded_genres,
             excluded_tracks=excluded_tracks,
             excluded_artists=excluded_artists,
             excluded_albums=excluded_albums,
@@ -244,11 +247,13 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
 
         # Get artist trends
         artist_trends_df = get_artist_trends(filtered_df)
+
         # Overall artists
         overall_artists = get_most_played_artists(filtered_df)
 
         # Get track trends
         track_trends_df = get_track_trends(filtered_df)
+
         # Overall tracks
         overall_tracks = get_most_played_tracks(filtered_df)
 
@@ -465,6 +470,14 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
             yaxis={"gridcolor": "#eee"},
         )
 
+        # Convert artist genre to string
+        overall_artists["artist_genres"] = overall_artists["artist_genres"].apply(
+            lambda x: ", ".join(x)
+        )
+        overall_artists = overall_artists[
+            ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
+        ]
+
         return fig, [
             dash_table.DataTable(
                 overall_artists.to_dict("records"),
@@ -542,6 +555,14 @@ def register_callbacks(app, df: pd.DataFrame, spotify_data):
 
         # Drop track_artist column
         overall_tracks = overall_tracks.drop("track_artist", axis=1)
+
+        # Convert artist genre to string
+        overall_tracks["artist_genres"] = overall_tracks["artist_genres"].apply(
+            lambda x: ", ".join(x)
+        )
+        overall_tracks = overall_tracks[
+            ["track_name", "artist", "artist_genres", "play_count", "percentage"]
+        ]
 
         return fig, [
             dash_table.DataTable(

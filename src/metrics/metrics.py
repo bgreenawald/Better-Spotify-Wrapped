@@ -29,6 +29,8 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
                 "track_artist",
                 "master_metadata_track_name",
                 "master_metadata_album_artist_name",
+                "artist_id",
+                "artist_genres",
             ]
         )
         .size()
@@ -43,13 +45,13 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     sorted_tracks["percentage"] = sorted_tracks["play_count"] / total_plays
 
     # Rename columns for clarity
-    sorted_tracks.columns = [
-        "track_artist",
-        "track_name",
-        "artist",
-        "play_count",
-        "percentage",
-    ]
+    sorted_tracks.rename(
+        columns={
+            "master_metadata_track_name": "track_name",
+            "master_metadata_album_artist_name": "artist",
+        },
+        inplace=True,
+    )
 
     return sorted_tracks
 
@@ -247,23 +249,27 @@ def get_most_played_artists(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """
     # Count total plays per artist
     play_counts = (
-        filtered_df.groupby("master_metadata_album_artist_name")
+        filtered_df.groupby(
+            ["master_metadata_album_artist_name", "artist_id", "artist_genres"]
+        )
         .size()
         .reset_index(name="play_count")
     )
 
     # Count unique tracks per artist
     unique_tracks = (
-        filtered_df.groupby("master_metadata_album_artist_name")[
-            "master_metadata_track_name"
-        ]
+        filtered_df.groupby(
+            ["master_metadata_album_artist_name", "artist_id", "artist_genres"]
+        )["master_metadata_track_name"]
         .nunique()
         .reset_index(name="unique_tracks")
     )
 
     # Merge play counts and unique tracks
     artist_stats = pd.merge(
-        play_counts, unique_tracks, on="master_metadata_album_artist_name"
+        play_counts,
+        unique_tracks,
+        on=["master_metadata_album_artist_name", "artist_id", "artist_genres"],
     )
 
     # Sort by play count in descending order
@@ -275,6 +281,12 @@ def get_most_played_artists(filtered_df: pd.DataFrame) -> pd.DataFrame:
     ).round(2)
 
     # Rename columns for clarity
-    sorted_artists.columns = ["artist", "play_count", "unique_tracks", "percentage"]
+    sorted_artists.rename(
+        columns={
+            "master_metadata_album_artist_name": "artist",
+            "artist_id": "artist_id",
+        },
+        inplace=True,
+    )
 
     return sorted_artists
