@@ -1,6 +1,7 @@
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import dcc, html
+from dash.development.base_component import Component
 
 from dashboard.components.filters import (
     create_artist_trends_layout,
@@ -14,7 +15,7 @@ from dashboard.components.filters import (
 from dashboard.components.graphs import create_graphs_section_tab_one
 
 
-def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
+def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
     return html.Div(
         [
             # Header
@@ -65,7 +66,7 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
     )
 
 
-def create_tab_one_layout(df: pd.DataFrame):
+def create_tab_one_layout(df: pd.DataFrame) -> Component:
     return html.Div(
         [
             # Filters Card
@@ -89,7 +90,7 @@ def create_tab_one_layout(df: pd.DataFrame):
     )
 
 
-def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame):
+def create_tab_two_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
     return html.Div(
         [
             # Main filters cards

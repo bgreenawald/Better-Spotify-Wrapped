@@ -4,7 +4,7 @@ from io import StringIO
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, dash_table, html
+from dash import Dash, Input, Output, State, dash_table, html
 from dash.exceptions import PreventUpdate
 
 from dashboard.components.graphs import create_graph_style
@@ -24,7 +24,7 @@ from src.metrics.trends import (
 from src.preprocessing import filter_songs
 
 
-def register_callbacks(app, df: pd.DataFrame, spotify_data):
+def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) -> None:
     @app.callback(
         Output("collapse", "is_open"),
         [Input("collapse-button", "n_clicks")],
