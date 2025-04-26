@@ -21,19 +21,26 @@ def create_app():
         assets_folder=str(assets_path),
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
-    DATA_DIR = Path(os.getenv("DATA_DIR"))
+    DATA_DIR = os.getenv("DATA_DIR")
+    if not DATA_DIR:
+        print("[ERROR] DATA_DIR environment variable is not set.")
+        raise EnvironmentError("DATA_DIR environment variable is not set.")
 
-    # Load data
-    df = load_spotify_history(DATA_DIR / "listening_history")
-    spotify_data = load_api_data()
-    df = add_api_data(df, spotify_data)
+    try:
+        print("[INFO] Loading Spotify history...")
+        df = load_spotify_history(Path(DATA_DIR) / "listening_history")
+        print("[INFO] Loading Spotify API data...")
+        spotify_data = load_api_data()
+        print("[INFO] Merging API data...")
+        df = add_api_data(df, spotify_data)
+    except Exception as e:
+        print(f"[ERROR] Error loading data: {e}")
+        raise
 
-    # Create layout
+    print("[INFO] Initializing layout and callbacks...")
     app.layout = create_layout(df, spotify_data)
-
-    # Register callbacks
     register_callbacks(app, df, spotify_data)
-
+    print("[INFO] App initialization complete.")
     return app
 
 

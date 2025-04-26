@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import time
@@ -172,6 +173,13 @@ def load_api_data() -> SpotifyData:
 
 # Example usage
 if __name__ == "__main__":
+    # Decide whether to save data to files with argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--save", action="store_true", help="Save data to files (default: False)"
+    )
+    args = parser.parse_args()
+
     # Load credentials from environment variables
     client_id = os.getenv("SPOTIFY_CLIENT_ID")
     client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -195,11 +203,12 @@ if __name__ == "__main__":
     albums = collector.fetch_albums(album_ids)
 
     # Convert to DataFrames if needed
-    tracks_df = pd.DataFrame(tracks)
-    tracks_df.to_csv(collector.data_dir / "tracks.csv", index=False)
+    if args.save:
+        tracks_df = pd.DataFrame(tracks)
+        tracks_df.to_csv(collector.data_dir / "tracks.csv", index=False)
 
-    artists_df = pd.DataFrame(artists)
-    artists_df.to_csv(collector.data_dir / "artists.csv", index=False)
+        artists_df = pd.DataFrame(artists)
+        artists_df.to_csv(collector.data_dir / "artists.csv", index=False)
 
-    albums_df = pd.DataFrame(albums)
-    albums_df.to_csv(collector.data_dir / "albums.csv", index=False)
+        albums_df = pd.DataFrame(albums)
+        albums_df.to_csv(collector.data_dir / "albums.csv", index=False)

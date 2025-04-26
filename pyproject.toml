@@ -14,4 +14,5 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "spotipy>=2.24.0",
     "tqdm>=4.67.1",
+    "pyinstaller>=6.11.1",
 ]
