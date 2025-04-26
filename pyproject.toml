@@ -16,3 +16,9 @@ dependencies = [
     "tqdm>=4.67.1",
     "pyinstaller>=6.11.1",
 ]
+
+[dependency-groups]
+dev = [
+    "dash[testing]>=2.18.2",
+    "pytest>=8.3.5",
+]
