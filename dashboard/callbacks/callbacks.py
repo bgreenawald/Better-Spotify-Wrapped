@@ -7,11 +7,12 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dash_table, html
 from dash.exceptions import PreventUpdate
 
-from dashboard.components.graphs import create_graph_style
+from dashboard.components.graphs import create_daily_top_heatmap, create_graph_style
 from dashboard.components.stats import create_stats_table
 from src.metrics.metrics import (
     get_most_played_artists,
     get_most_played_tracks,
+    get_playcount_by_day,
     get_top_albums,
     get_top_artist_genres,
 )
@@ -62,6 +63,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Output("top-albums-graph", "figure"),
             Output("top-genres-graph", "figure"),
             Output("detailed-stats", "children"),
+            Output("daily-song-heatmap", "figure"),
         ],
         [
             Input("year-dropdown", "value"),
@@ -205,7 +207,18 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         # Create stats table
         stats_table = create_stats_table(filtered_df)
 
-        return tracks_fig, artists_fig, albums_fig, genres_fig, stats_table
+        # Daily song heatmap
+        daily_playcount = get_playcount_by_day(filtered_df)
+        daily_heatmap_fig = create_daily_top_heatmap(daily_playcount)
+
+        return (
+            tracks_fig,
+            artists_fig,
+            albums_fig,
+            genres_fig,
+            stats_table,
+            daily_heatmap_fig,
+        )
 
     @app.callback(
         Output("tab-2-data", "data"),
@@ -395,6 +408,15 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 column_selectable="single",
                 row_selectable="multi",
                 page_size=25,
+                export_format="csv",
+                export_headers="display",
+                style_table={"overflowX": "auto"},
+                style_cell={
+                    "textAlign": "left",
+                    "padding": "8px",
+                    "whiteSpace": "normal",
+                    "height": "auto",
+                },
             )
         ]
 
@@ -488,6 +510,15 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 column_selectable="single",
                 row_selectable="multi",
                 page_size=25,
+                export_format="csv",
+                export_headers="display",
+                style_table={"overflowX": "auto"},
+                style_cell={
+                    "textAlign": "left",
+                    "padding": "8px",
+                    "whiteSpace": "normal",
+                    "height": "auto",
+                },
             )
         ]
 
@@ -574,5 +605,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 column_selectable="single",
                 row_selectable="multi",
                 page_size=25,
+                export_format="csv",
+                export_headers="display",
+                style_table={"overflowX": "auto"},
+                style_cell={
+                    "textAlign": "left",
+                    "padding": "8px",
+                    "whiteSpace": "normal",
+                    "height": "auto",
+                },
             )
         ]

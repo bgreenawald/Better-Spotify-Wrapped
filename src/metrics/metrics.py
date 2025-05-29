@@ -290,3 +290,42 @@ def get_most_played_artists(filtered_df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return sorted_artists
+
+
+def get_playcount_by_day(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate play count for each song by day from a filtered Spotify listening history DataFrame.
+
+    Args:
+        filtered_df (pd.DataFrame): DataFrame that has already been filtered using filter_songs()
+
+    Returns:
+        pd.DataFrame: DataFrame containing daily play counts with columns:
+                     'date', 'track', 'artist', 'play_count'
+    """
+    # Convert timestamp to date format
+    filtered_df["date"] = filtered_df["ts"].dt.date
+
+    # Group by date, track name, and artist to calculate play counts
+    daily_playcounts = (
+        filtered_df.groupby(
+            ["date", "master_metadata_track_name", "master_metadata_album_artist_name"]
+        )
+        .size()
+        .reset_index(name="play_count")
+    )
+
+    # Rename columns for clarity
+    daily_playcounts = daily_playcounts.rename(
+        columns={
+            "master_metadata_track_name": "track",
+            "master_metadata_album_artist_name": "artist",
+        }
+    )
+
+    # Sort by date and play count
+    daily_playcounts = daily_playcounts.sort_values(
+        ["date", "play_count"], ascending=[True, False]
+    )
+
+    return daily_playcounts

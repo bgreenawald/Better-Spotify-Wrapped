@@ -1,5 +1,7 @@
+import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from dash import dcc, html
 
 
@@ -182,3 +184,74 @@ def create_graphs_section_tab_one():
             ),
         ]
     )
+
+
+def create_daily_top_playcount_grid(daily_playcounts: pd.DataFrame) -> pd.DataFrame:
+    df = daily_playcounts.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    top = (
+        df.sort_values(["date", "play_count"], ascending=[True, False])
+        .drop_duplicates("date")
+        .set_index("date")[["track", "artist", "play_count"]]
+    )
+
+    full_idx = pd.date_range(top.index.min(), top.index.max(), freq="D")
+    top = top.reindex(full_idx)
+    top["play_count"] = top["play_count"].fillna(0).astype(int)
+    top["track"] = top["track"].fillna("")
+    top["artist"] = top["artist"].fillna("")
+    top["track_artist"] = top["track"] + " - " + top["artist"]
+
+    n = len(top)
+    cols = 10
+    out = pd.DataFrame(
+        {
+            "date": full_idx,
+            "track": top["track_artist"].values,
+            "play_count": top["play_count"].values,
+        }
+    )
+    out["pos"] = np.arange(n)
+    out["row"] = out["pos"] // cols
+    out["col"] = out["pos"] % cols
+
+    return out[["row", "col", "date", "track", "play_count"]]
+
+
+def create_daily_top_heatmap(
+    daily_playcounts: pd.DataFrame = None,
+    title: str = "Daily Top-Track Play Count Heatmap",
+):
+    layout = create_graph_style()
+    if daily_playcounts is None or daily_playcounts.empty:
+        return html.Div("No data available", className="graph-card card")
+
+    grid_df = create_daily_top_playcount_grid(daily_playcounts)
+
+    # Pivot into matrices using keyword args
+    z_mat = grid_df.pivot(index="row", columns="col", values="play_count").values
+    date_mat = (
+        grid_df.pivot(index="row", columns="col", values="date").astype(str).values
+    )
+    track_mat = grid_df.pivot(index="row", columns="col", values="track").values
+
+    # Build a 3D customdata array of shape (rows, cols, 2)
+    customdata = np.dstack([date_mat, track_mat])
+
+    heat = go.Heatmap(
+        z=z_mat,
+        x=list(range(z_mat.shape[1])),
+        y=list(range(z_mat.shape[0])),
+        colorscale="Greens",
+        customdata=customdata,
+        hovertemplate=(
+            "Date: %{customdata[0]}<br>"
+            "Track: %{customdata[1]}<br>"
+            "Plays: %{z}<extra></extra>"
+        ),
+        colorbar=dict(title="Plays"),
+    )
+    fig = go.Figure(heat)
+    fig.update_layout(**layout)
+
+    return fig

@@ -85,6 +85,24 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 ],
                 className="card",
             ),
+            # Daily song heat-map
+            dcc.Loading(
+                overlay_style={"visibility": "visible", "filter": "blur(2px)"},
+                delay_show=2000,
+                children=[
+                    html.Div(
+                        [
+                            html.H3("Daily Song Heatmap", className="card-title"),
+                            dcc.Graph(
+                                id="daily-song-heatmap",
+                                figure={},
+                                config={"displayModeBar": False},
+                            ),
+                        ],
+                        className="card",
+                    )
+                ],
+            ),
         ],
         className="container",
     )
