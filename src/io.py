@@ -1,38 +1,39 @@
 import json
 from pathlib import Path
+from typing import List
 
 import pandas as pd
 
 
 def load_spotify_history(directory: str) -> pd.DataFrame:
-    """
-    Load all JSON files from a directory containing Spotify listening history
-    and combine them into a single pandas DataFrame.
+    """Load and combine Spotify listening history JSON files into a DataFrame.
+
+    Reads all JSON files in the given directory, each containing a list of
+    Spotify listening history records. Combines records into a single
+    DataFrame and converts the 'ts' column to timezone-naive datetime.
 
     Args:
-        directory (str): Path to directory containing JSON files
+        directory (str): Path to the directory containing .json files
+            with Spotify listening history records.
 
     Returns:
-        pandas.DataFrame: Combined DataFrame of all listening history
+        pd.DataFrame: Combined DataFrame with listening history.
+            The 'ts' column is converted to datetime without timezone.
     """
-    # Convert directory to Path object
-    dir_path = Path(directory)
+    data_dir = Path(directory)
+    all_records: List[dict] = []
 
-    # Initialize empty list to store all records
-    all_records = []
+    # Load records from each JSON file
+    for file_path in data_dir.glob("*.json"):
+        with file_path.open("r", encoding="utf-8") as fp:
+            records = json.load(fp)
+            all_records.extend(records)
 
-    # Iterate through all JSON files in directory
-    for json_file in dir_path.glob("*.json"):
-        with open(json_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            all_records.extend(data)
-
-    # Convert to DataFrame
     df = pd.DataFrame(all_records)
 
-    # Convert timestamp to datetime
-    df["ts"] = pd.to_datetime(df["ts"])
-
-    df["ts"] = df["ts"].dt.tz_localize(None)
+    # Convert 'ts' column to datetime and remove timezone
+    if "ts" in df.columns:
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        df["ts"] = df["ts"].dt.tz_localize(None)
 
     return df

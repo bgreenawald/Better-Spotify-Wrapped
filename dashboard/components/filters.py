@@ -1,25 +1,28 @@
-from datetime import datetime
 from itertools import chain
 
 import pandas as pd
 from dash import dcc, html
 
-from src.metrics.trends import (
-    get_genre_trends,
-)
+from src.metrics.trends import get_genre_trends
 
 
-def create_year_dropdown(df: pd.DataFrame):
-    available_years = sorted(df["ts"].dt.year.unique())
+def create_year_dropdown(df: pd.DataFrame) -> html.Div:
+    """Create a dropdown for selecting a year from DataFrame timestamps.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing a 'ts' datetime column.
+
+    Returns:
+        html.Div: Div containing the year selection dropdown.
+    """
+    years = sorted(df["ts"].dt.year.unique())
     return html.Div(
         [
             html.Label("Select Year", className="filter-label"),
             dcc.Dropdown(
                 id="year-dropdown",
-                options=[
-                    {"label": str(year), "value": year} for year in available_years
-                ],
-                value=available_years[-1],
+                options=[{"label": str(year), "value": year} for year in years],
+                value=years[-1] if years else None,
                 className="dropdown",
             ),
         ],
@@ -27,30 +30,41 @@ def create_year_dropdown(df: pd.DataFrame):
     )
 
 
-def create_wrapped_filters_section(df: pd.DataFrame):
+def create_wrapped_filters_section(df: pd.DataFrame) -> html.Div:
+    """Wrap the year dropdown in a titled filters section.
+
+    Args:
+        df (pd.DataFrame): DataFrame used to generate filters.
+
+    Returns:
+        html.Div: Div containing a Filters title and section.
+    """
     return html.Div(
         [
             html.H3("Filters", className="card-title"),
-            html.Div(
-                [
-                    create_year_dropdown(df),
-                ],
-                className="filters-section",
-            ),
+            html.Div([create_year_dropdown(df)], className="filters-section"),
         ]
     )
 
 
-def create_global_settings(df: pd.DataFrame):
+def create_global_settings(df: pd.DataFrame) -> html.Div:
+    """Generate global settings filters for exclusions and toggles.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing metadata columns.
+
+    Returns:
+        html.Div: Div containing exclusion dropdowns and radio items.
+    """
     tracks = df["master_metadata_track_name"].dropna().unique().tolist()
     artists = df["master_metadata_album_artist_name"].dropna().unique().tolist()
     albums = df["master_metadata_album_album_name"].dropna().unique().tolist()
-    genres = sorted(list(set(chain.from_iterable(df["artist_genres"].dropna()))))
+    genres = sorted(set(chain.from_iterable(df["artist_genres"].dropna())))
+
     return html.Div(
         [
             html.Div(
                 [
-                    # Genre Filter
                     html.Div(
                         [
                             html.Label(
@@ -58,29 +72,28 @@ def create_global_settings(df: pd.DataFrame):
                             ),
                             dcc.Dropdown(
                                 id="excluded-artists-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": artist, "value": artist}
                                     for artist in artists
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
                     ),
-                    # Genre Filter
                     html.Div(
                         [
                             html.Label(
-                                "Select Excluded Genre", className="filter-label"
+                                "Select Excluded Genres", className="filter-label"
                             ),
                             dcc.Dropdown(
                                 id="excluded-genres-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": genre, "value": genre} for genre in genres
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
@@ -97,11 +110,11 @@ def create_global_settings(df: pd.DataFrame):
                             ),
                             dcc.Dropdown(
                                 id="excluded-albums-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": album, "value": album} for album in albums
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
@@ -113,11 +126,11 @@ def create_global_settings(df: pd.DataFrame):
                             ),
                             dcc.Dropdown(
                                 id="excluded-tracks-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": track, "value": track} for track in tracks
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
@@ -165,18 +178,28 @@ def create_global_settings(df: pd.DataFrame):
 
 
 def create_year_range_filter(df: pd.DataFrame) -> html.Div:
-    min_date = datetime(df["ts"].min().year, df["ts"].min().month, df["ts"].min().day)
-    max_date = datetime(df["ts"].max().year, df["ts"].max().month, df["ts"].max().day)
+    """Create a date range picker based on min/max dates in the DataFrame.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing a 'ts' datetime column.
+
+    Returns:
+        html.Div: Div containing a date picker range and reset button.
+    """
+    min_ts = df["ts"].min()
+    max_ts = df["ts"].max()
+    start_date = min_ts.date() if hasattr(min_ts, "date") else min_ts
+    end_date = max_ts.date() if hasattr(max_ts, "date") else max_ts
 
     return html.Div(
         [
             html.Label("Select Date Range", className="filter-label"),
             dcc.DatePickerRange(
                 id="date-range",
-                min_date_allowed=min_date,
-                max_date_allowed=max_date,
-                start_date=min_date,
-                end_date=max_date,
+                min_date_allowed=start_date,
+                max_date_allowed=end_date,
+                start_date=start_date,
+                end_date=end_date,
                 className="datepicker",
             ),
             html.Button(
@@ -190,10 +213,21 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_genre_trends_layout(df, spotify_data):
+def create_genre_trends_layout(
+    df: pd.DataFrame, spotify_data: pd.DataFrame
+) -> html.Div:
+    """Create the layout for the genre trends analysis section.
+
+    Args:
+        df (pd.DataFrame): DataFrame of play history.
+        spotify_data (pd.DataFrame): DataFrame with genre trend data.
+
+    Returns:
+        html.Div: Div containing genre filters and sliders.
+    """
     genres_df = get_genre_trends(df, spotify_data)
-    genres = sorted(genres_df["genre"].dropna().unique().tolist())
-    """Create the layout for the genre trends analysis section"""
+    genres = sorted(genres_df["genre"].dropna().unique())
+
     return html.Div(
         [
             html.Div(
@@ -203,12 +237,12 @@ def create_genre_trends_layout(df, spotify_data):
                             html.Label("Select Genres", className="filter-label"),
                             dcc.Dropdown(
                                 id="genre-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": genre.title(), "value": genre}
                                     for genre in genres
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
@@ -216,7 +250,6 @@ def create_genre_trends_layout(df, spotify_data):
                 ],
                 className="filters-section",
             ),
-            # Genre Filter
             html.Div(
                 [
                     html.Div(
@@ -236,7 +269,6 @@ def create_genre_trends_layout(df, spotify_data):
                         ],
                         className="filter-item",
                     ),
-                    # Display Type Selector
                     html.Div(
                         [
                             html.Label("Display Type", className="filter-label"),
@@ -255,14 +287,21 @@ def create_genre_trends_layout(df, spotify_data):
                 ],
                 className="filters-section",
             ),
-            # Top N Genres Slider
-        ],
+        ]
     )
 
 
-def create_artist_trends_layout(df: pd.DataFrame):
-    artists = sorted(df["master_metadata_album_artist_name"].dropna().unique().tolist())
-    """Create the layout for the genre trends analysis section"""
+def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
+    """Create the layout for the artist trends analysis section.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing play history with artist info.
+
+    Returns:
+        html.Div: Div containing artist filters and sliders.
+    """
+    artists = sorted(df["master_metadata_album_artist_name"].dropna().unique())
+
     return html.Div(
         [
             html.Div(
@@ -272,12 +311,12 @@ def create_artist_trends_layout(df: pd.DataFrame):
                             html.Label("Select Artists", className="filter-label"),
                             dcc.Dropdown(
                                 id="artist-filter-dropdown",
-                                multi=True,
-                                className="dropdown",
                                 options=[
                                     {"label": artist, "value": artist}
                                     for artist in artists
                                 ],
+                                multi=True,
+                                className="dropdown",
                             ),
                         ],
                         className="filter-item",
@@ -285,8 +324,6 @@ def create_artist_trends_layout(df: pd.DataFrame):
                 ],
                 className="filters-section",
             ),
-            # Genre Filter
-            # Top N Genres Slider
             html.Div(
                 [
                     html.Div(
@@ -306,7 +343,6 @@ def create_artist_trends_layout(df: pd.DataFrame):
                         ],
                         className="filter-item",
                     ),
-                    # Display Type Selector
                     html.Div(
                         [
                             html.Label("Display Type", className="filter-label"),
@@ -329,20 +365,52 @@ def create_artist_trends_layout(df: pd.DataFrame):
                 ],
                 className="filters-section",
             ),
-        ],
+        ]
     )
 
 
-def create_track_trends_layout(df: pd.DataFrame):
-    """Create the layout for the track trends analysis section"""
-    df_tracks = df.copy()
-    df_tracks = df_tracks.drop_duplicates(
-        subset=["master_metadata_track_name", "master_metadata_album_artist_name"]
+def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
+    """Create the layout for the track trends analysis section.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing track play history.
+
+    Returns:
+        html.Div: Div containing track filters and sliders.
+    """
+    df_tracks = (
+        df.drop_duplicates(
+            subset=[
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+            ]
+        )
+        .dropna(
+            subset=[
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+            ]
+        )
+        .sort_values(
+            by="master_metadata_track_name",
+            ascending=True,
+        )
     )
-    df_tracks = df_tracks.dropna(
-        subset=["master_metadata_track_name", "master_metadata_album_artist_name"]
-    )
-    df_tracks = df_tracks.sort_values(by="master_metadata_track_name", ascending=True)
+
+    options = [
+        {
+            "label": (
+                f"{row.master_metadata_track_name} - "
+                f"{row.master_metadata_album_artist_name}"
+            ),
+            "value": (
+                f"{row.master_metadata_track_name} - "
+                f"{row.master_metadata_album_artist_name}"
+            ),
+        }
+        for row in df_tracks.itertuples()
+    ]
+
     return html.Div(
         [
             html.Div(
@@ -352,19 +420,9 @@ def create_track_trends_layout(df: pd.DataFrame):
                             html.Label("Select Tracks", className="filter-label"),
                             dcc.Dropdown(
                                 id="track-filter-dropdown",
+                                options=options,
                                 multi=True,
                                 className="dropdown",
-                                options=[
-                                    {
-                                        "label": row.master_metadata_track_name
-                                        + " - "
-                                        + row.master_metadata_album_artist_name,
-                                        "value": row.master_metadata_track_name
-                                        + " - "
-                                        + row.master_metadata_album_artist_name,
-                                    }
-                                    for row in df_tracks.itertuples()
-                                ],
                             ),
                         ],
                         className="filter-item",
@@ -372,7 +430,6 @@ def create_track_trends_layout(df: pd.DataFrame):
                 ],
                 className="filters-section",
             ),
-            # Track Filter
             html.Div(
                 [
                     html.Div(
@@ -392,7 +449,6 @@ def create_track_trends_layout(df: pd.DataFrame):
                         ],
                         className="filter-item",
                     ),
-                    # Display Type Selector
                     html.Div(
                         [
                             html.Label("Display Type", className="filter-label"),
@@ -411,23 +467,29 @@ def create_track_trends_layout(df: pd.DataFrame):
                 ],
                 className="filters-section",
             ),
-            # Top N Tracks Slider
-        ],
+        ]
     )
 
 
 def create_monthly_trend_filter() -> html.Div:
+    """Create a dropdown for selecting monthly trend metrics.
+
+    Returns:
+        html.Div: Div containing the metric selection dropdown.
+    """
+    options = [
+        {"label": "Total Hours", "value": "total_hours"},
+        {"label": "Unique Tracks", "value": "unique_tracks"},
+        {"label": "Unique Artists", "value": "unique_artists"},
+        {"label": "Average Hours per Day", "value": "avg_hours_per_day"},
+    ]
+
     return html.Div(
         [
             html.Label("Select Metric", className="filter-label"),
             dcc.Dropdown(
                 id="metric-dropdown",
-                options=[
-                    {"label": "Total Hours", "value": "total_hours"},
-                    {"label": "Unique Tracks", "value": "unique_tracks"},
-                    {"label": "Unique Artists", "value": "unique_artists"},
-                    {"label": "Average Hours per Day", "value": "avg_hours_per_day"},
-                ],
+                options=options,
                 value="total_hours",
                 className="dropdown",
             ),
@@ -436,15 +498,18 @@ def create_monthly_trend_filter() -> html.Div:
     )
 
 
-def create_trend_filters_section(df: pd.DataFrame):
+def create_trend_filters_section(df: pd.DataFrame) -> html.Div:
+    """Wrap the date range filter in a titled trend filters section.
+
+    Args:
+        df (pd.DataFrame): DataFrame used to determine date range.
+
+    Returns:
+        html.Div: Div containing a Filters title and trend filter section.
+    """
     return html.Div(
         [
             html.H3("Filters", className="card-title"),
-            html.Div(
-                [
-                    create_year_range_filter(df),
-                ],
-                className="filters-section",
-            ),
+            html.Div([create_year_range_filter(df)], className="filters-section"),
         ]
     )

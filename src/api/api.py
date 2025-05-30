@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 import spotipy
@@ -17,147 +17,217 @@ load_dotenv(override=True)
 
 @dataclass
 class SpotifyData:
-    """Container for all Spotify-related data"""
+    """Container for Spotify API data: tracks, artists, and albums.
 
-    tracks: Dict[str, Dict]  # track_id -> track_data
-    artists: Dict[str, Dict]  # artist_id -> artist_data
-    albums: Dict[str, Dict]  # album_id -> album_data
+    Attributes:
+        tracks: Mapping from track ID to track data.
+        artists: Mapping from artist ID to artist data.
+        albums: Mapping from album ID to album data.
+    """
+
+    tracks: Dict[str, Dict[str, Any]]
+    artists: Dict[str, Dict[str, Any]]
+    albums: Dict[str, Dict[str, Any]]
 
 
 class SpotifyDataCollector:
+    """Collects and caches Spotify tracks, artists, and albums data."""
+
+    _TRACK_BATCH_SIZE: int = 50
+    _ALBUM_BATCH_SIZE: int = 20
+    _ARTIST_BATCH_SIZE: int = 20
+    _RATE_LIMIT_DELAY: float = 0.2
+
     def __init__(
         self,
-        client_id: str = os.getenv("SPOTIFY_CLIENT_ID"),
-        client_secret: str = os.getenv("SPOTIFY_CLIENT_SECRET"),
-    ):
-        """
-        Initialize the Spotify data collector with API credentials and cache directory.
+        client_id: Optional[str] = os.getenv("SPOTIFY_CLIENT_ID"),
+        client_secret: Optional[str] = os.getenv("SPOTIFY_CLIENT_SECRET"),
+    ) -> None:
+        """Initialize the collector with Spotify API credentials and cache dirs.
 
         Args:
-            client_id: Spotify API client ID
-            client_secret: Spotify API client secret
+            client_id: Spotify API client ID.
+            client_secret: Spotify API client secret.
         """
-        self.sp = spotipy.Spotify(
+        self.spotify_client = spotipy.Spotify(
             auth_manager=SpotifyClientCredentials(
                 client_id=client_id, client_secret=client_secret
             )
         )
-
-        self.data_dir = Path(os.getenv("DATA_DIR"))
-        self.api_cache_dir = Path("data/api/cache")
+        self.data_dir: Path = Path(os.getenv("DATA_DIR"))  # type: ignore
+        self.cache_dir: Path = Path("data/api/cache")
         self._setup_cache_directories()
 
-        # API batch limits
-        self.TRACK_BATCH_SIZE = 50
-        self.ALBUM_BATCH_SIZE = 20
-        self.ARTIST_BATCH_SIZE = 20
+    def _setup_cache_directories(self) -> None:
+        """Create cache subdirectories for tracks, artists, and albums."""
+        for category in ("tracks", "artists", "albums"):
+            (self.cache_dir / category).mkdir(parents=True, exist_ok=True)
 
-    def _setup_cache_directories(self):
-        """Create cache directories if they don't exist."""
-        for subdir in ["tracks", "artists", "albums"]:
-            (self.api_cache_dir / subdir).mkdir(parents=True, exist_ok=True)
+    def _get_cached_ids(self, category: str) -> Set[str]:
+        """Retrieve all cached item IDs for a given category.
 
-    def _get_cached_ids(self, cache_type: str) -> Set[str]:
-        """Get set of all cached IDs for a given type."""
-        cache_path = self.api_cache_dir / cache_type
-        return {f.stem for f in cache_path.glob("*.json")}
+        Args:
+            category: One of 'tracks', 'artists', 'albums'.
 
-    def _load_cache(self, cache_type: str, item_id: str) -> Dict:
-        """Load item from cache."""
-        cache_path = self.api_cache_dir / cache_type / f"{item_id}.json"
-        with open(cache_path, "r") as f:
+        Returns:
+            A set of cached item IDs (filename stems).
+        """
+        cache_path = self.cache_dir / category
+        return {file.stem for file in cache_path.glob("*.json")}
+
+    def _load_cache(self, category: str, item_id: str) -> Dict[str, Any]:
+        """Load a single cached item from disk.
+
+        Args:
+            category: Cache category.
+            item_id: ID of the item to load.
+
+        Returns:
+            The cached item data as a dictionary.
+        """
+        path = self.cache_dir / category / f"{item_id}.json"
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def _save_cache(self, cache_type: str, items: List[Dict]):
-        """Save multiple items to cache."""
+    def _save_cache(self, category: str, items: List[Dict[str, Any]]) -> None:
+        """Save multiple items to the cache.
+
+        Args:
+            category: Cache category.
+            items: List of item data dictionaries with 'id' keys.
+        """
         for item in items:
             item_id = item["id"]
-            cache_path = self.api_cache_dir / cache_type / f"{item_id}.json"
-            with open(cache_path, "w") as f:
+            path = self.cache_dir / category / f"{item_id}.json"
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(item, f, indent=4, sort_keys=True)
 
-    def _chunk_list(self, lst: List[str], chunk_size: int) -> List[List[str]]:
-        """Split list into chunks of specified size."""
-        return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
+    def _chunk_list(self, items: List[str], size: int) -> List[List[str]]:
+        """Split a list into smaller lists of a given size.
 
-    def fetch_tracks(self, track_ids: List[str]) -> List[Dict]:
+        Args:
+            items: The list to split.
+            size: Maximum size of each chunk.
+
+        Returns:
+            A list of list chunks.
         """
-        Fetch track information for multiple tracks, using cache when available.
-        Only fetches uncached tracks from the API.
+        return [items[i : i + size] for i in range(0, len(items), size)]
+
+    def fetch_tracks(self, track_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch track data by IDs, using cache when available.
+
+        Args:
+            track_ids: List of Spotify track IDs.
+
+        Returns:
+            List of track data dictionaries.
         """
-        cached_ids = self._get_cached_ids("tracks")
-        uncached_ids = [tid for tid in track_ids if tid not in cached_ids]
+        cached = self._get_cached_ids("tracks")
+        uncached = [tid for tid in track_ids if tid not in cached]
 
         # Load cached tracks
-        tracks = [
-            self._load_cache("tracks", tid) for tid in track_ids if tid in cached_ids
+        tracks: List[Dict[str, Any]] = [
+            self._load_cache("tracks", tid) for tid in track_ids if tid in cached
         ]
 
-        # Fetch uncached tracks in batches
-        for id_batch in tqdm(self._chunk_list(uncached_ids, self.TRACK_BATCH_SIZE)):
-            batch_tracks = self.sp.tracks(id_batch)["tracks"]
-            self._save_cache("tracks", batch_tracks)
-            tracks.extend(batch_tracks)
-            time.sleep(0.2)  # Rate limiting
+        # Fetch remaining tracks in batches
+        for batch in tqdm(
+            self._chunk_list(uncached, self._TRACK_BATCH_SIZE),
+            desc="Fetching track batches",
+        ):
+            response = self.spotify_client.tracks(batch)["tracks"]
+            self._save_cache("tracks", response)
+            tracks.extend(response)
+            time.sleep(self._RATE_LIMIT_DELAY)
 
         return tracks
 
-    def fetch_artists(self, artist_ids: List[str]) -> List[Dict]:
-        """
-        Fetch artist information for multiple artists, using cache when available.
-        Only fetches uncached artists from the API.
-        """
-        cached_ids = self._get_cached_ids("artists")
-        uncached_ids = [aid for aid in artist_ids if aid not in cached_ids]
+    def fetch_artists(self, artist_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch artist data by IDs, using cache when available.
 
-        # Load cached artists
-        artists = [
-            self._load_cache("artists", aid) for aid in artist_ids if aid in cached_ids
+        Args:
+            artist_ids: List of Spotify artist IDs.
+
+        Returns:
+            List of artist data dictionaries.
+        """
+        cached = self._get_cached_ids("artists")
+        uncached = [aid for aid in artist_ids if aid not in cached]
+
+        artists: List[Dict[str, Any]] = [
+            self._load_cache("artists", aid) for aid in artist_ids if aid in cached
         ]
 
-        # Fetch uncached artists in batches
-        for id_batch in tqdm(self._chunk_list(uncached_ids, self.ARTIST_BATCH_SIZE)):
-            batch_artists = self.sp.artists(id_batch)["artists"]
-            self._save_cache("artists", batch_artists)
-            artists.extend(batch_artists)
-            time.sleep(0.2)
+        for batch in tqdm(
+            self._chunk_list(uncached, self._ARTIST_BATCH_SIZE),
+            desc="Fetching artist batches",
+        ):
+            response = self.spotify_client.artists(batch)["artists"]
+            self._save_cache("artists", response)
+            artists.extend(response)
+            time.sleep(self._RATE_LIMIT_DELAY)
 
         return artists
 
-    def fetch_albums(self, album_ids: List[str]) -> List[Dict]:
-        """
-        Fetch album information for multiple albums, using cache when available.
-        Only fetches uncached albums from the API.
-        """
-        cached_ids = self._get_cached_ids("albums")
-        uncached_ids = [aid for aid in album_ids if aid not in cached_ids]
+    def fetch_albums(self, album_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch album data by IDs, using cache when available.
 
-        # Load cached albums
-        albums = [
-            self._load_cache("albums", aid) for aid in album_ids if aid in cached_ids
+        Args:
+            album_ids: List of Spotify album IDs.
+
+        Returns:
+            List of album data dictionaries.
+        """
+        cached = self._get_cached_ids("albums")
+        uncached = [aid for aid in album_ids if aid not in cached]
+
+        albums: List[Dict[str, Any]] = [
+            self._load_cache("albums", aid) for aid in album_ids if aid in cached
         ]
 
-        # Fetch uncached albums in batches
-        for id_batch in tqdm(self._chunk_list(uncached_ids, self.ALBUM_BATCH_SIZE)):
-            batch_albums = self.sp.albums(id_batch)["albums"]
-            self._save_cache("albums", batch_albums)
-            albums.extend(batch_albums)
-            time.sleep(0.2)
+        for batch in tqdm(
+            self._chunk_list(uncached, self._ALBUM_BATCH_SIZE),
+            desc="Fetching album batches",
+        ):
+            response = self.spotify_client.albums(batch)["albums"]
+            self._save_cache("albums", response)
+            albums.extend(response)
+            time.sleep(self._RATE_LIMIT_DELAY)
 
         return albums
 
 
-def _list_to_dict(lst: List[Dict], key: str) -> Dict[str, Dict]:
-    return {item[key]: item for item in lst}
+def _list_to_dict(items: List[Dict[str, Any]], key: str) -> Dict[str, Dict[str, Any]]:
+    """Convert a list of dicts into a dict keyed by a specified field.
+
+    Args:
+        items: List of dictionaries.
+        key: The key to index dictionaries by.
+
+    Returns:
+        A dict mapping item[key] to the item dict.
+    """
+    return {item[key]: item for item in items}
 
 
 def load_api_data() -> SpotifyData:
+    """Load all Spotify data using ID files and the data collector.
+
+    Reads track, artist, and album ID files, fetches their data, and returns
+    a SpotifyData object containing dicts of the fetched data.
+    """
     collector = SpotifyDataCollector()
-    with open(collector.data_dir / "track_ids.txt", "r") as f:
+    # Read ID lists from files
+    track_file = collector.data_dir / "track_ids.txt"
+    artist_file = collector.data_dir / "artist_ids.txt"
+    album_file = collector.data_dir / "album_ids.txt"
+
+    with open(track_file, "r", encoding="utf-8") as f:
         track_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "artist_ids.txt", "r") as f:
+    with open(artist_file, "r", encoding="utf-8") as f:
         artist_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "album_ids.txt", "r") as f:
+    with open(album_file, "r", encoding="utf-8") as f:
         album_ids = [line.strip() for line in f]
 
     tracks = collector.fetch_tracks(track_ids)
@@ -165,33 +235,31 @@ def load_api_data() -> SpotifyData:
     albums = collector.fetch_albums(album_ids)
 
     return SpotifyData(
-        _list_to_dict(tracks, "id"),
-        _list_to_dict(artists, "id"),
-        _list_to_dict(albums, "id"),
+        tracks=_list_to_dict(tracks, "id"),
+        artists=_list_to_dict(artists, "id"),
+        albums=_list_to_dict(albums, "id"),
     )
 
 
-# Example usage
 if __name__ == "__main__":
-    # Decide whether to save data to files with argparse
-    parser = argparse.ArgumentParser()
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Fetch Spotify data and cache it")
     parser.add_argument(
-        "--save", action="store_true", help="Save data to files (default: False)"
+        "--save", action="store_true", help="Save fetched data to CSV files"
     )
     args = parser.parse_args()
 
-    # Load credentials from environment variables
+    # Initialize collector
     client_id = os.getenv("SPOTIFY_CLIENT_ID")
     client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-
     collector = SpotifyDataCollector(client_id, client_secret)
 
-    # Example: Load IDs from files
-    with open(collector.data_dir / "track_ids.txt", "r") as f:
+    # Load ID lists
+    with open(collector.data_dir / "track_ids.txt", "r", encoding="utf-8") as f:
         track_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "artist_ids.txt", "r") as f:
+    with open(collector.data_dir / "artist_ids.txt", "r", encoding="utf-8") as f:
         artist_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "album_ids.txt", "r") as f:
+    with open(collector.data_dir / "album_ids.txt", "r", encoding="utf-8") as f:
         album_ids = [line.strip() for line in f]
 
     # Fetch data
@@ -202,7 +270,7 @@ if __name__ == "__main__":
     print("Fetching albums...")
     albums = collector.fetch_albums(album_ids)
 
-    # Convert to DataFrames if needed
+    # Save data to CSV if requested
     if args.save:
         tracks_df = pd.DataFrame(tracks)
         tracks_df.to_csv(collector.data_dir / "tracks.csv", index=False)

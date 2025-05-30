@@ -6,27 +6,38 @@ from dash import dcc, html
 
 
 def create_graph_style():
+    """Return a standardized Plotly layout dictionary."""
     return {
         "paper_bgcolor": "white",
         "plot_bgcolor": "white",
         "font": {"family": "Segoe UI, sans-serif"},
-        "margin": {"t": 30, "b": 30, "l": 200, "r": 30},  # Increased left margin
-        "height": 450,  # Fixed height to accommodate more items
+        "margin": {"t": 30, "b": 30, "l": 200, "r": 30},
+        "height": 450,
         "yaxis": {
             "gridcolor": "#eee",
-            "automargin": True,  # Automatically adjust margin for labels
-            "tickfont": {"size": 11},  # Slightly smaller font size for labels
+            "automargin": True,
+            "tickfont": {"size": 11},
         },
         "xaxis": {"gridcolor": "#eee", "automargin": True},
     }
 
 
-def create_top_tracks_graph(top_tracks: pd.DataFrame = None):
-    layout = create_graph_style()
+def create_top_tracks_graph(top_tracks=None):
+    """Create a horizontal bar chart of the most played tracks.
+
+    Args:
+        top_tracks (pd.DataFrame, optional): DataFrame with columns
+            'track_name', 'play_count', and 'artist'. Defaults to None.
+
+    Returns:
+        html.Div: Dash container with the bar chart.
+    """
+    graph_layout = create_graph_style()
 
     if top_tracks is not None:
+        df = top_tracks.head(10)
         fig = px.bar(
-            top_tracks.head(10),
+            df,
             x="play_count",
             y="track_name",
             text="play_count",
@@ -34,21 +45,23 @@ def create_top_tracks_graph(top_tracks: pd.DataFrame = None):
             labels={"track_name": "Track", "play_count": "Play Count"},
             hover_data=["artist"],
         )
-        fig.update_layout(**layout)
+        fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954")
-        # Truncate long track names
+
+        # Truncate long track names for readability
+        truncated = [
+            f"{name[:50]}..." if len(name) > 50 else name for name in df["track_name"]
+        ]
         fig.update_yaxes(
-            ticktext=[
-                f"{text[:50]}..." if len(text) > 50 else text
-                for text in top_tracks["track_name"].head(10)
-            ],
-            tickvals=list(range(len(top_tracks.head(10)))),
+            ticktext=truncated,
+            tickvals=list(range(len(df))),
         )
 
     return html.Div(
-        [
+        className="graph-card card",
+        children=[
             dcc.Loading(
-                [
+                children=[
                     html.H3("Most Played Tracks", className="card-title"),
                     dcc.Graph(
                         id="top-tracks-graph",
@@ -58,16 +71,25 @@ def create_top_tracks_graph(top_tracks: pd.DataFrame = None):
                 ]
             )
         ],
-        className="graph-card card",
     )
 
 
-def create_top_artists_graph(top_artists: pd.DataFrame = None):
-    layout = create_graph_style()
+def create_top_artists_graph(top_artists=None):
+    """Create a horizontal bar chart of the top artists by play count.
+
+    Args:
+        top_artists (pd.DataFrame, optional): DataFrame with columns
+            'artist', 'play_count', and 'unique_tracks'. Defaults to None.
+
+    Returns:
+        html.Div: Dash container with the bar chart.
+    """
+    graph_layout = create_graph_style()
 
     if top_artists is not None:
+        df = top_artists.head(10)
         fig = px.bar(
-            top_artists.head(10),
+            df,
             x="play_count",
             y="artist",
             text="play_count",
@@ -75,13 +97,14 @@ def create_top_artists_graph(top_artists: pd.DataFrame = None):
             labels={"artist": "Artist", "play_count": "Play Count"},
             hover_data=["unique_tracks"],
         )
-        fig.update_layout(**layout)
+        fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954")
 
     return html.Div(
-        [
+        className="graph-card card",
+        children=[
             dcc.Loading(
-                [
+                children=[
                     html.H3("Top Artists", className="card-title"),
                     dcc.Graph(
                         id="top-artists-graph",
@@ -91,49 +114,71 @@ def create_top_artists_graph(top_artists: pd.DataFrame = None):
                 ]
             )
         ],
-        className="graph-card card",
     )
 
 
-def create_top_genres_graph(top_genres: pd.DataFrame = None):
-    layout = create_graph_style()
+def create_top_genres_graph(top_genres=None):
+    """Create a horizontal bar chart of the top genres by track count.
+
+    Args:
+        top_genres (pd.DataFrame, optional): DataFrame with columns
+            'genre', 'track_count', 'percentage', and 'top_artists'.
+            Defaults to None.
+
+    Returns:
+        html.Div: Dash container with the bar chart.
+    """
+    graph_layout = create_graph_style()
 
     if top_genres is not None:
+        df = top_genres.head(10)
+        percent_labels = [f"{pct}%" for pct in df["percentage"]]
         fig = px.bar(
-            top_genres.head(10),
+            df,
             x="track_count",
             y="genre",
-            text=["{}%".format(x) for x in top_genres["percentage"].head(10)],
+            text=percent_labels,
             orientation="h",
             labels={"genre": "Genre", "track_count": "Track Count"},
             hover_data=["top_artists", "percentage"],
         )
-        fig.update_layout(**layout)
+        fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954")
 
     return html.Div(
-        [
+        className="graph-card card",
+        children=[
             dcc.Loading(
-                [
+                children=[
                     html.H3("Top Genres", className="card-title"),
                     dcc.Graph(
                         id="top-genres-graph",
                         figure=fig if top_genres is not None else {},
                         config={"displayModeBar": False},
                     ),
-                ],
+                ]
             )
         ],
-        className="graph-card card",
     )
 
 
-def create_top_albums_graph(top_albums: pd.DataFrame = None):
-    layout = create_graph_style()
+def create_top_albums_graph(top_albums=None):
+    """Create a horizontal bar chart of the top albums by median plays.
+
+    Args:
+        top_albums (pd.DataFrame, optional): DataFrame with columns
+            'album_name', 'median_plays', 'artist', 'tracks_played',
+            and 'total_tracks'. Defaults to None.
+
+    Returns:
+        html.Div: Dash container with the bar chart.
+    """
+    graph_layout = create_graph_style()
 
     if top_albums is not None:
+        df = top_albums.head(10)
         fig = px.bar(
-            top_albums.head(10),
+            df,
             x="median_plays",
             y="album_name",
             text="median_plays",
@@ -141,21 +186,23 @@ def create_top_albums_graph(top_albums: pd.DataFrame = None):
             labels={"album_name": "Album", "median_plays": "Median Plays"},
             hover_data=["artist", "tracks_played", "total_tracks"],
         )
-        fig.update_layout(**layout)
+        fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954")
-        # Truncate long album names
+
+        # Truncate long album names for readability
+        truncated = [
+            f"{name[:50]}..." if len(name) > 50 else name for name in df["album_name"]
+        ]
         fig.update_yaxes(
-            ticktext=[
-                f"{text[:50]}..." if len(text) > 50 else text
-                for text in top_albums["album_name"].head(10)
-            ],
-            tickvals=list(range(len(top_albums.head(10)))),
+            ticktext=truncated,
+            tickvals=list(range(len(df))),
         )
 
     return html.Div(
-        [
+        className="graph-card card",
+        children=[
             dcc.Loading(
-                [
+                children=[
                     html.H3("Top Albums", className="card-title"),
                     dcc.Graph(
                         id="top-albums-graph",
@@ -165,83 +212,125 @@ def create_top_albums_graph(top_albums: pd.DataFrame = None):
                 ]
             )
         ],
-        className="graph-card card",
     )
 
 
 def create_graphs_section_tab_one():
+    """Compose the first tab section with tracks, artists, albums, and genres."""
     return html.Div(
-        [
+        children=[
             # Row 1: Tracks and Artists
             html.Div(
-                [create_top_tracks_graph(), create_top_artists_graph()],
+                children=[
+                    create_top_tracks_graph(),
+                    create_top_artists_graph(),
+                ],
                 className="graph-container",
             ),
             # Row 2: Albums and Genres
             html.Div(
-                [create_top_albums_graph(), create_top_genres_graph()],
+                children=[
+                    create_top_albums_graph(),
+                    create_top_genres_graph(),
+                ],
                 className="graph-container",
             ),
         ]
     )
 
 
-def create_daily_top_playcount_grid(daily_playcounts: pd.DataFrame) -> pd.DataFrame:
+def create_daily_top_playcount_grid(daily_playcounts):
+    """Generate a grid layout DataFrame for daily top track play counts.
+
+    Args:
+        daily_playcounts (pd.DataFrame): DataFrame with columns 'date',
+            'track', 'artist', and 'play_count'.
+
+    Returns:
+        pd.DataFrame: DataFrame with 'row', 'col', 'date', 'track', and
+            'play_count' for heatmap plotting.
+    """
     df = daily_playcounts.copy()
     df["date"] = pd.to_datetime(df["date"])
-    top = (
+
+    # Get the top track per date
+    top_per_date = (
         df.sort_values(["date", "play_count"], ascending=[True, False])
         .drop_duplicates("date")
         .set_index("date")[["track", "artist", "play_count"]]
     )
 
-    full_idx = pd.date_range(top.index.min(), top.index.max(), freq="D")
-    top = top.reindex(full_idx)
-    top["play_count"] = top["play_count"].fillna(0).astype(int)
-    top["track"] = top["track"].fillna("")
-    top["artist"] = top["artist"].fillna("")
-    top["track_artist"] = top["track"] + " - " + top["artist"]
+    # Ensure a continuous date index
+    full_index = pd.date_range(
+        start=top_per_date.index.min(),
+        end=top_per_date.index.max(),
+        freq="D",
+    )
+    top_per_date = top_per_date.reindex(full_index)
 
-    n = len(top)
-    cols = 10
-    out = pd.DataFrame(
+    # Fill missing values
+    top_per_date["play_count"] = top_per_date["play_count"].fillna(0).astype(int)
+    top_per_date["track"] = top_per_date["track"].fillna("")
+    top_per_date["artist"] = top_per_date["artist"].fillna("")
+
+    # Combine track and artist for display
+    top_per_date["track_artist"] = (
+        top_per_date["track"] + " - " + top_per_date["artist"]
+    )
+
+    # Create grid positions
+    total_days = len(top_per_date)
+    columns = 10
+    output = pd.DataFrame(
         {
-            "date": full_idx,
-            "track": top["track_artist"].values,
-            "play_count": top["play_count"].values,
+            "date": full_index,
+            "track": top_per_date["track_artist"].values,
+            "play_count": top_per_date["play_count"].values,
         }
     )
-    out["pos"] = np.arange(n)
-    out["row"] = out["pos"] // cols
-    out["col"] = out["pos"] % cols
+    output["position"] = np.arange(total_days)
+    output["row"] = output["position"] // columns
+    output["col"] = output["position"] % columns
 
-    return out[["row", "col", "date", "track", "play_count"]]
+    return output[["row", "col", "date", "track", "play_count"]]
 
 
 def create_daily_top_heatmap(
-    daily_playcounts: pd.DataFrame = None,
-    title: str = "Daily Top-Track Play Count Heatmap",
+    daily_playcounts=None,
+    title="Daily Top-Track Play Count Heatmap",
 ):
-    layout = create_graph_style()
-    if daily_playcounts is None or daily_playcounts.empty:
-        return html.Div("No data available", className="graph-card card")
+    """Create a heatmap figure of daily top track play counts.
 
+    Args:
+        daily_playcounts (pd.DataFrame, optional): DataFrame with daily
+            play count data. Defaults to None.
+        title (str, optional): Title of the heatmap (unused). Defaults to
+            "Daily Top-Track Play Count Heatmap".
+
+    Returns:
+        go.Figure or html.Div: Plotly Figure or a Div with a message if no
+            data is available.
+    """
+    if daily_playcounts is None or daily_playcounts.empty:
+        return html.Div(children="No data available", className="graph-card card")
+
+    # Prepare data grid
     grid_df = create_daily_top_playcount_grid(daily_playcounts)
 
-    # Pivot into matrices using keyword args
-    z_mat = grid_df.pivot(index="row", columns="col", values="play_count").values
-    date_mat = (
+    # Pivot data into matrices
+    z_matrix = grid_df.pivot(index="row", columns="col", values="play_count").values
+    date_matrix = (
         grid_df.pivot(index="row", columns="col", values="date").astype(str).values
     )
-    track_mat = grid_df.pivot(index="row", columns="col", values="track").values
+    track_matrix = grid_df.pivot(index="row", columns="col", values="track").values
 
-    # Build a 3D customdata array of shape (rows, cols, 2)
-    customdata = np.dstack([date_mat, track_mat])
+    # Build customdata for hover information
+    customdata = np.dstack([date_matrix, track_matrix])
 
-    heat = go.Heatmap(
-        z=z_mat,
-        x=list(range(z_mat.shape[1])),
-        y=list(range(z_mat.shape[0])),
+    heatmap = go.Heatmap(
+        z=z_matrix,
+        x=list(range(z_matrix.shape[1])),
+        y=list(range(z_matrix.shape[0])),
         colorscale="Greens",
         customdata=customdata,
         hovertemplate=(
@@ -251,7 +340,8 @@ def create_daily_top_heatmap(
         ),
         colorbar=dict(title="Plays"),
     )
-    fig = go.Figure(heat)
-    fig.update_layout(**layout)
+
+    fig = go.Figure(heatmap)
+    fig.update_layout(**create_graph_style())
 
     return fig

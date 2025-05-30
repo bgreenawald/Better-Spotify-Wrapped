@@ -3,8 +3,7 @@ from io import StringIO
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dash_table, html
+from dash import Dash, Input, Output, State, dash_table
 from dash.exceptions import PreventUpdate
 
 from dashboard.components.graphs import create_daily_top_heatmap, create_graph_style
@@ -26,13 +25,30 @@ from src.preprocessing import filter_songs
 
 
 def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) -> None:
+    """Register all Dash callbacks for the listening dashboard.
+
+    Args:
+        app (Dash): Dash application instance.
+        df (pd.DataFrame): DataFrame of listening events.
+        spotify_data (pd.DataFrame): DataFrame of Spotify metadata.
+    """
+
     @app.callback(
         Output("collapse", "is_open"),
         [Input("collapse-button", "n_clicks")],
         [State("collapse", "is_open")],
     )
-    def toggle_collapse(n, is_open):
-        if n:
+    def toggle_collapse(n_clicks: int, is_open: bool) -> bool:
+        """Toggle a collapsible UI component.
+
+        Args:
+            n_clicks (int): Number of times the toggle button was clicked.
+            is_open (bool): Current open/closed state.
+
+        Returns:
+            bool: New open/closed state.
+        """
+        if n_clicks:
             return not is_open
         return is_open
 
@@ -43,18 +59,23 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         ],
         Input("reset-date-range", "n_clicks"),
     )
-    def reset_year_range_filter(n) -> html.Div:
-        if n:
-            min_date = datetime(
-                df["ts"].min().year, df["ts"].min().month, df["ts"].min().day
-            )
-            max_date = datetime(
-                df["ts"].max().year, df["ts"].max().month, df["ts"].max().day
-            )
+    def reset_year_range_filter(n_clicks: int):
+        """Reset the date picker to span the full range of the data.
 
-            return min_date, max_date
-        else:
+        Args:
+            n_clicks (int): Number of times the reset button was clicked.
+
+        Returns:
+            tuple[datetime, datetime]: Earliest and latest dates in `df`.
+        """
+        if not n_clicks:
             raise PreventUpdate
+
+        min_ts = df["ts"].min()
+        max_ts = df["ts"].max()
+        start = datetime(min_ts.year, min_ts.month, min_ts.day)
+        end = datetime(max_ts.year, max_ts.month, max_ts.day)
+        return start, end
 
     @app.callback(
         [
@@ -78,30 +99,43 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         selected_year,
         exclude_december,
         remove_incognito,
-        exluded_tracks,
+        excluded_tracks,
         excluded_artists,
         excluded_albums,
     ):
-        # Check if a valid year is selected
-        if not selected_year:
-            # Return empty figures if no year is selected
-            empty_figure = {"data": [], "layout": create_graph_style()}
-            return empty_figure, empty_figure, empty_figure, empty_figure, []
+        """Update top-level charts and stats based on user filters.
 
-        # Filter the data based on selections
-        filtered_df = filter_songs(
+        Args:
+            selected_year (int): Year selected by the user.
+            exclude_december (bool): Exclude December if True.
+            remove_incognito (bool): Exclude incognito plays if True.
+            excluded_tracks (list): Tracks to exclude.
+            excluded_artists (list): Artists to exclude.
+            excluded_albums (list): Albums to exclude.
+
+        Returns:
+            tuple: Figures for tracks, artists, albums, genres, stats table,
+                   and daily heatmap.
+        """
+        # Return empty figures if no year is selected
+        if not selected_year:
+            empty_fig = {"data": [], "layout": create_graph_style()}
+            return empty_fig, empty_fig, empty_fig, empty_fig, [], empty_fig
+
+        # Filter the dataset
+        filtered = filter_songs(
             df,
             start_date=pd.Timestamp(datetime(selected_year, 1, 1)),
             end_date=pd.Timestamp(datetime(selected_year, 12, 31)),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
-            excluded_tracks=exluded_tracks,
+            excluded_tracks=excluded_tracks,
             excluded_artists=excluded_artists,
             excluded_albums=excluded_albums,
         )
 
-        # Get top tracks
-        top_tracks = get_most_played_tracks(filtered_df)
+        # Top tracks
+        top_tracks = get_most_played_tracks(filtered)
         if top_tracks.empty:
             tracks_fig = {"data": [], "layout": create_graph_style()}
         else:
@@ -115,7 +149,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "text": top_tracks["play_count"].head(10),
                         "marker": {"color": "#1DB954"},
                         "customdata": top_tracks["track_artist"].head(10),
-                        "hovertemplate": "Track: %{customdata}<br>Plays: %{x}<extra></extra>",
+                        "hovertemplate": (
+                            "Track: %{customdata}<br>Plays: %{x}<extra></extra>"
+                        ),
                     }
                 ],
                 "layout": {
@@ -125,8 +161,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Get top artists
-        top_artists = get_most_played_artists(filtered_df)
+        # Top artists
+        top_artists = get_most_played_artists(filtered)
         if top_artists.empty:
             artists_fig = {"data": [], "layout": create_graph_style()}
         else:
@@ -140,7 +176,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "text": top_artists["play_count"].head(10),
                         "customdata": top_artists["unique_tracks"].head(10),
                         "marker": {"color": "#1DB954"},
-                        "hovertemplate": "Artist: %{y}<br>Plays: %{x}<br>Unique Tracks: %{customdata}<extra></extra>",
+                        "hovertemplate": (
+                            "Artist: %{y}<br>Plays: %{x}"
+                            "<br>Unique Tracks: %{customdata}<extra></extra>"
+                        ),
                     }
                 ],
                 "layout": {
@@ -150,8 +189,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Get top albums
-        top_albums = get_top_albums(filtered_df, spotify_data)
+        # Top albums
+        top_albums = get_top_albums(filtered, spotify_data)
         if top_albums.empty:
             albums_fig = {"data": [], "layout": create_graph_style()}
         else:
@@ -165,7 +204,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "text": top_albums["median_plays"].round(1).head(10),
                         "customdata": top_albums[["artist"]].head(10).values,
                         "marker": {"color": "#1DB954"},
-                        "hovertemplate": "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<br><extra></extra>",
+                        "hovertemplate": (
+                            "Album: %{y}<br>Median Plays: %{x}"
+                            "<br>Artist: %{customdata[0]}<extra></extra>"
+                        ),
                     }
                 ],
                 "layout": {
@@ -175,8 +217,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Get top genres
-        top_genres = get_top_artist_genres(filtered_df, spotify_data)
+        # Top genres
+        top_genres = get_top_artist_genres(filtered, spotify_data)
         if top_genres.empty:
             genres_fig = {"data": [], "layout": create_graph_style()}
         else:
@@ -188,13 +230,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "y": top_genres["genre"].head(10),
                         "orientation": "h",
                         "text": [
-                            f"{x:.1f}%" for x in top_genres["percentage"].head(10)
+                            f"{pct:.1f}%" for pct in top_genres["percentage"].head(10)
                         ],
                         "customdata": top_genres[["percentage", "top_artists"]]
                         .head(10)
                         .values,
                         "marker": {"color": "#1DB954"},
-                        "hovertemplate": "Genre: %{y}<br>Tracks: %{x}<br>Percentage: %{customdata[0]:.1f}%<br>Top Artists: %{customdata[1]}<extra></extra>",
+                        "hovertemplate": (
+                            "Genre: %{y}<br>Tracks: %{x}"
+                            "<br>Percentage: %{customdata[0]:.1f}%"
+                            "<br>Top Artists: %{customdata[1]}<extra></extra>"
+                        ),
                     }
                 ],
                 "layout": {
@@ -204,12 +250,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Create stats table
-        stats_table = create_stats_table(filtered_df)
+        # Stats table
+        stats_table = create_stats_table(filtered)
 
-        # Daily song heatmap
-        daily_playcount = get_playcount_by_day(filtered_df)
-        daily_heatmap_fig = create_daily_top_heatmap(daily_playcount)
+        # Daily heatmap
+        daily_counts = get_playcount_by_day(filtered)
+        heatmap_fig = create_daily_top_heatmap(daily_counts)
 
         return (
             tracks_fig,
@@ -217,7 +263,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             albums_fig,
             genres_fig,
             stats_table,
-            daily_heatmap_fig,
+            heatmap_fig,
         )
 
     @app.callback(
@@ -243,84 +289,65 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         excluded_artists,
         excluded_albums,
     ):
-        filtered_df = filter_songs(
+        """Serialize filtered data for Tab 2 (trends and tables).
+
+        Returns JSON-serialized DataFrames for callbacks in Tab 2.
+        """
+        filtered = filter_songs(
             df,
             start_date=pd.to_datetime(start_date),
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
             remove_incognito=remove_incognito,
-            exluded_genres=excluded_genres,
+            excluded_genres=excluded_genres,
             excluded_tracks=excluded_tracks,
             excluded_artists=excluded_artists,
             excluded_albums=excluded_albums,
         )
 
-        # Calculate monthly statistics
-        monthly_stats = get_listening_time_by_month(filtered_df)
-
-        # Get artist trends
-        artist_trends_df = get_artist_trends(filtered_df)
-
-        # Overall artists
-        overall_artists = get_most_played_artists(filtered_df)
-
-        # Get track trends
-        track_trends_df = get_track_trends(filtered_df)
-
-        # Overall tracks
-        overall_tracks = get_most_played_tracks(filtered_df)
-
-        # Genre data
-        genre_trends_df = get_genre_trends(filtered_df, spotify_data)
-
-        # Overall trends
-        overall_genres = get_top_artist_genres(filtered_df, spotify_data)
+        monthly_stats = get_listening_time_by_month(filtered)
+        artist_trends = get_artist_trends(filtered)
+        overall_artists = get_most_played_artists(filtered)
+        track_trends = get_track_trends(filtered)
+        overall_tracks = get_most_played_tracks(filtered)
+        genre_trends = get_genre_trends(filtered, spotify_data)
+        overall_genres = get_top_artist_genres(filtered, spotify_data)
 
         return {
             "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),
-            "artist_trends": artist_trends_df.to_json(
-                date_format="iso", orient="split"
-            ),
+            "artist_trends": artist_trends.to_json(date_format="iso", orient="split"),
             "overall_artists": overall_artists.to_json(
                 date_format="iso", orient="split"
             ),
-            "track_trends": track_trends_df.to_json(date_format="iso", orient="split"),
+            "track_trends": track_trends.to_json(date_format="iso", orient="split"),
             "overall_tracks": overall_tracks.to_json(date_format="iso", orient="split"),
-            "genre_trends": genre_trends_df.to_json(date_format="iso", orient="split"),
+            "genre_trends": genre_trends.to_json(date_format="iso", orient="split"),
             "overall_genres": overall_genres.to_json(date_format="iso", orient="split"),
         }
 
     @app.callback(
         Output("trends-graph", "figure"),
-        [
-            Input("metric-dropdown", "value"),
-            Input("tab-2-data", "data"),
-        ],
+        [Input("metric-dropdown", "value"), Input("tab-2-data", "data")],
     )
-    def update_trend_dashboard(
-        selected_metric,
-        data,
-    ):
-        monthly_stats = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
-        # Create the figure using plotly express
-        metric_labels = {
+    def update_trend_dashboard(selected_metric, data):
+        """Render monthly line chart for the selected metric."""
+        monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
+        labels = {
             "total_hours": "Total Listening Hours",
             "unique_tracks": "Unique Tracks",
             "unique_artists": "Unique Artists",
             "avg_hours_per_day": "Average Hours per Day",
         }
-
-        fig = go.Figure(layout=dict(template="plotly"))
+        title = f"Monthly {labels[selected_metric]}"
         fig = px.line(
-            monthly_stats,
+            monthly,
             x="month",
             y=selected_metric,
-            labels={"month": "Month", selected_metric: metric_labels[selected_metric]},
-            title=f"Monthly {metric_labels[selected_metric]}",
+            labels={"month": "Month", selected_metric: labels[selected_metric]},
+            title=title,
         )
-
-        # Update layout
         fig.update_layout(
+            template="plotly",
             paper_bgcolor="white",
             plot_bgcolor="white",
             font={"family": "Segoe UI, sans-serif"},
@@ -329,13 +356,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             yaxis={"gridcolor": "#eee"},
             showlegend=False,
         )
-
-        # Update line color to match Spotify theme
         fig.update_traces(line_color="#1DB954")
-
         return fig
 
-    # Callback to update the graph
     @app.callback(
         [
             Output("genre-trends-graph", "figure"),
@@ -349,47 +372,33 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         ],
     )
     def update_genre_trends_graph(selected_genres, top_n, display_type, data):
-        trends_df = pd.read_json(StringIO(data["genre_trends"]), orient="split")
-        overall_trends = pd.read_json(StringIO(data["overall_genres"]), orient="split")
+        """Update genre trends line chart and summary table."""
+        trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
+        overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
+        # Choose y-axis field
         if display_type == "percentage":
-            y_column = "percentage"
-            y_title = "Percentage of Tracks"
+            y_col, y_title = "percentage", "Percentage of Tracks"
         else:
-            y_column = "play_count"
-            y_title = "Number of Plays"
+            y_col, y_title = "play_count", "Number of Plays"
 
+        # Auto-select top genres if none chosen
         if not selected_genres:
-            # If no genres selected, show top N genres by average percentage
-            avg_by_genre = (
-                overall_trends.groupby("genre")[y_column]
-                .mean()
-                .sort_values(ascending=False)
-            )
-            selected_genres = avg_by_genre.head(top_n).index.tolist()
+            avg = overall.groupby("genre")[y_col].mean().sort_values(ascending=False)
+            selected_genres = avg.head(top_n).index.tolist()
 
-        # Filter for selected genres
-        plot_df = trends_df[trends_df["genre"].isin(selected_genres)]
-
-        # Create line plot
-        fig = go.Figure(layout=dict(template="plotly"))
+        plot_df = trends[trends["genre"].isin(selected_genres)]
         fig = px.line(
             plot_df,
             x="month",
-            y=y_column,
+            y=y_col,
             color="genre",
-            labels={
-                "month": "Month",
-                y_column: y_title,
-                "genre": "Genre",
-                "top_artists": "Top Artists",
-            },
-            hover_data=["top_artists", y_column, "month", "genre"],
+            labels={"month": "Month", y_col: y_title, "genre": "Genre"},
+            hover_data=["top_artists"],
             title="Genre Trends Over Time",
         )
-
-        # Update layout
         fig.update_layout(
+            template="plotly",
             paper_bgcolor="white",
             plot_bgcolor="white",
             font={"family": "Segoe UI, sans-serif"},
@@ -398,27 +407,26 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             yaxis={"gridcolor": "#eee"},
         )
 
-        return fig, [
-            dash_table.DataTable(
-                overall_trends.to_dict("records"),
-                [{"name": i, "id": i} for i in overall_trends.columns],
-                filter_action="native",
-                sort_action="native",
-                sort_mode="multi",
-                column_selectable="single",
-                row_selectable="multi",
-                page_size=25,
-                export_format="csv",
-                export_headers="display",
-                style_table={"overflowX": "auto"},
-                style_cell={
-                    "textAlign": "left",
-                    "padding": "8px",
-                    "whiteSpace": "normal",
-                    "height": "auto",
-                },
-            )
-        ]
+        table = dash_table.DataTable(
+            overall.to_dict("records"),
+            [{"name": c, "id": c} for c in overall.columns],
+            filter_action="native",
+            sort_action="native",
+            sort_mode="multi",
+            column_selectable="single",
+            row_selectable="multi",
+            page_size=25,
+            export_format="csv",
+            export_headers="display",
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "textAlign": "left",
+                "padding": "8px",
+                "whiteSpace": "normal",
+                "height": "auto",
+            },
+        )
+        return fig, [table]
 
     @app.callback(
         [
@@ -432,58 +440,36 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("tab-2-data", "data"),
         ],
     )
-    def update_artist_trends_graph(
-        selected_artists,
-        top_n,
-        display_type,
-        data,
-    ):
-        trends_df = pd.read_json(StringIO(data["artist_trends"]), orient="split")
-        overall_artists = pd.read_json(
-            StringIO(data["overall_artists"]), orient="split"
-        )
+    def update_artist_trends_graph(selected_artists, top_n, display_type, data):
+        """Update artist trends line chart and summary table."""
+        trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
+        overall = pd.read_json(StringIO(data["overall_artists"]), orient="split")
 
+        # Determine y-axis field
         if display_type == "percentage":
-            y_column = "percentage"
-            y_title = "Percentage of Tracks"
+            y_col, y_title = "percentage", "Percentage of Tracks"
         elif display_type == "play_count":
-            y_column = "play_count"
-            y_title = "Number of Plays"
+            y_col, y_title = "play_count", "Number of Plays"
         else:
-            y_column = "unique_tracks"
-            y_title = "Unique Tracks"
+            y_col, y_title = "unique_tracks", "Unique Tracks"
 
+        # Auto-select if none chosen
         if not selected_artists:
-            # If no artists selected, show top N artists by overall
-            avg_by_artist = (
-                overall_artists.groupby("artist")[y_column]
-                .mean()
-                .sort_values(ascending=False)
-            )
-            selected_artists = avg_by_artist.head(top_n).index.tolist()
+            avg = overall.groupby("artist")[y_col].mean().sort_values(ascending=False)
+            selected_artists = avg.head(top_n).index.tolist()
 
-        # Filter for selected artists
-        plot_df = trends_df[trends_df["artist"].isin(selected_artists)]
-
-        # Create line plot
-        fig = go.Figure(layout=dict(template="plotly"))
+        plot_df = trends[trends["artist"].isin(selected_artists)]
         fig = px.line(
             plot_df,
             x="month",
-            y=y_column,
+            y=y_col,
             color="artist",
-            labels={
-                "month": "Month",
-                y_column: y_title,
-                "artist": "Artist",
-                "top_artists": "Top Artists",
-            },
-            hover_data=["top_tracks", y_column, "month", "artist"],
+            labels={"month": "Month", y_col: y_title, "artist": "Artist"},
+            hover_data=["top_tracks"],
             title="Artist Trends Over Time",
         )
-
-        # Update layout
         fig.update_layout(
+            template="plotly",
             paper_bgcolor="white",
             plot_bgcolor="white",
             font={"family": "Segoe UI, sans-serif"},
@@ -492,35 +478,31 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             yaxis={"gridcolor": "#eee"},
         )
 
-        # Convert artist genre to string
-        overall_artists["artist_genres"] = overall_artists["artist_genres"].apply(
-            lambda x: ", ".join(x)
+        # Format genres and build table
+        overall["artist_genres"] = overall["artist_genres"].apply(
+            lambda genres: ", ".join(genres)
         )
-        overall_artists = overall_artists[
-            ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
-        ]
-
-        return fig, [
-            dash_table.DataTable(
-                overall_artists.to_dict("records"),
-                [{"name": i, "id": i} for i in overall_artists.columns],
-                filter_action="native",
-                sort_action="native",
-                sort_mode="multi",
-                column_selectable="single",
-                row_selectable="multi",
-                page_size=25,
-                export_format="csv",
-                export_headers="display",
-                style_table={"overflowX": "auto"},
-                style_cell={
-                    "textAlign": "left",
-                    "padding": "8px",
-                    "whiteSpace": "normal",
-                    "height": "auto",
-                },
-            )
-        ]
+        cols = ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
+        table = dash_table.DataTable(
+            overall[cols].to_dict("records"),
+            [{"name": c, "id": c} for c in cols],
+            filter_action="native",
+            sort_action="native",
+            sort_mode="multi",
+            column_selectable="single",
+            row_selectable="multi",
+            page_size=25,
+            export_format="csv",
+            export_headers="display",
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "textAlign": "left",
+                "padding": "8px",
+                "whiteSpace": "normal",
+                "height": "auto",
+            },
+        )
+        return fig, [table]
 
     @app.callback(
         [
@@ -535,47 +517,38 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         ],
     )
     def update_track_trends_graph(selected_tracks, top_n, display_type, data):
-        trends_df = pd.read_json(StringIO(data["track_trends"]), orient="split")
-        overall_tracks = pd.read_json(StringIO(data["overall_tracks"]), orient="split")
+        """Update track trends line chart and summary table."""
+        trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
+        overall = pd.read_json(StringIO(data["overall_tracks"]), orient="split")
 
+        # Determine y-axis field
         if display_type == "percentage":
-            y_column = "percentage"
-            y_title = "Percentage of Plays"
+            y_col, y_title = "percentage", "Percentage of Plays"
         else:
-            y_column = "play_count"
-            y_title = "Number of Plays"
+            y_col, y_title = "play_count", "Number of Plays"
 
+        # Auto-select if none chosen
         if not selected_tracks:
-            # If no tracks selected, show top N tracks by overall
-            avg_by_track = (
-                overall_tracks.groupby("track_artist")[y_column]
+            avg = (
+                overall.groupby("track_artist")[y_col]
                 .mean()
                 .sort_values(ascending=False)
             )
-            selected_tracks = avg_by_track.head(top_n).index.tolist()
+            selected_tracks = avg.head(top_n).index.tolist()
 
-        # Filter for selected tracks
-        plot_df = trends_df[trends_df["track_artist"].isin(selected_tracks)]
-
-        # Create line plot
-        fig = go.Figure(layout=dict(template="plotly"))
+        plot_df = trends[trends["track_artist"].isin(selected_tracks)]
         fig = px.line(
             plot_df,
             x="month",
-            y=y_column,
+            y=y_col,
             color="track_artist",
-            labels={
-                "month": "Month",
-                y_column: y_title,
-                "track_artist": "Track",
-            },
-            hover_data=["track_artist", y_column, "month"],
+            labels={"month": "Month", y_col: y_title, "track_artist": "Track"},
+            hover_data=["track_artist"],
             title="Track Trends Over Time",
             markers=True,
         )
-
-        # Update layout
         fig.update_layout(
+            template="plotly",
             paper_bgcolor="white",
             plot_bgcolor="white",
             font={"family": "Segoe UI, sans-serif"},
@@ -584,35 +557,29 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             yaxis={"gridcolor": "#eee"},
         )
 
-        # Drop track_artist column
-        overall_tracks = overall_tracks.drop("track_artist", axis=1)
-
-        # Convert artist genre to string
-        overall_tracks["artist_genres"] = overall_tracks["artist_genres"].apply(
-            lambda x: ", ".join(x)
+        # Prepare summary table
+        overall = overall.drop(columns=["track_artist"])
+        overall["artist_genres"] = overall["artist_genres"].apply(
+            lambda genres: ", ".join(genres)
         )
-        overall_tracks = overall_tracks[
-            ["track_name", "artist", "artist_genres", "play_count", "percentage"]
-        ]
-
-        return fig, [
-            dash_table.DataTable(
-                overall_tracks.to_dict("records"),
-                [{"name": i, "id": i} for i in overall_tracks.columns],
-                filter_action="native",
-                sort_action="native",
-                sort_mode="multi",
-                column_selectable="single",
-                row_selectable="multi",
-                page_size=25,
-                export_format="csv",
-                export_headers="display",
-                style_table={"overflowX": "auto"},
-                style_cell={
-                    "textAlign": "left",
-                    "padding": "8px",
-                    "whiteSpace": "normal",
-                    "height": "auto",
-                },
-            )
-        ]
+        cols = ["track_name", "artist", "artist_genres", "play_count", "percentage"]
+        table = dash_table.DataTable(
+            overall[cols].to_dict("records"),
+            [{"name": c, "id": c} for c in cols],
+            filter_action="native",
+            sort_action="native",
+            sort_mode="multi",
+            column_selectable="single",
+            row_selectable="multi",
+            page_size=25,
+            export_format="csv",
+            export_headers="display",
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "textAlign": "left",
+                "padding": "8px",
+                "whiteSpace": "normal",
+                "height": "auto",
+            },
+        )
+        return fig, [table]
