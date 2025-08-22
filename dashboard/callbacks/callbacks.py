@@ -583,3 +583,58 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             },
         )
         return fig, [table]
+
+
+    @app.callback(
+        [
+            Output("app-container", "className"),
+            Output("theme-icon", "children"),
+            Output("theme-store", "data"),
+        ],
+        [Input("theme-toggle", "value")],
+        [State("theme-store", "data")],
+    )
+    def toggle_theme(toggle_value, stored_theme):
+        """Toggle between light and dark themes.
+        
+        Args:
+            toggle_value (bool): Current state of the theme toggle switch.
+            stored_theme (dict): Stored theme preference from local storage.
+            
+        Returns:
+            tuple: Theme class name, icon, and theme data to store.
+        """
+        # Use toggle value if changed, otherwise use stored preference
+        is_dark = toggle_value if toggle_value is not None else False
+        
+        theme_class = "dark-theme" if is_dark else ""
+        icon = "☀️" if is_dark else "🌙"
+        
+        return theme_class, icon, {"dark": is_dark}
+
+    @app.callback(
+        [
+            Output("theme-toggle", "value"),
+            Output("app-container", "className", allow_duplicate=True),
+            Output("theme-icon", "children", allow_duplicate=True),
+        ],
+        [Input("theme-store", "modified_timestamp")],
+        [State("theme-store", "data")],
+        prevent_initial_call="initial_duplicate",
+    )
+    def restore_theme_on_load(ts, stored_theme):
+        """Restore theme from local storage on page load.
+        
+        Args:
+            ts: Timestamp of when the store was modified.
+            stored_theme (dict): Stored theme preference from local storage.
+            
+        Returns:
+            tuple: Toggle value, theme class, and icon.
+        """
+        if stored_theme and stored_theme.get("dark") is not None:
+            is_dark = stored_theme.get("dark", False)
+            theme_class = "dark-theme" if is_dark else ""
+            icon = "☀️" if is_dark else "🌙"
+            return is_dark, theme_class, icon
+        return False, "", "🌙"

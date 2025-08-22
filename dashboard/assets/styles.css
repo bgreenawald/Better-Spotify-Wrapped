@@ -128,3 +128,158 @@ body {
     --bs-btn-hover-bg: #269a4f;
     --bs-btn-hover-border-color: #269a4f;
 }
+
+/* Theme toggle styles */
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.theme-toggle-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.theme-toggle-label {
+    font-size: 1.5em;
+    margin: 0;
+    cursor: pointer;
+}
+
+.theme-toggle-switch {
+    margin: 0;
+}
+
+/* Dark theme styles */
+.dark-theme {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+.dark-theme body {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+.dark-theme .card {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.dark-theme .dashboard-header {
+    background-color: #1a472a;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.dark-theme .filter-label {
+    color: #e0e0e0;
+}
+
+.dark-theme .stats-table th {
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+}
+
+.dark-theme .stats-table td {
+    border-bottom: 1px solid #333;
+    color: #e0e0e0;
+}
+
+.dark-theme .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+    background-color: #1e1e1e !important;
+}
+
+.dark-theme .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+    background-color: #1e1e1e !important;
+    color: #e0e0e0 !important;
+    border-color: #333 !important;
+}
+
+.dark-theme .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border-color: #333 !important;
+}
+
+.dark-theme .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: #2a2a2a !important;
+}
+
+.dark-theme .Select-control {
+    background-color: #2a2a2a !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .Select-value-label,
+.dark-theme .Select-placeholder,
+.dark-theme .Select-input input {
+    color: #e0e0e0 !important;
+}
+
+.dark-theme .Select-menu-outer {
+    background-color: #2a2a2a !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .Select-option {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+}
+
+.dark-theme .Select-option:hover {
+    background-color: #333 !important;
+}
+
+.dark-theme .Select-option.is-selected {
+    background-color: #1DB954 !important;
+}
+
+.dark-theme .DateInput_input {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .DateRangePickerInput {
+    background-color: #2a2a2a !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .DateRangePickerInput__arrow svg {
+    fill: #e0e0e0 !important;
+}
+
+.dark-theme input[type="number"],
+.dark-theme input[type="text"] {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .rc-slider-track {
+    background-color: #1DB954 !important;
+}
+
+.dark-theme .rc-slider-rail {
+    background-color: #444 !important;
+}
+
+.dark-theme .rc-slider-handle {
+    border-color: #1DB954 !important;
+    background-color: #1DB954 !important;
+}
+
+.dark-theme .tab {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border-color: #444 !important;
+}
+
+.dark-theme .tab--selected {
+    background-color: #1e1e1e !important;
+    color: #1DB954 !important;
+    border-color: #1DB954 !important;
+}
