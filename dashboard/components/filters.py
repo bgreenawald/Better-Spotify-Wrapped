@@ -67,15 +67,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label(
-                                "Select Excluded Artists", className="filter-label"
-                            ),
+                            html.Label("Select Excluded Artists", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-artists-filter-dropdown",
-                                options=[
-                                    {"label": artist, "value": artist}
-                                    for artist in artists
-                                ],
+                                options=[{"label": artist, "value": artist} for artist in artists],
                                 multi=True,
                                 className="dropdown",
                             ),
@@ -84,14 +79,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label(
-                                "Select Excluded Genres", className="filter-label"
-                            ),
+                            html.Label("Select Excluded Genres", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-genres-filter-dropdown",
-                                options=[
-                                    {"label": genre, "value": genre} for genre in genres
-                                ],
+                                options=[{"label": genre, "value": genre} for genre in genres],
                                 multi=True,
                                 className="dropdown",
                             ),
@@ -105,14 +96,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label(
-                                "Select Excluded Albums", className="filter-label"
-                            ),
+                            html.Label("Select Excluded Albums", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-albums-filter-dropdown",
-                                options=[
-                                    {"label": album, "value": album} for album in albums
-                                ],
+                                options=[{"label": album, "value": album} for album in albums],
                                 multi=True,
                                 className="dropdown",
                             ),
@@ -121,14 +108,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label(
-                                "Select Excluded Tracks", className="filter-label"
-                            ),
+                            html.Label("Select Excluded Tracks", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-tracks-filter-dropdown",
-                                options=[
-                                    {"label": track, "value": track} for track in tracks
-                                ],
+                                options=[{"label": track, "value": track} for track in tracks],
                                 multi=True,
                                 className="dropdown",
                             ),
@@ -213,9 +196,7 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_genre_trends_layout(
-    df: pd.DataFrame, spotify_data: pd.DataFrame
-) -> html.Div:
+def create_genre_trends_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> html.Div:
     """Create the layout for the genre trends analysis section.
 
     Args:
@@ -238,8 +219,7 @@ def create_genre_trends_layout(
                             dcc.Dropdown(
                                 id="genre-filter-dropdown",
                                 options=[
-                                    {"label": genre.title(), "value": genre}
-                                    for genre in genres
+                                    {"label": genre.title(), "value": genre} for genre in genres
                                 ],
                                 multi=True,
                                 className="dropdown",
@@ -254,9 +234,7 @@ def create_genre_trends_layout(
                 [
                     html.Div(
                         [
-                            html.Label(
-                                "Number of Top Genres", className="filter-label"
-                            ),
+                            html.Label("Number of Top Genres", className="filter-label"),
                             dcc.Slider(
                                 id="top-genres-slider",
                                 min=3,
@@ -311,10 +289,7 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Artists", className="filter-label"),
                             dcc.Dropdown(
                                 id="artist-filter-dropdown",
-                                options=[
-                                    {"label": artist, "value": artist}
-                                    for artist in artists
-                                ],
+                                options=[{"label": artist, "value": artist} for artist in artists],
                                 multi=True,
                                 className="dropdown",
                             ),
@@ -328,9 +303,7 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label(
-                                "Number of Top Artists", className="filter-label"
-                            ),
+                            html.Label("Number of Top Artists", className="filter-label"),
                             dcc.Slider(
                                 id="top-artist-slider",
                                 min=3,
@@ -400,12 +373,10 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
     options = [
         {
             "label": (
-                f"{row.master_metadata_track_name} - "
-                f"{row.master_metadata_album_artist_name}"
+                f"{row.master_metadata_track_name} - {row.master_metadata_album_artist_name}"
             ),
             "value": (
-                f"{row.master_metadata_track_name} - "
-                f"{row.master_metadata_album_artist_name}"
+                f"{row.master_metadata_track_name} - {row.master_metadata_album_artist_name}"
             ),
         }
         for row in df_tracks.itertuples()
@@ -434,9 +405,7 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label(
-                                "Number of Top Tracks", className="filter-label"
-                            ),
+                            html.Label("Number of Top Tracks", className="filter-label"),
                             dcc.Slider(
                                 id="top-track-slider",
                                 min=3,

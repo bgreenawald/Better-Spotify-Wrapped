@@ -38,6 +38,12 @@ coverage.xml
 *.cover
 .hypothesis/
 
+# Ruff cache
+.ruff_cache/
+
+# MyPy cache
+.mypy_cache/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb

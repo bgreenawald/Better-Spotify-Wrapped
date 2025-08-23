@@ -1,5 +1,3 @@
-from typing import Dict, List, Set, Tuple
-
 import numpy as np
 import pandas as pd
 
@@ -23,9 +21,7 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     df = filtered_df.copy()
     # Combine track name and artist for grouping
     df["track_artist"] = (
-        df["master_metadata_track_name"]
-        + " - "
-        + df["master_metadata_album_artist_name"]
+        df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
     )
 
     # Count plays per track
@@ -62,9 +58,7 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     return sorted_df
 
 
-def get_top_albums(
-    filtered_df: pd.DataFrame, spotify_data: SpotifyData
-) -> pd.DataFrame:
+def get_top_albums(filtered_df: pd.DataFrame, spotify_data: SpotifyData) -> pd.DataFrame:
     """Calculate top albums based on median song plays, including songs with zero plays.
 
     Considers only full albums present in the filtered listening history.
@@ -79,7 +73,7 @@ def get_top_albums(
             'tracks_played', 'release_date'.
     """
     # Identify albums in listening history
-    album_ids_in_history: Set[str] = set()
+    album_ids_in_history: set[str] = set()
     for uri in filtered_df["spotify_track_uri"].unique():
         track_id = uri.split(":")[-1]
         track_meta = spotify_data.tracks.get(track_id)
@@ -91,7 +85,7 @@ def get_top_albums(
             album_ids_in_history.add(album_id)
 
     # Map each track URI to its album and track index
-    track_to_album: Dict[str, Tuple[str, int]] = {}
+    track_to_album: dict[str, tuple[str, int]] = {}
     for track_id, track_meta in spotify_data.tracks.items():
         album_id = track_meta["album"]["id"]
         if album_id not in album_ids_in_history:
@@ -104,7 +98,7 @@ def get_top_albums(
     play_counts = filtered_df.groupby("spotify_track_uri").size().to_dict()
 
     # Initialize play counts for all tracks in each album
-    album_play_lists: Dict[str, List[int]] = {
+    album_play_lists: dict[str, list[int]] = {
         album_id: [0] * spotify_data.albums[album_id]["total_tracks"]
         for album_id in album_ids_in_history
     }
@@ -116,7 +110,7 @@ def get_top_albums(
             album_play_lists[album_id][idx] = count
 
     # Compile album statistics
-    album_stats: List[Dict[str, object]] = []
+    album_stats: list[dict[str, object]] = []
     for album_id, plays in album_play_lists.items():
         album_meta = spotify_data.albums[album_id]
         total_tracks = album_meta["total_tracks"]
@@ -168,8 +162,8 @@ def get_top_artist_genres(
         else filtered_df["spotify_track_uri"]
     )
 
-    genre_counts: Dict[str, int] = {}
-    genre_artists: Dict[str, Dict[str, int]] = {}
+    genre_counts: dict[str, int] = {}
+    genre_artists: dict[str, dict[str, int]] = {}
     total_tracked = 0
 
     for uri in track_uris:
@@ -196,14 +190,12 @@ def get_top_artist_genres(
             artists_for_genre[artist_name] = artists_for_genre.get(artist_name, 0) + 1
 
     # Build rows for DataFrame
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     for genre, count in genre_counts.items():
         top_artists = sorted(genre_artists[genre].items(), key=lambda x: (-x[1], x[0]))[
             :top_artists_per_genre
         ]
-        formatted_artists = ", ".join(
-            f"{name} ({plays} plays)" for name, plays in top_artists
-        )
+        formatted_artists = ", ".join(f"{name} ({plays} plays)" for name, plays in top_artists)
         rows.append(
             {
                 "genre": genre,
@@ -213,9 +205,7 @@ def get_top_artist_genres(
         )
 
     if not rows:
-        return pd.DataFrame(
-            columns=["genre", "play_count", "percentage", "top_artists"]
-        )
+        return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
     genre_df = pd.DataFrame(rows)
     genre_df["percentage"] = (genre_df["play_count"] / total_tracked * 100).round(2)

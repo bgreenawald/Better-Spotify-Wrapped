@@ -1,12 +1,10 @@
-from typing import Union
-
 import pandas as pd
 from dash import html
 
 MS_PER_HOUR: int = 1000 * 60 * 60
 
 
-def format_stat(value: Union[int, float]) -> str:
+def format_stat(value: int | float) -> str:
     """Format a numeric statistic for display.
 
     Args:
@@ -50,10 +48,7 @@ def create_stats_table(filtered_df: pd.DataFrame) -> html.Table:
     unique_days = filtered_df["ts"].dt.date.nunique()
 
     # Calculate average daily listening time in hours.
-    if unique_days > 0:
-        average_daily_hours = total_hours / unique_days
-    else:
-        average_daily_hours = 0.0
+    average_daily_hours = total_hours / unique_days if unique_days > 0 else 0.0
 
     # Determine the day with the most listening time.
     daily_ms_played = filtered_df.groupby(filtered_df["ts"].dt.date)["ms_played"].sum()
@@ -73,10 +68,7 @@ def create_stats_table(filtered_df: pd.DataFrame) -> html.Table:
         [
             html.Thead(html.Tr([html.Th("Metric"), html.Th("Value")])),
             html.Tbody(
-                [
-                    html.Tr([html.Td(metric), html.Td(value)])
-                    for metric, value in stats.items()
-                ]
+                [html.Tr([html.Td(metric), html.Td(value)]) for metric, value in stats.items()]
             ),
         ],
         className="stats-table",

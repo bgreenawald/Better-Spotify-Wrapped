@@ -36,68 +36,68 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                     dcc.Store(id="theme-store", storage_type="local"),
                     # Header
                     html.Div(
-                html.Div(
-                    [
                         html.Div(
                             [
-                                html.H1(
-                                    "Spotify Listening History",
-                                    className="dashboard-title",
-                                ),
                                 html.Div(
                                     [
-                                        html.Label(
-                                            "🌙",
-                                            className="theme-toggle-label",
-                                            id="theme-icon",
+                                        html.H1(
+                                            "Spotify Listening History",
+                                            className="dashboard-title",
                                         ),
-                                        dbc.Switch(
-                                            id="theme-toggle",
-                                            value=False,
-                                            className="theme-toggle-switch",
+                                        html.Div(
+                                            [
+                                                html.Label(
+                                                    "🌙",
+                                                    className="theme-toggle-label",
+                                                    id="theme-icon",
+                                                ),
+                                                dbc.Switch(
+                                                    id="theme-toggle",
+                                                    value=False,
+                                                    className="theme-toggle-switch",
+                                                ),
+                                            ],
+                                            className="theme-toggle-container",
                                         ),
                                     ],
-                                    className="theme-toggle-container",
+                                    className="header-content",
                                 ),
                             ],
-                            className="header-content",
+                            className="container",
                         ),
-                    ],
-                    className="container",
-                ),
-                className="dashboard-header",
-            ),
-            # Global settings collapsible panel
-            html.Div(
-                [
-                    dbc.Button(
-                        "Global Settings",
-                        id="collapse-button",
-                        className="mb-3 global-settings-button",
-                        color="primary",
-                        n_clicks=0,
+                        className="dashboard-header",
                     ),
-                    dbc.Collapse(
-                        dbc.Card(dbc.CardBody(create_global_settings(df))),
-                        id="collapse",
-                        is_open=False,
+                    # Global settings collapsible panel
+                    html.Div(
+                        [
+                            dbc.Button(
+                                "Global Settings",
+                                id="collapse-button",
+                                className="mb-3 global-settings-button",
+                                color="primary",
+                                n_clicks=0,
+                            ),
+                            dbc.Collapse(
+                                dbc.Card(dbc.CardBody(create_global_settings(df))),
+                                id="collapse",
+                                is_open=False,
+                            ),
+                        ],
+                        className="global-settings-container",
                     ),
-                ],
-                className="global-settings-container",
-            ),
-            # Main content tabs
-            dcc.Tabs(
-                [
-                    dcc.Tab(
-                        label="Wrapped",
-                        children=[create_tab_one_layout(df)],
+                    # Main content tabs
+                    dcc.Tabs(
+                        [
+                            dcc.Tab(
+                                label="Wrapped",
+                                children=[create_tab_one_layout(df)],
+                            ),
+                            dcc.Tab(
+                                label="Trends",
+                                children=[create_tab_two_layout(df, spotify_data)],
+                            ),
+                        ]
                     ),
-                    dcc.Tab(
-                        label="Trends",
-                        children=[create_tab_two_layout(df, spotify_data)],
-                    ),
-                ]
-            ),
                 ],
                 id="app-container",
                 className="",

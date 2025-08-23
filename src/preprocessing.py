@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 import pandas as pd
 
 from src.api.api import SpotifyData
@@ -25,14 +23,10 @@ def add_api_data(
             'artist_id', and 'artist_genres' columns added.
     """
     # Extract track ID from the Spotify URI (everything after the last colon)
-    history_df["track_id"] = (
-        history_df["spotify_track_uri"].str.rsplit(":", n=1).str[-1]
-    )
+    history_df["track_id"] = history_df["spotify_track_uri"].str.rsplit(":", n=1).str[-1]
 
     # Build mapping from track ID to album and artist IDs
-    track_to_album = {
-        track_id: info["album"]["id"] for track_id, info in api_data.tracks.items()
-    }
+    track_to_album = {track_id: info["album"]["id"] for track_id, info in api_data.tracks.items()}
     track_to_artist = {
         track_id: info["artists"][0]["id"] for track_id, info in api_data.tracks.items()
     }
@@ -52,14 +46,14 @@ def add_api_data(
 
 def filter_songs(
     history_df: pd.DataFrame,
-    start_date: Optional[pd.Timestamp] = None,
-    end_date: Optional[pd.Timestamp] = None,
+    start_date: pd.Timestamp | None = None,
+    end_date: pd.Timestamp | None = None,
     exclude_december: bool = True,
     remove_incognito: bool = True,
-    excluded_tracks: Optional[List[str]] = None,
-    excluded_artists: Optional[List[str]] = None,
-    excluded_albums: Optional[List[str]] = None,
-    excluded_genres: Optional[List[str]] = None,
+    excluded_tracks: list[str] | None = None,
+    excluded_artists: list[str] | None = None,
+    excluded_albums: list[str] | None = None,
+    excluded_genres: list[str] | None = None,
 ) -> pd.DataFrame:
     """Filter listening history based on various criteria.
 
@@ -120,9 +114,7 @@ def filter_songs(
     # Optionally exclude plays by genre
     if excluded_genres:
         mask &= ~history_df["artist_genres"].apply(
-            lambda genres: any(genre in excluded_genres for genre in genres)
-            if genres
-            else False
+            lambda genres: any(genre in excluded_genres for genre in genres) if genres else False
         )
 
     return history_df.loc[mask].copy()

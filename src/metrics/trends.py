@@ -45,9 +45,7 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     # Compute days in each month and average hours per day
-    monthly["days_in_month"] = monthly["month"].apply(
-        lambda m: pd.Period(m).days_in_month
-    )
+    monthly["days_in_month"] = monthly["month"].apply(lambda m: pd.Period(m).days_in_month)
     monthly["avg_hours_per_day"] = monthly["total_hours"] / monthly["days_in_month"]
 
     # Round numeric columns
@@ -60,9 +58,7 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def get_genre_trends(
-    filtered_df: pd.DataFrame, spotify_data: SpotifyData
-) -> pd.DataFrame:
+def get_genre_trends(filtered_df: pd.DataFrame, spotify_data: SpotifyData) -> pd.DataFrame:
     """Calculate genre listening trends over time.
 
     Optimized version using vectorized operations.
@@ -130,9 +126,7 @@ def get_genre_trends(
 
     # Count plays per artist-genre-month
     genre_artist_plays = (
-        merged.groupby(["month", "genre", "artist_name"])
-        .size()
-        .reset_index(name="artist_plays")
+        merged.groupby(["month", "genre", "artist_name"]).size().reset_index(name="artist_plays")
     )
 
     # Sum to get play_count per genre-month
@@ -144,9 +138,7 @@ def get_genre_trends(
 
     # Total plays per month for percentage calc
     monthly_totals = (
-        genre_totals.groupby("month")["play_count"]
-        .sum()
-        .reset_index(name="total_plays")
+        genre_totals.groupby("month")["play_count"].sum().reset_index(name="total_plays")
     )
 
     # Determine top 2 artists by plays per genre-month
@@ -169,7 +161,7 @@ def get_genre_trends(
         lambda row: " ".join(
             f"{name} {plays}"
             for name, plays in zip(
-                row["artist_name"].split(", "), row["artist_plays"].split(", ")
+                row["artist_name"].split(", "), row["artist_plays"].split(", "), strict=False
             )
         ),
         axis=1,
@@ -187,9 +179,7 @@ def get_genre_trends(
     result = result.sort_values(["month", "play_count"], ascending=[True, False])
 
     # Add rank within each month
-    result["rank"] = result.groupby("month")["play_count"].rank(
-        method="dense", ascending=False
-    )
+    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
 
     return result.reset_index(drop=True)
 
@@ -218,9 +208,7 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     # Count plays per track per artist-month
     track_counts = (
-        df.groupby(
-            ["month", "master_metadata_album_artist_name", "master_metadata_track_name"]
-        )
+        df.groupby(["month", "master_metadata_album_artist_name", "master_metadata_track_name"])
         .size()
         .reset_index(name="track_plays")
     )
@@ -255,13 +243,9 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
     metrics = metrics.reset_index()
 
     # Compute monthly totals for percentage
-    monthly_totals = (
-        metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
-    )
+    monthly_totals = metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
     metrics = metrics.merge(monthly_totals, on="month")
-    metrics["percentage"] = (
-        metrics["play_count"] / metrics["total_plays"] * 100
-    ).round(2)
+    metrics["percentage"] = (metrics["play_count"] / metrics["total_plays"] * 100).round(2)
 
     # Convert duration to minutes
     metrics["avg_duration_min"] = (metrics["avg_duration_ms"] / (1000 * 60)).round(2)
@@ -279,9 +263,7 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     # Sort and rank
     result = result.sort_values(["month", "play_count"], ascending=[True, False])
-    result["rank"] = result.groupby("month")["play_count"].rank(
-        method="dense", ascending=False
-    )
+    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
 
     return result.reset_index(drop=True)
 
@@ -310,9 +292,7 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     # Combine track name and artist
     df["track_artist"] = (
-        df["master_metadata_track_name"]
-        + " - "
-        + df["master_metadata_album_artist_name"]
+        df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
     )
 
     # Compute play count and avg duration per track-artist-month
@@ -334,9 +314,7 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     # Monthly totals for percentage
     monthly_totals = (
-        track_metrics.groupby("month")["play_count"]
-        .sum()
-        .reset_index(name="total_plays")
+        track_metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
     )
     track_metrics = track_metrics.merge(monthly_totals, on="month")
     track_metrics["percentage"] = (
@@ -344,9 +322,7 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
     ).round(2)
 
     # Convert duration to minutes
-    track_metrics["avg_duration_min"] = (
-        track_metrics["avg_duration_ms"] / (1000 * 60)
-    ).round(2)
+    track_metrics["avg_duration_min"] = (track_metrics["avg_duration_ms"] / (1000 * 60)).round(2)
 
     # Clean up and rename columns
     result = track_metrics.drop(["avg_duration_ms", "total_plays"], axis=1)
@@ -359,8 +335,6 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
     # Sort and rank
     result = result.sort_values(["month", "play_count"], ascending=[True, False])
-    result["rank"] = result.groupby("month")["play_count"].rank(
-        method="dense", ascending=False
-    )
+    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
 
     return result.reset_index(drop=True)

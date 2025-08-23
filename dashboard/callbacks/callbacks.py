@@ -1,9 +1,9 @@
 from datetime import datetime
 from io import StringIO
 
+import dash
 import pandas as pd
 import plotly.express as px
-import dash
 from dash import Dash, Input, Output, State, dash_table
 from dash.exceptions import PreventUpdate
 
@@ -198,9 +198,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "text": top_tracks["play_count"].head(10),
                         "marker": {"color": "#1DB954"},
                         "customdata": top_tracks["track_artist"].head(10),
-                        "hovertemplate": (
-                            "Track: %{customdata}<br>Plays: %{x}<extra></extra>"
-                        ),
+                        "hovertemplate": ("Track: %{customdata}<br>Plays: %{x}<extra></extra>"),
                     }
                 ],
                 "layout": {
@@ -278,12 +276,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                         "x": top_genres["play_count"].head(10),
                         "y": top_genres["genre"].head(10),
                         "orientation": "h",
-                        "text": [
-                            f"{pct:.1f}%" for pct in top_genres["percentage"].head(10)
-                        ],
-                        "customdata": top_genres[["percentage", "top_artists"]]
-                        .head(10)
-                        .values,
+                        "text": [f"{pct:.1f}%" for pct in top_genres["percentage"].head(10)],
+                        "customdata": top_genres[["percentage", "top_artists"]].head(10).values,
                         "marker": {"color": "#1DB954"},
                         "hovertemplate": (
                             "Genre: %{y}<br>Tracks: %{x}"
@@ -365,9 +359,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         return {
             "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),
             "artist_trends": artist_trends.to_json(date_format="iso", orient="split"),
-            "overall_artists": overall_artists.to_json(
-                date_format="iso", orient="split"
-            ),
+            "overall_artists": overall_artists.to_json(date_format="iso", orient="split"),
             "track_trends": track_trends.to_json(date_format="iso", orient="split"),
             "overall_tracks": overall_tracks.to_json(date_format="iso", orient="split"),
             "genre_trends": genre_trends.to_json(date_format="iso", orient="split"),
@@ -422,9 +414,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_genre_trends_graph(
-        selected_genres, top_n, display_type, data, theme_data
-    ):
+    def update_genre_trends_graph(selected_genres, top_n, display_type, data, theme_data):
         """Update genre trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -491,9 +481,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_artist_trends_graph(
-        selected_artists, top_n, display_type, data, theme_data
-    ):
+    def update_artist_trends_graph(selected_artists, top_n, display_type, data, theme_data):
         """Update artist trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -529,9 +517,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         )
 
         # Format genres and build table
-        overall["artist_genres"] = overall["artist_genres"].apply(
-            lambda genres: ", ".join(genres)
-        )
+        overall["artist_genres"] = overall["artist_genres"].apply(lambda genres: ", ".join(genres))
         cols = ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
@@ -567,9 +553,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_track_trends_graph(
-        selected_tracks, top_n, display_type, data, theme_data
-    ):
+    def update_track_trends_graph(selected_tracks, top_n, display_type, data, theme_data):
         """Update track trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -584,11 +568,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
         # Auto-select if none chosen
         if not selected_tracks:
-            avg = (
-                overall.groupby("track_artist")[y_col]
-                .mean()
-                .sort_values(ascending=False)
-            )
+            avg = overall.groupby("track_artist")[y_col].mean().sort_values(ascending=False)
             selected_tracks = avg.head(top_n).index.tolist()
 
         plot_df = trends[trends["track_artist"].isin(selected_tracks)]
@@ -609,9 +589,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
         # Prepare summary table
         overall = overall.drop(columns=["track_artist"])
-        overall["artist_genres"] = overall["artist_genres"].apply(
-            lambda genres: ", ".join(genres)
-        )
+        overall["artist_genres"] = overall["artist_genres"].apply(lambda genres: ", ".join(genres))
         cols = ["track_name", "artist", "artist_genres", "play_count", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
@@ -649,26 +627,26 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
     )
     def handle_theme(theme_data, toggle_value):
         """Handle theme initialization and toggling.
-        
+
         This callback manages both theme initialization from localStorage
         and theme toggling from the toggle switch, preventing callback conflicts.
-        
+
         Args:
             theme_data (dict): Stored theme data from localStorage.
             toggle_value (bool): Current state of the theme toggle switch.
-            
+
         Returns:
             tuple: Toggle value, theme class name, icon, and theme data to store.
         """
         ctx = dash.callback_context
-        
+
         # Determine which input triggered the callback
         if not ctx.triggered:
             # Initial load - use stored theme data
             is_dark = theme_data.get("dark", False) if theme_data else False
         else:
             trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-            
+
             if trigger_id == "theme-store":
                 # Theme initialization from storage
                 is_dark = theme_data.get("dark", False) if theme_data else False
@@ -678,9 +656,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             else:
                 # Fallback
                 is_dark = False
-        
+
         theme_class = "dark-theme" if is_dark else ""
         icon = "☀️" if is_dark else "🌙"
         theme_store_data = {"dark": is_dark}
-        
+
         return is_dark, theme_class, icon, theme_store_data

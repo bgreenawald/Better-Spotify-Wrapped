@@ -20,5 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "dash[testing]>=2.18.2",
+    "pre-commit>=4.3.0",
     "pytest>=8.3.5",
+    "ruff>=0.12.10",
 ]
