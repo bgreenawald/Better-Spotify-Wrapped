@@ -614,6 +614,30 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
     @app.callback(
         [
+            Output("theme-toggle", "value"),
+            Output("app-container", "className"),
+            Output("theme-icon", "children"),
+        ],
+        [Input("theme-store", "data")],
+    )
+    def initialize_theme_from_storage(theme_data):
+        """Initialize theme state from localStorage on page load.
+        
+        Args:
+            theme_data (dict): Stored theme data from localStorage.
+            
+        Returns:
+            tuple: Toggle value, theme class name, and icon.
+        """
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        
+        theme_class = "dark-theme" if is_dark else ""
+        icon = "☀️" if is_dark else "🌙"
+        
+        return is_dark, theme_class, icon
+
+    @app.callback(
+        [
             Output("app-container", "className"),
             Output("theme-icon", "children"),
             Output("theme-store", "data"),
