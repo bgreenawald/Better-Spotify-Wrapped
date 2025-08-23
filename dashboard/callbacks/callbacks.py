@@ -3,6 +3,7 @@ from io import StringIO
 
 import pandas as pd
 import plotly.express as px
+import dash
 from dash import Dash, Input, Output, State, dash_table
 from dash.exceptions import PreventUpdate
 
@@ -638,45 +639,48 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Output("theme-toggle", "value"),
             Output("app-container", "className"),
             Output("theme-icon", "children"),
+            Output("theme-store", "data"),
         ],
-        [Input("theme-store", "data")],
+        [
+            Input("theme-store", "data"),
+            Input("theme-toggle", "value"),
+        ],
+        prevent_initial_call=False,
     )
-    def initialize_theme_from_storage(theme_data):
-        """Initialize theme state from localStorage on page load.
+    def handle_theme(theme_data, toggle_value):
+        """Handle theme initialization and toggling.
+        
+        This callback manages both theme initialization from localStorage
+        and theme toggling from the toggle switch, preventing callback conflicts.
         
         Args:
             theme_data (dict): Stored theme data from localStorage.
+            toggle_value (bool): Current state of the theme toggle switch.
             
         Returns:
-            tuple: Toggle value, theme class name, and icon.
+            tuple: Toggle value, theme class name, icon, and theme data to store.
         """
-        is_dark = theme_data.get("dark", False) if theme_data else False
+        ctx = dash.callback_context
+        
+        # Determine which input triggered the callback
+        if not ctx.triggered:
+            # Initial load - use stored theme data
+            is_dark = theme_data.get("dark", False) if theme_data else False
+        else:
+            trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+            
+            if trigger_id == "theme-store":
+                # Theme initialization from storage
+                is_dark = theme_data.get("dark", False) if theme_data else False
+            elif trigger_id == "theme-toggle":
+                # Theme toggle from user interaction
+                is_dark = toggle_value if toggle_value is not None else False
+            else:
+                # Fallback
+                is_dark = False
         
         theme_class = "dark-theme" if is_dark else ""
         icon = "☀️" if is_dark else "🌙"
+        theme_store_data = {"dark": is_dark}
         
-        return is_dark, theme_class, icon
-
-    @app.callback(
-        [
-            Output("app-container", "className"),
-            Output("theme-icon", "children"),
-            Output("theme-store", "data"),
-        ],
-        [Input("theme-toggle", "value")],
-    )
-    def toggle_theme(toggle_value):
-        """Toggle between light and dark themes.
-
-        Args:
-            toggle_value (bool): Current state of the theme toggle switch.
-
-        Returns:
-            tuple: Theme class name, icon, and theme data to store.
-        """
-        is_dark = toggle_value if toggle_value is not None else False
-
-        theme_class = "dark-theme" if is_dark else ""
-        icon = "☀️" if is_dark else "🌙"
-
-        return theme_class, icon, {"dark": is_dark}
+        return is_dark, theme_class, icon, theme_store_data
