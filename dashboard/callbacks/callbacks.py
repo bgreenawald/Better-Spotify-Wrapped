@@ -26,10 +26,10 @@ from src.preprocessing import filter_songs
 
 def get_plotly_theme(is_dark=False):
     """Get Plotly theme configuration based on dark mode setting.
-    
+
     Args:
         is_dark (bool): Whether dark mode is enabled.
-        
+
     Returns:
         dict: Plotly layout configuration for the theme.
     """
@@ -41,7 +41,15 @@ def get_plotly_theme(is_dark=False):
             "font": {"color": "#e0e0e0", "family": "Segoe UI, sans-serif"},
             "xaxis": {"gridcolor": "#333"},
             "yaxis": {"gridcolor": "#333"},
-            "colorway": ["#1DB954", "#1ed760", "#21e065", "#5eb859", "#7dd069", "#9be082", "#b5e8a3"],
+            "colorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
         }
     else:
         return {
@@ -150,9 +158,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                    and daily heatmap.
         """
         # Get theme settings
-        is_dark = theme_data.get("dark", False) if theme_data else False
+        is_dark = False
+        if isinstance(theme_data, dict):
+            dark_value = theme_data.get("dark")
+            if isinstance(dark_value, bool):
+                is_dark = dark_value
         theme = get_plotly_theme(is_dark)
-        
+
         # Return empty figures if no year is selected
         if not selected_year:
             empty_fig = {"data": [], "layout": theme}
@@ -363,7 +375,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
     @app.callback(
         Output("trends-graph", "figure"),
-        [Input("metric-dropdown", "value"), Input("tab-2-data", "data"), Input("theme-store", "data")],
+        [
+            Input("metric-dropdown", "value"),
+            Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
+        ],
     )
     def update_trend_dashboard(selected_metric, data, theme_data):
         """Render monthly line chart for the selected metric."""
@@ -405,7 +421,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_genre_trends_graph(selected_genres, top_n, display_type, data, theme_data):
+    def update_genre_trends_graph(
+        selected_genres, top_n, display_type, data, theme_data
+    ):
         """Update genre trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -472,7 +490,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_artist_trends_graph(selected_artists, top_n, display_type, data, theme_data):
+    def update_artist_trends_graph(
+        selected_artists, top_n, display_type, data, theme_data
+    ):
         """Update artist trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -546,7 +566,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("theme-store", "data"),
         ],
     )
-    def update_track_trends_graph(selected_tracks, top_n, display_type, data, theme_data):
+    def update_track_trends_graph(
+        selected_tracks, top_n, display_type, data, theme_data
+    ):
         """Update track trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
@@ -611,7 +633,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         )
         return fig, [table]
 
-
     @app.callback(
         [
             Output("theme-toggle", "value"),
@@ -646,16 +667,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
     )
     def toggle_theme(toggle_value):
         """Toggle between light and dark themes.
-        
+
         Args:
             toggle_value (bool): Current state of the theme toggle switch.
-            
+
         Returns:
             tuple: Theme class name, icon, and theme data to store.
         """
         is_dark = toggle_value if toggle_value is not None else False
-        
+
         theme_class = "dark-theme" if is_dark else ""
         icon = "☀️" if is_dark else "🌙"
-        
+
         return theme_class, icon, {"dark": is_dark}

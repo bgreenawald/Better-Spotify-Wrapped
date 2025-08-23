@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -332,7 +334,7 @@ def create_daily_top_heatmap(
     # Determine colorscale based on theme
     is_dark = theme and theme.get("template") == "plotly_dark"
     colorscale = "Viridis" if is_dark else "Greens"
-    
+
     heatmap = go.Heatmap(
         z=z_matrix,
         x=list(range(z_matrix.shape[1])),
@@ -352,11 +354,11 @@ def create_daily_top_heatmap(
     )
 
     fig = go.Figure(heatmap)
-    
+
     # Apply theme or default style
     if theme:
-        # Create a copy of theme to avoid modifying the original
-        layout_update = dict(theme)
+        # Create a deep copy of theme to avoid modifying the original
+        layout_update = copy.deepcopy(theme)
         # Override specific axis settings for heatmap
         layout_update["xaxis"] = {
             "showticklabels": False,
