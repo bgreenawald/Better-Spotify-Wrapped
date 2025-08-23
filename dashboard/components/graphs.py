@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -297,6 +299,7 @@ def create_daily_top_playcount_grid(daily_playcounts):
 
 def create_daily_top_heatmap(
     daily_playcounts=None,
+    theme=None,
     title="Daily Top-Track Play Count Heatmap",
 ):
     """Create a heatmap figure of daily top track play counts.
@@ -304,6 +307,7 @@ def create_daily_top_heatmap(
     Args:
         daily_playcounts (pd.DataFrame, optional): DataFrame with daily
             play count data. Defaults to None.
+        theme (dict, optional): Theme configuration for the graph. Defaults to None.
         title (str, optional): Title of the heatmap (unused). Defaults to
             "Daily Top-Track Play Count Heatmap".
 
@@ -327,21 +331,52 @@ def create_daily_top_heatmap(
     # Build customdata for hover information
     customdata = np.dstack([date_matrix, track_matrix])
 
+    # Determine colorscale based on theme
+    is_dark = theme and theme.get("template") == "plotly_dark"
+    colorscale = "Viridis" if is_dark else "Greens"
+
     heatmap = go.Heatmap(
         z=z_matrix,
         x=list(range(z_matrix.shape[1])),
         y=list(range(z_matrix.shape[0])),
-        colorscale="Greens",
+        colorscale=colorscale,
         customdata=customdata,
         hovertemplate=(
             "Date: %{customdata[0]}<br>"
             "Track: %{customdata[1]}<br>"
             "Plays: %{z}<extra></extra>"
         ),
-        colorbar=dict(title="Plays"),
+        colorbar=dict(
+            title="Plays",
+            tickfont=dict(color="#e0e0e0" if is_dark else "#000000"),
+            titlefont=dict(color="#e0e0e0" if is_dark else "#000000"),
+        ),
     )
 
     fig = go.Figure(heatmap)
-    fig.update_layout(**create_graph_style())
+
+    # Apply theme or default style
+    if theme:
+        # Create a deep copy of theme to avoid modifying the original
+        layout_update = copy.deepcopy(theme)
+        # Override specific axis settings for heatmap
+        layout_update["xaxis"] = {
+            "showticklabels": False,
+            "showgrid": False,
+            "zeroline": False,
+            "gridcolor": theme.get("xaxis", {}).get("gridcolor", "#333"),
+        }
+        layout_update["yaxis"] = {
+            "showticklabels": False,
+            "showgrid": False,
+            "zeroline": False,
+            "gridcolor": theme.get("yaxis", {}).get("gridcolor", "#333"),
+        }
+        layout_update["height"] = 400
+        layout_update["margin"] = dict(t=30, b=30, l=30, r=80)
+        fig.update_layout(**layout_update)
+    else:
+        layout_style = create_graph_style()
+        fig.update_layout(**layout_style)
 
     return fig

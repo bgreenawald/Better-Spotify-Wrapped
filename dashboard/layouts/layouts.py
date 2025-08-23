@@ -30,13 +30,39 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
     """
     return html.Div(
         [
-            # Header
             html.Div(
+                [
+                    # Store for theme state
+                    dcc.Store(id="theme-store", storage_type="local"),
+                    # Header
+                    html.Div(
                 html.Div(
-                    html.H1(
-                        "Spotify Listening History",
-                        className="dashboard-title",
-                    ),
+                    [
+                        html.Div(
+                            [
+                                html.H1(
+                                    "Spotify Listening History",
+                                    className="dashboard-title",
+                                ),
+                                html.Div(
+                                    [
+                                        html.Label(
+                                            "🌙",
+                                            className="theme-toggle-label",
+                                            id="theme-icon",
+                                        ),
+                                        dbc.Switch(
+                                            id="theme-toggle",
+                                            value=False,
+                                            className="theme-toggle-switch",
+                                        ),
+                                    ],
+                                    className="theme-toggle-container",
+                                ),
+                            ],
+                            className="header-content",
+                        ),
+                    ],
                     className="container",
                 ),
                 className="dashboard-header",
@@ -72,6 +98,10 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                     ),
                 ]
             ),
+                ],
+                id="app-container",
+                className="",
+            )
         ]
     )
 
