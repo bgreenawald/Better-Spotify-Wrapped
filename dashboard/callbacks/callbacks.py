@@ -6,7 +6,7 @@ import plotly.express as px
 from dash import Dash, Input, Output, State, dash_table
 from dash.exceptions import PreventUpdate
 
-from dashboard.components.graphs import create_daily_top_heatmap, create_graph_style
+from dashboard.components.graphs import create_daily_top_heatmap
 from dashboard.components.stats import create_stats_table
 from src.metrics.metrics import (
     get_most_played_artists,
@@ -22,6 +22,36 @@ from src.metrics.trends import (
     get_track_trends,
 )
 from src.preprocessing import filter_songs
+
+
+def get_plotly_theme(is_dark=False):
+    """Get Plotly theme configuration based on dark mode setting.
+    
+    Args:
+        is_dark (bool): Whether dark mode is enabled.
+        
+    Returns:
+        dict: Plotly layout configuration for the theme.
+    """
+    if is_dark:
+        return {
+            "template": "plotly_dark",
+            "paper_bgcolor": "#1e1e1e",
+            "plot_bgcolor": "#1e1e1e",
+            "font": {"color": "#e0e0e0", "family": "Segoe UI, sans-serif"},
+            "xaxis": {"gridcolor": "#333"},
+            "yaxis": {"gridcolor": "#333"},
+            "colorway": ["#1DB954", "#1ed760", "#21e065", "#5eb859", "#7dd069", "#9be082", "#b5e8a3"],
+        }
+    else:
+        return {
+            "template": "plotly",
+            "paper_bgcolor": "white",
+            "plot_bgcolor": "white",
+            "font": {"family": "Segoe UI, sans-serif"},
+            "xaxis": {"gridcolor": "#eee"},
+            "yaxis": {"gridcolor": "#eee"},
+        }
 
 
 def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) -> None:
@@ -93,6 +123,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("excluded-tracks-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
             Input("excluded-albums-filter-dropdown", "value"),
+            Input("theme-store", "data"),
         ],
     )
     def update_dashboard(
@@ -102,6 +133,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         excluded_tracks,
         excluded_artists,
         excluded_albums,
+        theme_data,
     ):
         """Update top-level charts and stats based on user filters.
 
@@ -117,9 +149,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             tuple: Figures for tracks, artists, albums, genres, stats table,
                    and daily heatmap.
         """
+        # Get theme settings
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        theme = get_plotly_theme(is_dark)
+        
         # Return empty figures if no year is selected
         if not selected_year:
-            empty_fig = {"data": [], "layout": create_graph_style()}
+            empty_fig = {"data": [], "layout": theme}
             return empty_fig, empty_fig, empty_fig, empty_fig, [], empty_fig
 
         # Filter the dataset
@@ -137,7 +173,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         # Top tracks
         top_tracks = get_most_played_tracks(filtered)
         if top_tracks.empty:
-            tracks_fig = {"data": [], "layout": create_graph_style()}
+            tracks_fig = {"data": [], "layout": theme}
         else:
             tracks_fig = {
                 "data": [
@@ -155,16 +191,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                     }
                 ],
                 "layout": {
-                    **create_graph_style(),
-                    "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
-                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                    **theme,
+                    "xaxis": {**theme.get("xaxis", {}), "title": "Play Count"},
+                    "yaxis": {**theme.get("yaxis", {}), "title": ""},
                 },
             }
 
         # Top artists
         top_artists = get_most_played_artists(filtered)
         if top_artists.empty:
-            artists_fig = {"data": [], "layout": create_graph_style()}
+            artists_fig = {"data": [], "layout": theme}
         else:
             artists_fig = {
                 "data": [
@@ -183,16 +219,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                     }
                 ],
                 "layout": {
-                    **create_graph_style(),
-                    "xaxis": {"gridcolor": "#eee", "title": "Play Count"},
-                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                    **theme,
+                    "xaxis": {**theme.get("xaxis", {}), "title": "Play Count"},
+                    "yaxis": {**theme.get("yaxis", {}), "title": ""},
                 },
             }
 
         # Top albums
         top_albums = get_top_albums(filtered, spotify_data)
         if top_albums.empty:
-            albums_fig = {"data": [], "layout": create_graph_style()}
+            albums_fig = {"data": [], "layout": theme}
         else:
             albums_fig = {
                 "data": [
@@ -211,16 +247,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                     }
                 ],
                 "layout": {
-                    **create_graph_style(),
-                    "xaxis": {"gridcolor": "#eee", "title": "Median Plays"},
-                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                    **theme,
+                    "xaxis": {**theme.get("xaxis", {}), "title": "Median Plays"},
+                    "yaxis": {**theme.get("yaxis", {}), "title": ""},
                 },
             }
 
         # Top genres
         top_genres = get_top_artist_genres(filtered, spotify_data)
         if top_genres.empty:
-            genres_fig = {"data": [], "layout": create_graph_style()}
+            genres_fig = {"data": [], "layout": theme}
         else:
             genres_fig = {
                 "data": [
@@ -244,9 +280,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                     }
                 ],
                 "layout": {
-                    **create_graph_style(),
-                    "xaxis": {"gridcolor": "#eee", "title": "Track Count"},
-                    "yaxis": {"gridcolor": "#eee", "title": ""},
+                    **theme,
+                    "xaxis": {**theme.get("xaxis", {}), "title": "Track Count"},
+                    "yaxis": {**theme.get("yaxis", {}), "title": ""},
                 },
             }
 
@@ -255,7 +291,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
         # Daily heatmap
         daily_counts = get_playcount_by_day(filtered)
-        heatmap_fig = create_daily_top_heatmap(daily_counts)
+        heatmap_fig = create_daily_top_heatmap(daily_counts, theme)
 
         return (
             tracks_fig,
@@ -327,10 +363,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
 
     @app.callback(
         Output("trends-graph", "figure"),
-        [Input("metric-dropdown", "value"), Input("tab-2-data", "data")],
+        [Input("metric-dropdown", "value"), Input("tab-2-data", "data"), Input("theme-store", "data")],
     )
-    def update_trend_dashboard(selected_metric, data):
+    def update_trend_dashboard(selected_metric, data, theme_data):
         """Render monthly line chart for the selected metric."""
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        theme = get_plotly_theme(is_dark)
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
         labels = {
             "total_hours": "Total Listening Hours",
@@ -347,13 +385,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             title=title,
         )
         fig.update_layout(
-            template="plotly",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font={"family": "Segoe UI, sans-serif"},
+            **theme,
             margin={"t": 50, "b": 30, "l": 30, "r": 30},
-            xaxis={"gridcolor": "#eee"},
-            yaxis={"gridcolor": "#eee"},
             showlegend=False,
         )
         fig.update_traces(line_color="#1DB954")
@@ -369,10 +402,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_genre_trends_graph(selected_genres, top_n, display_type, data):
+    def update_genre_trends_graph(selected_genres, top_n, display_type, data, theme_data):
         """Update genre trends line chart and summary table."""
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        theme = get_plotly_theme(is_dark)
         trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
@@ -398,13 +434,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             title="Genre Trends Over Time",
         )
         fig.update_layout(
-            template="plotly",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font={"family": "Segoe UI, sans-serif"},
+            **theme,
             margin={"t": 50, "b": 30, "l": 30, "r": 30},
-            xaxis={"gridcolor": "#eee"},
-            yaxis={"gridcolor": "#eee"},
         )
 
         table = dash_table.DataTable(
@@ -438,10 +469,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_artist_trends_graph(selected_artists, top_n, display_type, data):
+    def update_artist_trends_graph(selected_artists, top_n, display_type, data, theme_data):
         """Update artist trends line chart and summary table."""
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        theme = get_plotly_theme(is_dark)
         trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_artists"]), orient="split")
 
@@ -469,13 +503,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             title="Artist Trends Over Time",
         )
         fig.update_layout(
-            template="plotly",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font={"family": "Segoe UI, sans-serif"},
+            **theme,
             margin={"t": 50, "b": 30, "l": 30, "r": 30},
-            xaxis={"gridcolor": "#eee"},
-            yaxis={"gridcolor": "#eee"},
         )
 
         # Format genres and build table
@@ -514,10 +543,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_track_trends_graph(selected_tracks, top_n, display_type, data):
+    def update_track_trends_graph(selected_tracks, top_n, display_type, data, theme_data):
         """Update track trends line chart and summary table."""
+        is_dark = theme_data.get("dark", False) if theme_data else False
+        theme = get_plotly_theme(is_dark)
         trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_tracks"]), orient="split")
 
@@ -548,13 +580,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             markers=True,
         )
         fig.update_layout(
-            template="plotly",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font={"family": "Segoe UI, sans-serif"},
+            **theme,
             margin={"t": 50, "b": 30, "l": 30, "r": 30},
-            xaxis={"gridcolor": "#eee"},
-            yaxis={"gridcolor": "#eee"},
         )
 
         # Prepare summary table
@@ -592,49 +619,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Output("theme-store", "data"),
         ],
         [Input("theme-toggle", "value")],
-        [State("theme-store", "data")],
     )
-    def toggle_theme(toggle_value, stored_theme):
+    def toggle_theme(toggle_value):
         """Toggle between light and dark themes.
         
         Args:
             toggle_value (bool): Current state of the theme toggle switch.
-            stored_theme (dict): Stored theme preference from local storage.
             
         Returns:
             tuple: Theme class name, icon, and theme data to store.
         """
-        # Use toggle value if changed, otherwise use stored preference
         is_dark = toggle_value if toggle_value is not None else False
         
         theme_class = "dark-theme" if is_dark else ""
         icon = "☀️" if is_dark else "🌙"
         
         return theme_class, icon, {"dark": is_dark}
-
-    @app.callback(
-        [
-            Output("theme-toggle", "value"),
-            Output("app-container", "className", allow_duplicate=True),
-            Output("theme-icon", "children", allow_duplicate=True),
-        ],
-        [Input("theme-store", "modified_timestamp")],
-        [State("theme-store", "data")],
-        prevent_initial_call="initial_duplicate",
-    )
-    def restore_theme_on_load(ts, stored_theme):
-        """Restore theme from local storage on page load.
-        
-        Args:
-            ts: Timestamp of when the store was modified.
-            stored_theme (dict): Stored theme preference from local storage.
-            
-        Returns:
-            tuple: Toggle value, theme class, and icon.
-        """
-        if stored_theme and stored_theme.get("dark") is not None:
-            is_dark = stored_theme.get("dark", False)
-            theme_class = "dark-theme" if is_dark else ""
-            icon = "☀️" if is_dark else "🌙"
-            return is_dark, theme_class, icon
-        return False, "", "🌙"
