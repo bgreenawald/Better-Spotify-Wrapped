@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from dashboard.application import create_app
@@ -9,6 +11,7 @@ def dash_app():
     return app
 
 
+@pytest.mark.skipif(os.getenv("CI") is not None, reason="Skip E2E tests in CI environment")
 def test_app_starts(dash_duo, dash_app):
     dash_duo.start_server(dash_app)
     dash_duo.wait_for_element(".dashboard-title", timeout=10)
