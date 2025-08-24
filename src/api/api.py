@@ -222,11 +222,11 @@ def load_api_data() -> SpotifyData:
     album_file = collector.data_dir / "album_ids.txt"
 
     with open(track_file, encoding="utf-8") as f:
-        track_ids = [line.strip() for line in f]
+        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
     with open(artist_file, encoding="utf-8") as f:
-        artist_ids = [line.strip() for line in f]
+        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
     with open(album_file, encoding="utf-8") as f:
-        album_ids = [line.strip() for line in f]
+        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
 
     tracks = collector.fetch_tracks(track_ids)
     artists = collector.fetch_artists(artist_ids)
@@ -252,11 +252,11 @@ if __name__ == "__main__":
 
     # Load ID lists
     with open(collector.data_dir / "track_ids.txt", encoding="utf-8") as f:
-        track_ids = [line.strip() for line in f]
+        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
     with open(collector.data_dir / "artist_ids.txt", encoding="utf-8") as f:
-        artist_ids = [line.strip() for line in f]
+        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
     with open(collector.data_dir / "album_ids.txt", encoding="utf-8") as f:
-        album_ids = [line.strip() for line in f]
+        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
 
     # Fetch data
     print("Fetching tracks...")

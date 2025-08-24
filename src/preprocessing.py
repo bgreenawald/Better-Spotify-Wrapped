@@ -75,6 +75,16 @@ def filter_songs(
     Returns:
         pd.DataFrame: Filtered DataFrame containing plays that match criteria.
     """
+
+    history_df = history_df.copy()
+    # Ensure 'ts' is datetime (coerce invalid values to NaT)
+    if not pd.api.types.is_datetime64_any_dtype(history_df["ts"]):
+        history_df["ts"] = pd.to_datetime(history_df["ts"], errors="coerce")
+    # Always provide explicit year/month/day columns for consistent grouping/filtering
+    history_df["year"] = history_df["ts"].dt.year
+    history_df["month"] = history_df["ts"].dt.month
+    history_df["day"] = history_df["ts"].dt.day
+
     mask = pd.Series(True, index=history_df.index)
 
     # Exclude episodes (podcasts) and missing track URIs
