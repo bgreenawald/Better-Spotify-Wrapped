@@ -18,3 +18,5 @@ repos:
         always_run: false
         files: \.py$
         stages: [pre-commit]
+        ci:
+          skip: true

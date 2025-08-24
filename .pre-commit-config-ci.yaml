@@ -10,5 +10,5 @@ autoupdate_schedule: weekly
 # Custom commit message for auto-fixes
 autofix_commit_msg: |
   [pre-commit.ci] auto fixes from pre-commit hooks
-  
+
   for more information, see https://pre-commit.ci
