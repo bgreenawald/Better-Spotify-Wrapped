@@ -40,8 +40,8 @@ class SpotifyDataCollector:
 
     def __init__(
         self,
-        client_id: str | None = os.getenv("SPOTIFY_CLIENT_ID"),
-        client_secret: str | None = os.getenv("SPOTIFY_CLIENT_SECRET"),
+        client_id: str | None = None,
+        client_secret: str | None = None,
     ) -> None:
         """Initialize the collector with Spotify API credentials and cache dirs.
 
@@ -49,10 +49,25 @@ class SpotifyDataCollector:
             client_id: Spotify API client ID.
             client_secret: Spotify API client secret.
         """
+        # Resolve credentials from args or env at runtime
+        cid = client_id or os.getenv("SPOTIFY_CLIENT_ID")
+        csecret = client_secret or os.getenv("SPOTIFY_CLIENT_SECRET")
+        if not cid or not csecret:
+            raise ValueError(
+                "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and "
+                "SPOTIFY_CLIENT_SECRET in the environment or pass them to SpotifyDataCollector()."
+            )
         self.spotify_client = spotipy.Spotify(
-            auth_manager=SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
+            auth_manager=SpotifyClientCredentials(client_id=cid, client_secret=csecret)
         )
-        self.data_dir: Path = Path(os.getenv("DATA_DIR"))  # type: ignore
+        data_dir_env = os.getenv("DATA_DIR")
+        if not data_dir_env:
+            raise ValueError(
+                "DATA_DIR is not set. Create a .env with DATA_DIR=<path> "
+                "(keys: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, DATA_DIR)."
+            )
+        self.data_dir = Path(data_dir_env)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir: Path = Path("data/api/cache")
         self._setup_cache_directories()
 

@@ -123,8 +123,13 @@ def filter_songs(
 
     # Optionally exclude plays by genre
     if excluded_genres:
+        excluded_genres_set = set(excluded_genres)
         mask &= ~history_df["artist_genres"].apply(
-            lambda genres: any(genre in excluded_genres for genre in genres) if genres else False
+            lambda genres: (
+                False
+                if pd.isna(genres) or not hasattr(genres, "__iter__") or isinstance(genres, str)
+                else any(genre in excluded_genres_set for genre in genres)
+            )
         )
 
     return history_df.loc[mask].copy()
