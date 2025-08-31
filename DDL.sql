@@ -12,28 +12,25 @@ CREATE TABLE dim_users (
 -- Tracks, Albums, Artists
 -- ========================
 CREATE TABLE dim_tracks (
-  track_id         TEXT PRIMARY KEY, -- UUID
-  track_spotify_id TEXT UNIQUE,
-  track_mbid TEXT UNIQUE,
-  track_isrc       TEXT UNIQUE,
+  track_id         TEXT PRIMARY KEY, -- Spotify ID
+  track_mbid TEXT,
+  track_isrc       TEXT,
   track_name       TEXT NOT NULL,
-  album_id         TEXT,                   -- FK → dim_albums
+  album_id         TEXT,                   -- Spotify ID (album)
   duration_ms      INT,
   explicit         BOOLEAN,
   created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE dim_albums (
-  album_id         TEXT PRIMARY KEY,       -- MBID preferred; else UUID
-  album_spotify_id TEXT UNIQUE,
+  album_id         TEXT PRIMARY KEY,       -- Spotify ID
   album_name       TEXT NOT NULL,
   release_year     INT,
   label            TEXT
 );
 
 CREATE TABLE dim_artists (
-  artist_id        TEXT PRIMARY KEY,       -- MBID preferred; else UUID
-  artist_spotify_id TEXT UNIQUE,
+  artist_id        TEXT PRIMARY KEY,       -- Spotify ID
   artist_name      TEXT NOT NULL
 );
 

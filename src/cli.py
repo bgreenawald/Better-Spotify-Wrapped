@@ -11,6 +11,11 @@ from pathlib import Path
 import click
 import duckdb
 
+from .api.api import (
+    populate_duration_and_explicit,
+    populate_missing_track_isrcs,
+    populate_track_metadata,
+)
 from .db_ingest import IngestResult, load_history_into_fact_plays
 
 
@@ -105,6 +110,117 @@ def ingest_history(
                 f"existing_tracks={res.existing_tracks}",
             ]
         )
+    )
+
+
+@main.command("ingest-isrcs")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of tracks to process.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+def ingest_isrcs(db_path: Path, limit: int | None, cache_dir: Path | None) -> None:
+    """Populate missing dim_tracks.track_isrc using cache + Spotify API."""
+    click.echo(
+        f"Populating missing track ISRCs in {db_path}" + (f" (limit={limit})" if limit else "")
+    )
+
+    updated = populate_missing_track_isrcs(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+    )
+
+    click.echo(f"Updated rows: {updated}")
+
+
+@main.command("ingest-duration-explicit")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of tracks to process.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+def ingest_duration_explicit(db_path: Path, limit: int | None, cache_dir: Path | None) -> None:
+    """Populate missing dim_tracks.duration_ms and dim_tracks.explicit."""
+    click.echo(
+        f"Populating duration_ms and explicit in {db_path}" + (f" (limit={limit})" if limit else "")
+    )
+
+    dur_count, exp_count = populate_duration_and_explicit(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+    )
+
+    click.echo(f"Updated duration_ms: {dur_count} | explicit: {exp_count}")
+
+
+@main.command("ingest-track-metadata")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of tracks to process.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+def ingest_track_metadata(db_path: Path, limit: int | None, cache_dir: Path | None) -> None:
+    """Populate ISRC, duration_ms, and explicit in one batch."""
+    click.echo(
+        f"Populating track metadata (isrc, duration, explicit) in {db_path}"
+        + (f" (limit={limit})" if limit else "")
+    )
+
+    counts = populate_track_metadata(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+    )
+
+    click.echo(
+        f"Updated isrc: {counts['isrc']} | duration_ms: {counts['duration_ms']} | explicit: {counts['explicit']}"
     )
 
 

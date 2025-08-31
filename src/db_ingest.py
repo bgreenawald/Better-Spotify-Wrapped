@@ -7,8 +7,7 @@ and ensuring minimal supporting rows exist in `dim_users` and `dim_tracks`.
 Assumptions/Notes:
 - Tables are created ahead of time by applying `DDL.sql` to the DuckDB DB.
 - We only ingest music track plays (skip podcast episodes).
-- `track_id` is a stable UUID v5 derived from the Spotify Track ID so it can be
-  canonicalized later while remaining stable across runs.
+- `track_id` uses the Spotify Track ID directly (PK), not a derived UUID.
 - Minimal `dim_tracks` attributes are populated from the history export; fields
   like `album_id`, `duration_ms` of the track, and `explicit` may be unknown.
 """
@@ -39,16 +38,7 @@ class IngestResult:
     existing_tracks: int
 
 
-SPOTIFY_TRACK_NAMESPACE = uuid.NAMESPACE_URL
-
-
-def _stable_track_uuid(spotify_track_id: str) -> str:
-    """Derive a stable UUID for `dim_tracks.track_id` from a Spotify track ID.
-
-    Uses UUID v5 on the URL namespace with the name "spotify:track:{id}".
-    """
-    name = f"spotify:track:{spotify_track_id}"
-    return str(uuid.uuid5(SPOTIFY_TRACK_NAMESPACE, name))
+SPOTIFY_TRACK_NAMESPACE = uuid.NAMESPACE_URL  # preserved for backward compat if needed
 
 
 def _extract_spotify_track_id(uri: str | None) -> str | None:
@@ -112,7 +102,8 @@ def _upsert_track(
 
     Returns True if a new row was inserted; False if it already existed.
     """
-    track_id = _stable_track_uuid(track_spotify_id)
+    # Spotify track ID is the primary key
+    track_id = track_spotify_id
     # Ensure a non-null track_name to satisfy NOT NULL constraint
     safe_name = (
         track_name
@@ -120,18 +111,18 @@ def _upsert_track(
         else f"spotify:{track_spotify_id}"
     )
     exists = conn.execute(
-        "SELECT 1 FROM dim_tracks WHERE track_spotify_id = ? LIMIT 1",
-        [track_spotify_id],
+        "SELECT 1 FROM dim_tracks WHERE track_id = ? LIMIT 1",
+        [track_id],
     ).fetchone()
     if exists:
         return False
     conn.execute(
         """
         INSERT INTO dim_tracks (
-            track_id, track_spotify_id, track_name, album_id, duration_ms, explicit
-        ) VALUES (?, ?, ?, NULL, NULL, NULL)
+            track_id, track_name, album_id, duration_ms, explicit
+        ) VALUES (?, ?, NULL, NULL, NULL)
         """,
-        [track_id, track_spotify_id, safe_name],
+        [track_id, safe_name],
     )
     return True
 
@@ -145,7 +136,8 @@ def _insert_play(
     device_type: str | None,
     duration_ms: int | None,
 ) -> bool:
-    track_id = _stable_track_uuid(track_spotify_id)
+    # Spotify ID is the track_id (no transformation)
+    track_id = track_spotify_id
     play_id = str(uuid.uuid4())
     exists = conn.execute(
         "SELECT 1 FROM fact_plays WHERE user_id = ? AND track_id = ? AND played_at = ? LIMIT 1",
@@ -257,9 +249,9 @@ def load_history_into_fact_plays(
         .rename(columns={"master_metadata_track_name": "track_name"})
         .reset_index(drop=True)
     )
-    # Derive track_id and safe track_name
+    # Derive track_id (Spotify ID) and safe track_name
     if not tracks_df.empty:
-        tracks_df["track_id"] = tracks_df["spotify_track_id_only"].apply(_stable_track_uuid)
+        tracks_df["track_id"] = tracks_df["spotify_track_id_only"]
         tracks_df["track_name"] = tracks_df.apply(
             lambda r: r["track_name"]
             if (pd.notna(r["track_name"]) and str(r["track_name"]).strip())
@@ -284,7 +276,7 @@ def load_history_into_fact_plays(
             {
                 "play_id": [str(uuid.uuid4()) for _ in range(len(df_tracks))],
                 "user_id": user_id,
-                "track_id": df_tracks["spotify_track_id_only"].apply(_stable_track_uuid),
+                "track_id": df_tracks["spotify_track_id_only"],
                 "played_at": df_tracks["played_at_iso"],
                 "device_type": df_tracks.get("platform"),
                 "duration_ms": df_tracks["ms_played"].apply(_clean_ms)
@@ -319,22 +311,20 @@ def load_history_into_fact_plays(
 
         # Bulk upsert tracks using anti-join
         if not tracks_df.empty:
-            conn.register(
-                "to_tracks", tracks_df[["track_id", "spotify_track_id_only", "track_name"]]
-            )
+            conn.register("to_tracks", tracks_df[["track_id", "track_name"]])
             inserted_tracks = conn.execute(
                 """
                 SELECT COUNT(*) FROM to_tracks t
-                ANTI JOIN dim_tracks d ON d.track_spotify_id = t.spotify_track_id_only
+                ANTI JOIN dim_tracks d ON d.track_id = t.track_id
                 """
             ).fetchone()[0]
             existing_tracks = int(len(tracks_df) - inserted_tracks)
             conn.execute(
                 """
-                INSERT INTO dim_tracks (track_id, track_spotify_id, track_name, album_id, duration_ms, explicit)
-                SELECT t.track_id, t.spotify_track_id_only, t.track_name, NULL, NULL, NULL
+                INSERT INTO dim_tracks (track_id, track_name, album_id, duration_ms, explicit)
+                SELECT t.track_id, t.track_name, NULL, NULL, NULL
                 FROM to_tracks t
-                ANTI JOIN dim_tracks d ON d.track_spotify_id = t.spotify_track_id_only
+                ANTI JOIN dim_tracks d ON d.track_id = t.track_id
                 """
             )
 
