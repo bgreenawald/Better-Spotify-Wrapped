@@ -261,10 +261,6 @@ def load_api_data() -> SpotifyData:
 def populate_missing_track_isrcs(
     *,
     db_path: str | Path,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    cache_dir: str | os.PathLike[str] | None = None,
-    limit: int | None = None,
 ) -> int:
     """Populate `dim_tracks.track_isrc` where NULL using Spotify metadata.
 
@@ -287,7 +283,7 @@ def populate_missing_track_isrcs(
     # 1) Discover targets from the DB
     conn = duckdb.connect(str(db_path))
     try:
-        rows = conn.execute(
+        _ = conn.execute(
             """
             SELECT track_id
             FROM dim_tracks
@@ -298,62 +294,358 @@ def populate_missing_track_isrcs(
     finally:
         conn.close()
 
+
+def populate_duration_and_explicit(
+    *,
+    db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+) -> tuple[int, int]:
+    """Populate `dim_tracks.duration_ms` and `dim_tracks.explicit` when NULL.
+
+    Fetches track metadata for tracks missing either value and updates them.
+
+    Returns a tuple: (duration_rows_updated, explicit_rows_updated).
+    """
+    # 1) Discover targets from the DB
+    conn = duckdb.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            """
+            SELECT track_id
+            FROM dim_tracks
+            WHERE (duration_ms IS NULL OR explicit IS NULL)
+            ORDER BY track_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
     spotify_ids: list[str] = [r[0] for r in rows if r and r[0]]
     if limit is not None:
         spotify_ids = spotify_ids[: max(0, int(limit))]
     if not spotify_ids:
-        return 0
+        return (0, 0)
 
-    # 2) Fetch data (using cache when available)
+    # 2) Fetch metadata (uses cache when available)
     collector = SpotifyDataCollector(
         client_id=client_id, client_secret=client_secret, cache_dir=cache_dir
     )
     tracks = collector.fetch_tracks(spotify_ids)
 
-    # 3) Build update mapping: track_id (Spotify ID) -> isrc
-    updates: list[tuple[str, str]] = []
+    # 3) Build update mapping
+    records: list[tuple[str, int | None, bool | None]] = []
     for t in tracks:
-        try:
-            tid = t.get("id")
-            isrc = (t.get("external_ids") or {}).get("isrc")
-        except Exception as e:
-            print(f"Error processing track data {t}: {e}")
-            tid = None
-            isrc = None
-        if not tid or not isrc:
+        tid = t.get("id")
+        if not tid:
             continue
-        updates.append((tid, isrc))
+        dur = t.get("duration_ms")
+        try:
+            dur_int = int(dur) if dur is not None else None
+        except Exception:
+            dur_int = None
+        explicit_val = t.get("explicit")
+        explicit_bool = bool(explicit_val) if explicit_val is not None else None
+        records.append((tid, dur_int, explicit_bool))
 
-    if not updates:
-        return 0
+    if not records:
+        return (0, 0)
 
-    # 4) Bulk update into DuckDB
-    df_updates = pd.DataFrame(updates, columns=["track_id", "track_isrc"])
+    df_updates = pd.DataFrame(records, columns=["track_id", "duration_ms", "explicit"])
     conn = duckdb.connect(str(db_path))
     try:
         conn.execute("BEGIN TRANSACTION;")
         conn.register("df_updates", df_updates)
-        # Avoid violating UNIQUE(track_isrc): only set ISRCs not already present
-        conn.execute(
-            """
-            UPDATE dim_tracks AS d
-            SET track_isrc = u.track_isrc
-            FROM df_updates AS u
-            WHERE d.track_id = u.track_id
-              AND d.track_isrc IS NULL
-            """
-        )
-        # Count rows that match the updated mapping now
-        updated = conn.execute(
+
+        # Pre-compute how many rows will be newly populated
+        duration_to_set = conn.execute(
             """
             SELECT COUNT(*)
             FROM dim_tracks d
             JOIN df_updates u ON d.track_id = u.track_id
-            WHERE d.track_isrc = u.track_isrc
+            WHERE d.duration_ms IS NULL AND u.duration_ms IS NOT NULL
             """
         ).fetchone()[0]
+        explicit_to_set = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM dim_tracks d
+            JOIN df_updates u ON d.track_id = u.track_id
+            WHERE d.explicit IS NULL AND u.explicit IS NOT NULL
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            UPDATE dim_tracks AS d
+            SET
+              duration_ms = COALESCE(d.duration_ms, u.duration_ms),
+              explicit     = COALESCE(d.explicit, u.explicit)
+            FROM df_updates AS u
+            WHERE d.track_id = u.track_id
+              AND (d.duration_ms IS NULL OR d.explicit IS NULL)
+            """
+        )
         conn.execute("COMMIT;")
-        return int(updated)
+        return int(duration_to_set), int(explicit_to_set)
+    finally:
+        conn.close()
+
+
+def populate_track_albums(
+    *,
+    db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Populate `dim_tracks.album_id` and upsert albums into `dim_albums`.
+
+    Strategy:
+    - Find tracks with NULL `album_id`.
+    - Fetch track metadata, extract album IDs/names/years.
+    - Insert missing albums into `dim_albums` (anti-join).
+    - Update `dim_tracks.album_id` where NULL.
+
+    Returns counts: {"albums_inserted": x, "tracks_updated": y}.
+    """
+    # 1) Discover targets
+    conn = duckdb.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            """
+            SELECT track_id
+            FROM dim_tracks
+            WHERE album_id IS NULL
+            ORDER BY track_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    track_ids: list[str] = [r[0] for r in rows if r and r[0]]
+    if limit is not None:
+        track_ids = track_ids[: max(0, int(limit))]
+    if not track_ids:
+        return {"albums_inserted": 0, "tracks_updated": 0}
+
+    # 2) Fetch track metadata
+    collector = SpotifyDataCollector(
+        client_id=client_id, client_secret=client_secret, cache_dir=cache_dir
+    )
+    tracks = collector.fetch_tracks(track_ids)
+
+    # 3) Build frames for albums and track->album mapping
+    album_rows: list[tuple[str, str, int | None]] = []
+    track_album_rows: list[tuple[str, str]] = []
+    for t in tracks:
+        tid = t.get("id")
+        album = t.get("album") or {}
+        aid = album.get("id")
+        aname_raw = album.get("name")
+        # Parse release year (YYYY prefix of release_date)
+        release_date = album.get("release_date")
+        try:
+            release_year = int(str(release_date)[:4]) if release_date else None
+        except Exception:
+            release_year = None
+        if aid:
+            aname = (
+                aname_raw
+                if (aname_raw is not None and str(aname_raw).strip())
+                else f"spotify:{aid}"
+            )
+            album_rows.append((aid, aname, release_year))
+        if tid and aid:
+            track_album_rows.append((tid, aid))
+
+    if not track_album_rows:
+        return {"albums_inserted": 0, "tracks_updated": 0}
+
+    df_albums = pd.DataFrame(
+        album_rows, columns=["album_id", "album_name", "release_year"]
+    ).drop_duplicates(subset=["album_id"], keep="first")
+    df_track_album = pd.DataFrame(
+        track_album_rows, columns=["track_id", "album_id"]
+    ).drop_duplicates(subset=["track_id"], keep="first")
+
+    # 4) Apply DB changes
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_albums", df_albums)
+        conn.register("df_track_album", df_track_album)
+
+        albums_to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_albums a
+            ANTI JOIN dim_albums d ON d.album_id = a.album_id
+            """
+        ).fetchone()[0]
+
+        tracks_to_update = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM dim_tracks d
+            JOIN df_track_album u ON d.track_id = u.track_id
+            WHERE d.album_id IS NULL AND u.album_id IS NOT NULL
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            INSERT INTO dim_albums (album_id, album_name, release_year, label)
+            SELECT a.album_id, a.album_name, a.release_year, NULL
+            FROM df_albums a
+            ANTI JOIN dim_albums d ON d.album_id = a.album_id
+            """
+        )
+
+        conn.execute(
+            """
+            UPDATE dim_tracks AS d
+            SET album_id = COALESCE(d.album_id, u.album_id)
+            FROM df_track_album AS u
+            WHERE d.track_id = u.track_id AND d.album_id IS NULL
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return {"albums_inserted": int(albums_to_insert), "tracks_updated": int(tracks_to_update)}
+    finally:
+        conn.close()
+
+
+def populate_track_artists(
+    *,
+    db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Populate `dim_artists` and `bridge_track_artists` from track metadata.
+
+    Strategy:
+    - Find tracks that currently have no artist bridge rows.
+    - Fetch track metadata and extract artist IDs/names and roles.
+    - Insert missing artists into `dim_artists` (anti-join).
+    - Insert missing bridge rows into `bridge_track_artists` (anti-join).
+
+    Returns counts: {"artists_inserted": x, "bridges_inserted": y}.
+    """
+    # 1) Identify tracks lacking any artist bridges
+    conn = duckdb.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            """
+            SELECT t.track_id
+            FROM dim_tracks t
+            LEFT JOIN bridge_track_artists b ON b.track_id = t.track_id
+            WHERE b.track_id IS NULL
+            ORDER BY t.track_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    track_ids: list[str] = [r[0] for r in rows if r and r[0]]
+    if limit is not None:
+        track_ids = track_ids[: max(0, int(limit))]
+    if not track_ids:
+        return {"artists_inserted": 0, "bridges_inserted": 0}
+
+    # 2) Fetch tracks metadata
+    collector = SpotifyDataCollector(
+        client_id=client_id, client_secret=client_secret, cache_dir=cache_dir
+    )
+    tracks = collector.fetch_tracks(track_ids)
+
+    # 3) Build frames for artists and bridges
+    artist_rows: list[tuple[str, str]] = []
+    bridge_rows: list[tuple[str, str, str]] = []  # track_id, artist_id, role
+    for t in tracks:
+        tid = t.get("id")
+        artists = t.get("artists") or []
+        for idx, a in enumerate(artists):
+            aid = a.get("id")
+            aname_raw = a.get("name")
+            if not aid:
+                continue
+            role = "primary" if idx == 0 else "feature"
+            aname = (
+                aname_raw
+                if (aname_raw is not None and str(aname_raw).strip())
+                else f"spotify:{aid}"
+            )
+            artist_rows.append((aid, aname))
+            if tid:
+                bridge_rows.append((tid, aid, role))
+
+    if not bridge_rows:
+        return {"artists_inserted": 0, "bridges_inserted": 0}
+
+    df_artists = pd.DataFrame(artist_rows, columns=["artist_id", "artist_name"]).drop_duplicates(
+        subset=["artist_id"], keep="first"
+    )
+    df_bridge = pd.DataFrame(
+        bridge_rows, columns=["track_id", "artist_id", "role"]
+    ).drop_duplicates()
+
+    # 4) Apply DB changes
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_artists", df_artists)
+        conn.register("df_bridge", df_bridge)
+
+        artists_to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_artists a
+            ANTI JOIN dim_artists d ON d.artist_id = a.artist_id
+            """
+        ).fetchone()[0]
+
+        bridges_to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_bridge b
+            ANTI JOIN bridge_track_artists d
+              ON d.track_id = b.track_id AND d.artist_id = b.artist_id AND d.role = b.role
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            INSERT INTO dim_artists (artist_id, artist_name)
+            SELECT a.artist_id, a.artist_name
+            FROM df_artists a
+            ANTI JOIN dim_artists d ON d.artist_id = a.artist_id
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT INTO bridge_track_artists (track_id, artist_id, role)
+            SELECT b.track_id, b.artist_id, b.role
+            FROM df_bridge b
+            -- Ensure the referenced track exists to satisfy FK
+            JOIN dim_tracks t ON t.track_id = b.track_id
+            ANTI JOIN bridge_track_artists d
+              ON d.track_id = b.track_id AND d.artist_id = b.artist_id AND d.role = b.role
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return {
+            "artists_inserted": int(artists_to_insert),
+            "bridges_inserted": int(bridges_to_insert),
+        }
     finally:
         conn.close()
 
@@ -572,6 +864,125 @@ def populate_track_metadata(
         )
         conn.execute("COMMIT;")
         return int(duration_to_set), int(explicit_to_set)
+    finally:
+        conn.close()
+
+
+def populate_tracks_from_cached_albums(
+    *,
+    db_path: str | Path,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Load tracks listed inside cached album JSONs into `dim_tracks`.
+
+    - Scans `cache_dir/albums/*.json` for album payloads.
+    - Extracts each track from `album["tracks"]["items"]` with basic metadata.
+    - Inserts missing rows into `dim_tracks` and fills NULL metadata for existing rows.
+
+    Returns counts: {"albums_scanned": a, "tracks_inserted": i, "tracks_updated": u}.
+    """
+    # Determine cache directory (default to collector default)
+    cache_env = os.getenv("SPOTIFY_API_CACHE_DIR")
+    cache_root = Path(cache_dir or cache_env or "data/api/cache")
+    albums_dir = cache_root / "albums"
+    if not albums_dir.exists():
+        return {"albums_scanned": 0, "tracks_inserted": 0, "tracks_updated": 0}
+
+    album_files = sorted(albums_dir.glob("*.json"))
+    if limit is not None:
+        album_files = album_files[: max(0, int(limit))]
+
+    rows: list[tuple[str, str, str | None, int | None, bool | None]] = []
+    albums_scanned = 0
+    for path in album_files:
+        try:
+            with open(path, encoding="utf-8") as f:
+                album = json.load(f)
+        except Exception:
+            continue
+        albums_scanned += 1
+        aid = album.get("id")
+        tracks_obj = album.get("tracks") or {}
+        items = tracks_obj.get("items") or []
+        for t in items:
+            tid = t.get("id")
+            if not tid:
+                continue
+            name_raw = t.get("name")
+            name = (
+                name_raw if (name_raw is not None and str(name_raw).strip()) else f"spotify:{tid}"
+            )
+            dur = t.get("duration_ms")
+            try:
+                duration_ms = int(dur) if dur is not None else None
+            except Exception:
+                duration_ms = None
+            explicit_val = t.get("explicit")
+            explicit_bool = bool(explicit_val) if explicit_val is not None else None
+            rows.append((tid, name, aid, duration_ms, explicit_bool))
+
+    if not rows:
+        return {"albums_scanned": albums_scanned, "tracks_inserted": 0, "tracks_updated": 0}
+
+    df_tracks = pd.DataFrame(
+        rows, columns=["track_id", "track_name", "album_id", "duration_ms", "explicit"]
+    ).drop_duplicates(subset=["track_id"], keep="first")
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_tracks", df_tracks)
+
+        tracks_to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_tracks t
+            ANTI JOIN dim_tracks d ON d.track_id = t.track_id
+            """
+        ).fetchone()[0]
+
+        tracks_to_update = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM dim_tracks d
+            JOIN df_tracks u ON d.track_id = u.track_id
+            WHERE (d.album_id IS NULL AND u.album_id IS NOT NULL)
+               OR (d.duration_ms IS NULL AND u.duration_ms IS NOT NULL)
+               OR (d.explicit IS NULL AND u.explicit IS NOT NULL)
+               OR (d.track_name IS NULL AND u.track_name IS NOT NULL)
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            INSERT INTO dim_tracks (track_id, track_name, album_id, duration_ms, explicit)
+            SELECT t.track_id, t.track_name, t.album_id, t.duration_ms, t.explicit
+            FROM df_tracks t
+            ANTI JOIN dim_tracks d ON d.track_id = t.track_id
+            """
+        )
+
+        conn.execute(
+            """
+            UPDATE dim_tracks AS d
+            SET
+              track_name  = COALESCE(d.track_name, u.track_name),
+              album_id    = COALESCE(d.album_id, u.album_id),
+              duration_ms = COALESCE(d.duration_ms, u.duration_ms),
+              explicit    = COALESCE(d.explicit, u.explicit)
+            FROM df_tracks AS u
+            WHERE d.track_id = u.track_id
+              AND (d.album_id IS NULL OR d.duration_ms IS NULL OR d.explicit IS NULL OR d.track_name IS NULL)
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return {
+            "albums_scanned": int(albums_scanned),
+            "tracks_inserted": int(tracks_to_insert),
+            "tracks_updated": int(tracks_to_update),
+        }
     finally:
         conn.close()
 
