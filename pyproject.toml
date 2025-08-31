@@ -19,6 +19,9 @@ dependencies = [
     "duckdb>=1.3.2",
 ]
 
+[project.scripts]
+bsw = "src.cli:main"
+
 [dependency-groups]
 dev = [
     "dash[testing]>=2.18.2",
