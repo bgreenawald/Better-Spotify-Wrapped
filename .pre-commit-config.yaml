@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.10
+    hooks:
+      - id: ruff
+        name: ruff-lint
+        args: [--fix]
+      - id: ruff-format
+        name: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run python -m pytest tests/ -k "not test_app_starts"
+        language: system
+        pass_filenames: false
+        always_run: false
+        files: \.py$
+        stages: [pre-commit]
+        ci:
+          skip: true

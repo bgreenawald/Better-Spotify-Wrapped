@@ -54,7 +54,7 @@ def create_app() -> Dash:
     data_dir = os.getenv("DATA_DIR")
     if not data_dir:
         logger.error("DATA_DIR environment variable is not set.")
-        raise EnvironmentError("DATA_DIR environment variable is not set.")
+        raise OSError("DATA_DIR environment variable is not set.")
 
     try:
         # Load user listening history

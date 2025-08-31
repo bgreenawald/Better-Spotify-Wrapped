@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import List
 
 import pandas as pd
 
@@ -21,7 +20,7 @@ def load_spotify_history(directory: str) -> pd.DataFrame:
             The 'ts' column is converted to datetime without timezone.
     """
     data_dir = Path(directory)
-    all_records: List[dict] = []
+    all_records: list[dict] = []
 
     # Load records from each JSON file
     for file_path in data_dir.glob("*.json"):

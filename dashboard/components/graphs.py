@@ -51,9 +51,7 @@ def create_top_tracks_graph(top_tracks=None):
         fig.update_traces(marker_color="#1DB954")
 
         # Truncate long track names for readability
-        truncated = [
-            f"{name[:50]}..." if len(name) > 50 else name for name in df["track_name"]
-        ]
+        truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["track_name"]]
         fig.update_yaxes(
             ticktext=truncated,
             tickvals=list(range(len(df))),
@@ -192,9 +190,7 @@ def create_top_albums_graph(top_albums=None):
         fig.update_traces(marker_color="#1DB954")
 
         # Truncate long album names for readability
-        truncated = [
-            f"{name[:50]}..." if len(name) > 50 else name for name in df["album_name"]
-        ]
+        truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["album_name"]]
         fig.update_yaxes(
             ticktext=truncated,
             tickvals=list(range(len(df))),
@@ -276,9 +272,7 @@ def create_daily_top_playcount_grid(daily_playcounts):
     top_per_date["artist"] = top_per_date["artist"].fillna("")
 
     # Combine track and artist for display
-    top_per_date["track_artist"] = (
-        top_per_date["track"] + " - " + top_per_date["artist"]
-    )
+    top_per_date["track_artist"] = top_per_date["track"] + " - " + top_per_date["artist"]
 
     # Create grid positions
     total_days = len(top_per_date)
@@ -300,7 +294,7 @@ def create_daily_top_playcount_grid(daily_playcounts):
 def create_daily_top_heatmap(
     daily_playcounts=None,
     theme=None,
-    title="Daily Top-Track Play Count Heatmap",
+    title="Daily Top-Track Play Count Heatmap",  # noqa: ARG001
 ):
     """Create a heatmap figure of daily top track play counts.
 
@@ -323,9 +317,7 @@ def create_daily_top_heatmap(
 
     # Pivot data into matrices
     z_matrix = grid_df.pivot(index="row", columns="col", values="play_count").values
-    date_matrix = (
-        grid_df.pivot(index="row", columns="col", values="date").astype(str).values
-    )
+    date_matrix = grid_df.pivot(index="row", columns="col", values="date").astype(str).values
     track_matrix = grid_df.pivot(index="row", columns="col", values="track").values
 
     # Build customdata for hover information
@@ -342,15 +334,13 @@ def create_daily_top_heatmap(
         colorscale=colorscale,
         customdata=customdata,
         hovertemplate=(
-            "Date: %{customdata[0]}<br>"
-            "Track: %{customdata[1]}<br>"
-            "Plays: %{z}<extra></extra>"
+            "Date: %{customdata[0]}<br>Track: %{customdata[1]}<br>Plays: %{z}<extra></extra>"
         ),
-        colorbar=dict(
-            title="Plays",
-            tickfont=dict(color="#e0e0e0" if is_dark else "#000000"),
-            titlefont=dict(color="#e0e0e0" if is_dark else "#000000"),
-        ),
+        colorbar={
+            "title": "Plays",
+            "tickfont": {"color": "#e0e0e0" if is_dark else "#000000"},
+            "titlefont": {"color": "#e0e0e0" if is_dark else "#000000"},
+        },
     )
 
     fig = go.Figure(heatmap)
@@ -373,7 +363,7 @@ def create_daily_top_heatmap(
             "gridcolor": theme.get("yaxis", {}).get("gridcolor", "#333"),
         }
         layout_update["height"] = 400
-        layout_update["margin"] = dict(t=30, b=30, l=30, r=80)
+        layout_update["margin"] = {"t": 30, "b": 30, "l": 30, "r": 80}
         fig.update_layout(**layout_update)
     else:
         layout_style = create_graph_style()

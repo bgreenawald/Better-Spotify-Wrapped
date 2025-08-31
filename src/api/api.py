@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import pandas as pd
 import spotipy
@@ -25,9 +25,9 @@ class SpotifyData:
         albums: Mapping from album ID to album data.
     """
 
-    tracks: Dict[str, Dict[str, Any]]
-    artists: Dict[str, Dict[str, Any]]
-    albums: Dict[str, Dict[str, Any]]
+    tracks: dict[str, dict[str, Any]]
+    artists: dict[str, dict[str, Any]]
+    albums: dict[str, dict[str, Any]]
 
 
 class SpotifyDataCollector:
@@ -40,8 +40,8 @@ class SpotifyDataCollector:
 
     def __init__(
         self,
-        client_id: Optional[str] = os.getenv("SPOTIFY_CLIENT_ID"),
-        client_secret: Optional[str] = os.getenv("SPOTIFY_CLIENT_SECRET"),
+        client_id: str | None = None,
+        client_secret: str | None = None,
     ) -> None:
         """Initialize the collector with Spotify API credentials and cache dirs.
 
@@ -49,12 +49,25 @@ class SpotifyDataCollector:
             client_id: Spotify API client ID.
             client_secret: Spotify API client secret.
         """
-        self.spotify_client = spotipy.Spotify(
-            auth_manager=SpotifyClientCredentials(
-                client_id=client_id, client_secret=client_secret
+        # Resolve credentials from args or env at runtime
+        cid = client_id or os.getenv("SPOTIFY_CLIENT_ID")
+        csecret = client_secret or os.getenv("SPOTIFY_CLIENT_SECRET")
+        if not cid or not csecret:
+            raise ValueError(
+                "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and "
+                "SPOTIFY_CLIENT_SECRET in the environment or pass them to SpotifyDataCollector()."
             )
+        self.spotify_client = spotipy.Spotify(
+            auth_manager=SpotifyClientCredentials(client_id=cid, client_secret=csecret)
         )
-        self.data_dir: Path = Path(os.getenv("DATA_DIR"))  # type: ignore
+        data_dir_env = os.getenv("DATA_DIR")
+        if not data_dir_env:
+            raise ValueError(
+                "DATA_DIR is not set. Create a .env with DATA_DIR=<path> "
+                "(keys: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, DATA_DIR)."
+            )
+        self.data_dir = Path(data_dir_env)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir: Path = Path("data/api/cache")
         self._setup_cache_directories()
 
@@ -63,7 +76,7 @@ class SpotifyDataCollector:
         for category in ("tracks", "artists", "albums"):
             (self.cache_dir / category).mkdir(parents=True, exist_ok=True)
 
-    def _get_cached_ids(self, category: str) -> Set[str]:
+    def _get_cached_ids(self, category: str) -> set[str]:
         """Retrieve all cached item IDs for a given category.
 
         Args:
@@ -75,7 +88,7 @@ class SpotifyDataCollector:
         cache_path = self.cache_dir / category
         return {file.stem for file in cache_path.glob("*.json")}
 
-    def _load_cache(self, category: str, item_id: str) -> Dict[str, Any]:
+    def _load_cache(self, category: str, item_id: str) -> dict[str, Any]:
         """Load a single cached item from disk.
 
         Args:
@@ -86,10 +99,10 @@ class SpotifyDataCollector:
             The cached item data as a dictionary.
         """
         path = self.cache_dir / category / f"{item_id}.json"
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
-    def _save_cache(self, category: str, items: List[Dict[str, Any]]) -> None:
+    def _save_cache(self, category: str, items: list[dict[str, Any]]) -> None:
         """Save multiple items to the cache.
 
         Args:
@@ -102,7 +115,7 @@ class SpotifyDataCollector:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(item, f, indent=4, sort_keys=True)
 
-    def _chunk_list(self, items: List[str], size: int) -> List[List[str]]:
+    def _chunk_list(self, items: list[str], size: int) -> list[list[str]]:
         """Split a list into smaller lists of a given size.
 
         Args:
@@ -114,7 +127,7 @@ class SpotifyDataCollector:
         """
         return [items[i : i + size] for i in range(0, len(items), size)]
 
-    def fetch_tracks(self, track_ids: List[str]) -> List[Dict[str, Any]]:
+    def fetch_tracks(self, track_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch track data by IDs, using cache when available.
 
         Args:
@@ -127,7 +140,7 @@ class SpotifyDataCollector:
         uncached = [tid for tid in track_ids if tid not in cached]
 
         # Load cached tracks
-        tracks: List[Dict[str, Any]] = [
+        tracks: list[dict[str, Any]] = [
             self._load_cache("tracks", tid) for tid in track_ids if tid in cached
         ]
 
@@ -143,7 +156,7 @@ class SpotifyDataCollector:
 
         return tracks
 
-    def fetch_artists(self, artist_ids: List[str]) -> List[Dict[str, Any]]:
+    def fetch_artists(self, artist_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch artist data by IDs, using cache when available.
 
         Args:
@@ -155,7 +168,7 @@ class SpotifyDataCollector:
         cached = self._get_cached_ids("artists")
         uncached = [aid for aid in artist_ids if aid not in cached]
 
-        artists: List[Dict[str, Any]] = [
+        artists: list[dict[str, Any]] = [
             self._load_cache("artists", aid) for aid in artist_ids if aid in cached
         ]
 
@@ -170,7 +183,7 @@ class SpotifyDataCollector:
 
         return artists
 
-    def fetch_albums(self, album_ids: List[str]) -> List[Dict[str, Any]]:
+    def fetch_albums(self, album_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch album data by IDs, using cache when available.
 
         Args:
@@ -182,7 +195,7 @@ class SpotifyDataCollector:
         cached = self._get_cached_ids("albums")
         uncached = [aid for aid in album_ids if aid not in cached]
 
-        albums: List[Dict[str, Any]] = [
+        albums: list[dict[str, Any]] = [
             self._load_cache("albums", aid) for aid in album_ids if aid in cached
         ]
 
@@ -198,7 +211,7 @@ class SpotifyDataCollector:
         return albums
 
 
-def _list_to_dict(items: List[Dict[str, Any]], key: str) -> Dict[str, Dict[str, Any]]:
+def _list_to_dict(items: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     """Convert a list of dicts into a dict keyed by a specified field.
 
     Args:
@@ -223,12 +236,12 @@ def load_api_data() -> SpotifyData:
     artist_file = collector.data_dir / "artist_ids.txt"
     album_file = collector.data_dir / "album_ids.txt"
 
-    with open(track_file, "r", encoding="utf-8") as f:
-        track_ids = [line.strip() for line in f]
-    with open(artist_file, "r", encoding="utf-8") as f:
-        artist_ids = [line.strip() for line in f]
-    with open(album_file, "r", encoding="utf-8") as f:
-        album_ids = [line.strip() for line in f]
+    with open(track_file, encoding="utf-8") as f:
+        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
+    with open(artist_file, encoding="utf-8") as f:
+        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
+    with open(album_file, encoding="utf-8") as f:
+        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
 
     tracks = collector.fetch_tracks(track_ids)
     artists = collector.fetch_artists(artist_ids)
@@ -244,9 +257,7 @@ def load_api_data() -> SpotifyData:
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Fetch Spotify data and cache it")
-    parser.add_argument(
-        "--save", action="store_true", help="Save fetched data to CSV files"
-    )
+    parser.add_argument("--save", action="store_true", help="Save fetched data to CSV files")
     args = parser.parse_args()
 
     # Initialize collector
@@ -255,12 +266,12 @@ if __name__ == "__main__":
     collector = SpotifyDataCollector(client_id, client_secret)
 
     # Load ID lists
-    with open(collector.data_dir / "track_ids.txt", "r", encoding="utf-8") as f:
-        track_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "artist_ids.txt", "r", encoding="utf-8") as f:
-        artist_ids = [line.strip() for line in f]
-    with open(collector.data_dir / "album_ids.txt", "r", encoding="utf-8") as f:
-        album_ids = [line.strip() for line in f]
+    with open(collector.data_dir / "track_ids.txt", encoding="utf-8") as f:
+        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
+    with open(collector.data_dir / "artist_ids.txt", encoding="utf-8") as f:
+        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
+    with open(collector.data_dir / "album_ids.txt", encoding="utf-8") as f:
+        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
 
     # Fetch data
     print("Fetching tracks...")

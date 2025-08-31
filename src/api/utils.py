@@ -4,7 +4,6 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Set
 
 import click
 from dotenv import load_dotenv
@@ -15,7 +14,7 @@ DATA_DIR = os.getenv("DATA_DIR")
 API_DATA_CACHE = Path("data/api/cache")
 
 
-def extract_ids_from_tracks(tracks_file: Path) -> Dict[str, Set[str]]:
+def extract_ids_from_tracks(tracks_file: Path) -> dict[str, set[str]]:
     """Extract unique artist and album IDs from track JSON files.
 
     Reads a text file listing track ID stems, loads each corresponding JSON
@@ -40,8 +39,8 @@ def extract_ids_from_tracks(tracks_file: Path) -> Dict[str, Set[str]]:
     stems = tracks_file.read_text(encoding="utf-8").splitlines()
     track_files = [f"{stem.strip()}.json" for stem in stems if stem.strip()]
 
-    artist_ids: Set[str] = set()
-    album_ids: Set[str] = set()
+    artist_ids: set[str] = set()
+    album_ids: set[str] = set()
 
     for filename in track_files:
         track_path = API_DATA_CACHE / "tracks" / filename
@@ -63,7 +62,7 @@ def extract_ids_from_tracks(tracks_file: Path) -> Dict[str, Set[str]]:
     return {"artist_ids": artist_ids, "album_ids": album_ids}
 
 
-def extract_track_ids_from_history(history_dir: Path) -> Set[str]:
+def extract_track_ids_from_history(history_dir: Path) -> set[str]:
     """Extract unique track IDs from streaming history JSON files.
 
     Parses all JSON files in the specified directory, extracts the track ID
@@ -76,7 +75,7 @@ def extract_track_ids_from_history(history_dir: Path) -> Set[str]:
     Returns:
         Set[str]: Unique Spotify track IDs without the URI prefix.
     """
-    track_ids: Set[str] = set()
+    track_ids: set[str] = set()
 
     for history_file in history_dir.glob("*.json"):
         try:
@@ -96,7 +95,7 @@ def extract_track_ids_from_history(history_dir: Path) -> Set[str]:
     return track_ids
 
 
-def save_ids_to_file(ids: Set[str], output_file: Path) -> None:
+def save_ids_to_file(ids: set[str], output_file: Path) -> None:
     """Save a set of IDs to a text file, one ID per line.
 
     The IDs are written in sorted order.

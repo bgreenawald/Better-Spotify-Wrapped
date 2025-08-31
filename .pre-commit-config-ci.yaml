@@ -1,0 +1,14 @@
+# Configuration for pre-commit.ci service
+# This file is optional but recommended for open source projects
+
+# Automatically run pre-commit on PRs
+autofix_prs: true
+
+# Automatically update pre-commit hooks versions
+autoupdate_schedule: weekly
+
+# Custom commit message for auto-fixes
+autofix_commit_msg: |
+  [pre-commit.ci] auto fixes from pre-commit hooks
+
+  for more information, see https://pre-commit.ci
