@@ -97,6 +97,14 @@ CREATE TABLE tag_evidence (
   PRIMARY KEY (entity_type, entity_key, source, tag_raw, tag_kind)
 );
 
+CREATE TABLE dim_genres (
+  genre_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug       TEXT UNIQUE NOT NULL,   -- stable external key
+  name       TEXT NOT NULL,          -- display
+  level      INTEGER,                -- advisory
+  active     BOOLEAN DEFAULT TRUE
+);
+
 CREATE TABLE map_genre (
   source         TEXT NOT NULL,
   tag_raw        TEXT NOT NULL,
@@ -104,6 +112,16 @@ CREATE TABLE map_genre (
   confidence     REAL NOT NULL,   -- 0–1
   PRIMARY KEY (source, tag_raw)
 );
+
+
+CREATE TABLE genre_hierarchy (
+  parent_genre_id INTEGER NOT NULL REFERENCES dim_genres(genre_id),
+  child_genre_id  INTEGER NOT NULL REFERENCES dim_genres(genre_id),
+  PRIMARY KEY (parent_genre_id, child_genre_id),
+  CHECK (parent_genre_id <> child_genre_id)
+);
+CREATE INDEX idx_genre_h_child  ON genre_hierarchy(child_genre_id);
+CREATE INDEX idx_genre_h_parent ON genre_hierarchy(parent_genre_id);
 
 CREATE TABLE map_mood (
   source         TEXT NOT NULL,

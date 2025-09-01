@@ -987,6 +987,117 @@ def populate_tracks_from_cached_albums(
         conn.close()
 
 
+def populate_artist_genre_evidence_from_cache(
+    *,
+    db_path: str | Path,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Ingest artist genres from cached Spotify artist JSONs into `tag_evidence`.
+
+    - Scans `cache_dir/artists/*.json`.
+    - For each artist JSON, reads the `genres` list.
+    - Inserts rows into `tag_evidence` with:
+        entity_type='artist', entity_key=<artist_id>, source='spotify',
+        tag_raw=<genre>, tag_kind='genre', weight_raw=1.0, observed_at=NOW.
+
+    Returns counts: {"artists_scanned": a, "rows_inserted": i}.
+    """
+    cache_env = os.getenv("SPOTIFY_API_CACHE_DIR")
+    cache_root = Path(cache_dir or cache_env or "data/api/cache")
+    artists_dir = cache_root / "artists"
+    if not artists_dir.exists():
+        return {"artists_scanned": 0, "rows_inserted": 0}
+
+    files = sorted(artists_dir.glob("*.json"))
+    if limit is not None:
+        files = files[: max(0, int(limit))]
+
+    now = pd.Timestamp.utcnow().to_pydatetime().replace(tzinfo=None, microsecond=0)
+    rows: list[tuple[str, str, str, str, str, float, str]] = []
+    artists_scanned = 0
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        artists_scanned += 1
+        aid = data.get("id")
+        genres = data.get("genres") or []
+        if not aid or not isinstance(genres, list):
+            continue
+        for g in genres:
+            if not g or not str(g).strip():
+                continue
+            rows.append(
+                (
+                    "artist",
+                    str(aid),
+                    "spotify",
+                    str(g),
+                    "genre",
+                    1.0,
+                    now.isoformat(sep=" ", timespec="seconds"),
+                )
+            )
+
+    if not rows:
+        return {"artists_scanned": artists_scanned, "rows_inserted": 0}
+
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "entity_type",
+            "entity_key",
+            "source",
+            "tag_raw",
+            "tag_kind",
+            "weight_raw",
+            "observed_at",
+        ],
+    )
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_evidence", df)
+
+        to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_evidence e
+            ANTI JOIN tag_evidence t
+              ON t.entity_type = e.entity_type
+             AND t.entity_key  = e.entity_key
+             AND t.source      = e.source
+             AND t.tag_raw     = e.tag_raw
+             AND t.tag_kind    = e.tag_kind
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            INSERT INTO tag_evidence (
+                entity_type, entity_key, source, tag_raw, tag_kind, weight_raw, observed_at
+            )
+            SELECT e.entity_type, e.entity_key, e.source, e.tag_raw, e.tag_kind, e.weight_raw, e.observed_at
+            FROM df_evidence e
+            ANTI JOIN tag_evidence t
+              ON t.entity_type = e.entity_type
+             AND t.entity_key  = e.entity_key
+             AND t.source      = e.source
+             AND t.tag_raw     = e.tag_raw
+             AND t.tag_kind    = e.tag_kind
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return {"artists_scanned": int(artists_scanned), "rows_inserted": int(to_insert)}
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Fetch Spotify data and cache it")
