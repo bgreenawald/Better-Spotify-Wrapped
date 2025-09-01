@@ -15,6 +15,25 @@ from dashboard.components.filters import (
 from dashboard.components.graphs import create_graphs_section_tab_one
 
 
+def _create_user_selector(df: pd.DataFrame) -> Component:
+    users = sorted(df.get("user_id", pd.Series(dtype=str)).dropna().unique())
+    default_user = users[0] if users else None
+    return html.Div(
+        [
+            html.Label("User", className="filter-label"),
+            dcc.Dropdown(
+                id="user-id-dropdown",
+                options=[{"label": u, "value": u} for u in users],
+                value=default_user,
+                clearable=False,
+                className="dropdown",
+            ),
+        ],
+        className="user-selector",
+        style={"minWidth": "240px"},
+    )
+
+
 def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
     """Generate the main dashboard layout.
 
@@ -78,7 +97,14 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                                 n_clicks=0,
                             ),
                             dbc.Collapse(
-                                dbc.Card(dbc.CardBody(create_global_settings(df))),
+                                dbc.Card(
+                                    dbc.CardBody(
+                                        [
+                                            _create_user_selector(df),
+                                            create_global_settings(df),
+                                        ]
+                                    )
+                                ),
                                 id="collapse",
                                 is_open=False,
                             ),
