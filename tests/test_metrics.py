@@ -71,7 +71,7 @@ def test_get_most_played_tracks(sample_df):
     assert result.iloc[0]["play_count"] >= result.iloc[-1]["play_count"]
 
 
-def test_get_top_albums(sample_df, mock_spotify_data):
+def test_get_top_albums(sample_df):
     # Add matching track IDs to sample_df for compatibility
     sample_df = sample_df.copy()
     sample_df["spotify_track_uri"] = [
@@ -80,11 +80,78 @@ def test_get_top_albums(sample_df, mock_spotify_data):
         "spotify:track:1",
         "spotify:track:3",
     ]
-    result = metrics.get_top_albums(sample_df, mock_spotify_data)
-    assert isinstance(result, pd.DataFrame)
-    assert "album_name" in result.columns
-    assert "median_plays" in result.columns
-    assert result["median_plays"].min() >= 0
+
+    # Set up an in-memory DuckDB with minimal schema and data
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            """
+            CREATE TABLE dim_tracks (
+                track_id   TEXT PRIMARY KEY,
+                album_id   TEXT
+            );
+            CREATE TABLE dim_albums (
+                album_id     TEXT PRIMARY KEY,
+                album_name   TEXT NOT NULL,
+                release_year INT,
+                label        TEXT
+            );
+            CREATE TABLE dim_artists (
+                artist_id   TEXT PRIMARY KEY,
+                artist_name TEXT NOT NULL
+            );
+            CREATE TABLE bridge_track_artists (
+                track_id  TEXT NOT NULL,
+                artist_id TEXT NOT NULL,
+                role      TEXT NOT NULL
+            );
+            """
+        )
+
+        # Insert three albums, each with >5 tracks so they are not filtered out
+        con.executemany(
+            "INSERT INTO dim_albums(album_id, album_name, release_year, label) VALUES (?, ?, ?, ?)",
+            [
+                ("a1", "Album 1", 2020, None),
+                ("a2", "Album 2", 2021, None),
+                ("a3", "Album 3", 2022, None),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO dim_artists(artist_id, artist_name) VALUES (?, ?)",
+            [("id1", "Artist 1"), ("id2", "Artist 2"), ("id3", "Artist 3")],
+        )
+
+        # Helper to create tracks and primary artist bridges
+        def add_album_tracks(album_id: str, primary_artist: str, main_track: str) -> None:
+            # 6 tracks per album including the main_track used by the sample_df
+            track_ids = [main_track] + [f"{album_id}_t{i}" for i in range(2, 7)]
+            con.executemany(
+                "INSERT INTO dim_tracks(track_id, album_id) VALUES (?, ?)",
+                [(tid, album_id) for tid in track_ids],
+            )
+            con.executemany(
+                "INSERT INTO bridge_track_artists(track_id, artist_id, role) VALUES (?, ?, ?)",
+                [(tid, primary_artist, "primary") for tid in track_ids],
+            )
+
+        add_album_tracks("a1", "id1", "1")
+        add_album_tracks("a2", "id2", "2")
+        add_album_tracks("a3", "id3", "3")
+
+        # Run the album metric against the DuckDB backend
+        result = metrics.get_top_albums(sample_df, con=con)
+        assert isinstance(result, pd.DataFrame)
+        assert {"album_name", "artist", "median_plays", "total_tracks", "tracks_played"}.issubset(
+            result.columns
+        )
+        assert (result["median_plays"] >= 0).all()
+        # Ensure we excluded short releases: all totals should be >= 6
+        assert (result["total_tracks"] >= 6).all()
+    finally:
+        con.close()
 
 
 def test_get_top_artist_genres(sample_df, mock_spotify_data):

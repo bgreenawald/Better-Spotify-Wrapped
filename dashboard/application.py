@@ -6,7 +6,6 @@ Updated to use preloaded DuckDB data rather than loading JSON/API at runtime.
 
 import contextlib
 import logging
-import os
 from pathlib import Path
 
 import dash_bootstrap_components as dbc
@@ -16,6 +15,7 @@ from dash import Dash
 from dotenv import load_dotenv
 
 from dashboard.callbacks.callbacks import register_callbacks
+from dashboard.conn import get_db_connection
 from dashboard.layouts.layouts import create_layout
 from src.api.api import SpotifyData
 
@@ -95,16 +95,9 @@ def create_app() -> Dash:
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
 
-    # Resolve database path (preloaded); default aligns with CLI
-    db_path = os.getenv("MUSIC_DB", "data/db/music.db")
-    if not Path(db_path).exists():
-        logger.error("DuckDB database not found at %s", db_path)
-        raise OSError(f"DuckDB database not found at {db_path}")
-
     # Build base DataFrame from DB for current UI
     try:
-        logger.info("Opening DuckDB at %s", db_path)
-        conn = duckdb.connect(db_path)
+        conn = get_db_connection()
         history_df = _load_base_dataframe(conn)
     except Exception:
         logger.exception("Error reading from DuckDB:")

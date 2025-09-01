@@ -243,8 +243,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Top albums
-        top_albums = get_top_albums(filtered, spotify_data)
+        # Top albums (DuckDB-backed)
+        top_albums = get_top_albums(filtered, db_path="data/db/music.db")
         if top_albums.empty:
             albums_fig = {"data": [], "layout": theme}
         else:

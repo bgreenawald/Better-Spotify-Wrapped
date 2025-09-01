@@ -1,4 +1,7 @@
-import numpy as np
+import contextlib
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 
 from src.api.api import SpotifyData
@@ -58,80 +61,166 @@ def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     return sorted_df
 
 
-def get_top_albums(filtered_df: pd.DataFrame, spotify_data: SpotifyData) -> pd.DataFrame:
-    """Calculate top albums based on median song plays, including songs with zero plays.
+def get_top_albums(
+    filtered_df: pd.DataFrame,
+    *,
+    db_path: str | Path | None = None,
+    con: Any | None = None,
+) -> pd.DataFrame:
+    """Calculate top albums based on median song plays (with zero-play tracks included).
 
-    Considers only full albums present in the filtered listening history.
+    Uses DuckDB exclusively: provide `con` or `db_path` to query the schema in DDL.sql.
 
     Args:
-        filtered_df (pd.DataFrame): DataFrame already filtered by filter_songs().
-        spotify_data (SpotifyData): Spotify API data containing tracks and albums.
+        filtered_df: DataFrame already filtered by `filter_songs()` or
+            `get_filtered_plays()`.
+        db_path: Optional DuckDB database path (if `con` not provided).
+        con: Optional DuckDB connection to use.
+
+    Notes:
+        - Excludes short releases (albums with 5 or fewer tracks) to prevent
+          singles/EPs from dominating via inflated medians.
 
     Returns:
         pd.DataFrame: Albums sorted by median play count with columns:
             'album_name', 'artist', 'median_plays', 'total_tracks',
-            'tracks_played', 'release_date'.
+            'tracks_played', and optionally 'release_year'.
     """
-    # Identify albums in listening history
-    album_ids_in_history: set[str] = set()
-    for uri in filtered_df["spotify_track_uri"].unique():
-        track_id = uri.split(":")[-1]
-        track_meta = spotify_data.tracks.get(track_id)
-        if not track_meta:
-            continue
-        album_id = track_meta["album"]["id"]
-        album_meta = spotify_data.albums.get(album_id)
-        if album_meta and album_meta.get("album_type") == "album":
-            album_ids_in_history.add(album_id)
-
-    # Map each track URI to its album and track index
-    track_to_album: dict[str, tuple[str, int]] = {}
-    for track_id, track_meta in spotify_data.tracks.items():
-        album_id = track_meta["album"]["id"]
-        if album_id not in album_ids_in_history:
-            continue
-        uri = f"spotify:track:{track_id}"
-        # Convert track number to zero-based index
-        track_to_album[uri] = (album_id, track_meta["track_number"] - 1)
-
-    # Count plays per track URI
-    play_counts = filtered_df.groupby("spotify_track_uri").size().to_dict()
-
-    # Initialize play counts for all tracks in each album
-    album_play_lists: dict[str, list[int]] = {
-        album_id: [0] * spotify_data.albums[album_id]["total_tracks"]
-        for album_id in album_ids_in_history
-    }
-
-    # Populate actual play counts
-    for uri, count in play_counts.items():
-        if uri in track_to_album:
-            album_id, idx = track_to_album[uri]
-            album_play_lists[album_id][idx] = count
-
-    # Compile album statistics
-    album_stats: list[dict[str, object]] = []
-    for album_id, plays in album_play_lists.items():
-        album_meta = spotify_data.albums[album_id]
-        total_tracks = album_meta["total_tracks"]
-        album_stats.append(
-            {
-                "album_name": album_meta["name"],
-                "artist": album_meta["artists"][0]["name"],
-                "median_plays": float(np.median(plays)),
-                "total_tracks": total_tracks,
-                "tracks_played": sum(1 for p in plays if p > 0),
-                "release_date": album_meta["release_date"],
-            }
+    # Fast exit
+    if filtered_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "album_name",
+                "artist",
+                "median_plays",
+                "total_tracks",
+                "tracks_played",
+                "release_year",
+            ]
         )
 
-    # Return empty DataFrame if no albums found
-    if not album_stats:
-        return pd.DataFrame()
+    # Helper to extract track_id from spotify URI
+    def _extract_track_id(uri: Any) -> str | None:
+        if not isinstance(uri, str):
+            return None
+        if uri.startswith("spotify:track:"):
+            return uri.split(":")[-1]
+        if "open.spotify.com/track/" in uri:
+            part = uri.split("open.spotify.com/track/")[-1]
+            return part.split("?")[0]
+        return None
 
-    # Create DataFrame and sort by median plays
-    result = pd.DataFrame(album_stats)
-    return result.sort_values("median_plays", ascending=False)
+    # Require DuckDB backend
+    use_duckdb = (con is not None) or (db_path is not None)
+    if use_duckdb:
+        try:
+            import duckdb  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional dependency at runtime
+            raise RuntimeError("DuckDB backend requested, but duckdb is not installed.") from exc
+        # Build or use provided connection
+        close_conn = False
+        if con is None:
+            con = duckdb.connect(str(db_path))
+            close_conn = True
+        try:
+            # Derive play counts per track_id from filtered_df
+            df = filtered_df.copy()
+            if "track_id" not in df.columns:
+                df["track_id"] = df.get("spotify_track_uri").apply(_extract_track_id)
+            play_counts = (
+                df.dropna(subset=["track_id"])
+                .groupby("track_id")
+                .size()
+                .reset_index(name="play_count")
+            )
+            if play_counts.empty:
+                return pd.DataFrame(
+                    columns=[
+                        "album_name",
+                        "artist",
+                        "median_plays",
+                        "total_tracks",
+                        "tracks_played",
+                        "release_year",
+                    ]
+                )
+
+            # Register plays as a temporary relation
+            with contextlib.suppress(Exception):
+                con.unregister("df_play_counts")  # type: ignore[attr-defined]
+            con.register("df_play_counts", play_counts)
+
+            # SQL plan:
+            # 1) Identify album_ids present in plays via dim_tracks
+            # 2) Expand to all tracks for those albums
+            # 3) Left join play counts to include zero-play tracks
+            # 4) Compute per-album aggregates + pick a primary artist (mode over primary role)
+            sql = """
+                WITH played_tracks AS (
+                    SELECT t.album_id, t.track_id, p.play_count
+                    FROM df_play_counts p
+                    JOIN dim_tracks t ON t.track_id = p.track_id
+                    WHERE t.album_id IS NOT NULL
+                ),
+                albums_in_scope AS (
+                    SELECT DISTINCT album_id FROM played_tracks
+                ),
+                all_album_tracks AS (
+                    SELECT t.album_id, t.track_id
+                    FROM dim_tracks t
+                    JOIN albums_in_scope s ON s.album_id = t.album_id
+                ),
+                album_track_counts AS (
+                    SELECT a.album_id,
+                        aat.track_id,
+                        COALESCE(p.play_count, 0) AS play_count
+                    FROM all_album_tracks aat
+                    LEFT JOIN df_play_counts p ON p.track_id = aat.track_id
+                    JOIN dim_albums a ON a.album_id = aat.album_id
+                ),
+                album_artist_counts AS (
+                    SELECT t.album_id,
+                        ar.artist_name,
+                        COUNT(*) AS cnt
+                    FROM dim_tracks t
+                    JOIN albums_in_scope s ON s.album_id = t.album_id
+                    JOIN bridge_track_artists b
+                    ON b.track_id = t.track_id AND b."role" = 'primary'
+                    JOIN dim_artists ar ON ar.artist_id = b.artist_id
+                    GROUP BY 1, 2
+                ),
+                album_primary_artist AS (
+                    SELECT album_id,
+                        artist_name,
+                        ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY cnt DESC, artist_name) AS rn
+                    FROM album_artist_counts
+                )
+                SELECT
+                    al.album_name,
+                    COALESCE(pa.artist_name, '') AS artist,
+                    MEDIAN(atc.play_count) AS median_plays,
+                    COUNT(*) AS total_tracks,
+                    SUM(CASE WHEN atc.play_count > 0 THEN 1 ELSE 0 END) AS tracks_played,
+                    al.release_year
+                FROM album_track_counts atc
+                JOIN dim_albums al ON al.album_id = atc.album_id
+                LEFT JOIN album_primary_artist pa ON pa.album_id = atc.album_id AND pa.rn = 1
+                GROUP BY 1, 2, 6
+                HAVING COUNT(*) > 5
+                ORDER BY median_plays DESC, total_tracks DESC, album_name;
+
+            """
+            res = con.execute(sql).df()
+            # Ensure types and ordering
+            if not res.empty:
+                res["median_plays"] = res["median_plays"].astype(float)
+                res = res.sort_values("median_plays", ascending=False)
+            return res
+        finally:
+            if close_conn:
+                con.close()
+    # If we get here, neither `con` nor `db_path` was provided
+    raise ValueError("get_top_albums requires a DuckDB connection or db_path.")
 
 
 def get_top_artist_genres(
