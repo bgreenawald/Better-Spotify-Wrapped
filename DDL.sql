@@ -142,6 +142,12 @@ CREATE TABLE track_genres (
   PRIMARY KEY (track_id, genre_id)
 );
 
+CREATE TABLE track_artists (
+  track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
+  artist_id      TEXT NOT NULL REFERENCES dim_artists(artist_id),
+  PRIMARY KEY (track_id, artist_id, role)
+)
+
 CREATE TABLE track_moods (
   track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
   mood_id        INTEGER NOT NULL REFERENCES dim_moods(mood_id),
