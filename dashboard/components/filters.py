@@ -196,17 +196,16 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_genre_trends_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> html.Div:
+def create_genre_trends_layout(df: pd.DataFrame) -> html.Div:
     """Create the layout for the genre trends analysis section.
 
     Args:
         df (pd.DataFrame): DataFrame of play history.
-        spotify_data (pd.DataFrame): DataFrame with genre trend data.
 
     Returns:
         html.Div: Div containing genre filters and sliders.
     """
-    genres_df = get_genre_trends(df, spotify_data)
+    genres_df = get_genre_trends(df, db_path="data/db/music.db")
     genres = sorted(genres_df["genre"].dropna().unique())
 
     return html.Div(

@@ -34,7 +34,7 @@ def _create_user_selector(df: pd.DataFrame) -> Component:
     )
 
 
-def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
+def create_layout(df: pd.DataFrame) -> Component:
     """Generate the main dashboard layout.
 
     The layout includes a header, a global settings panel, and two tabs:
@@ -42,7 +42,6 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
 
     Args:
         df (pd.DataFrame): User listening history DataFrame.
-        spotify_data (pd.DataFrame): Additional Spotify data for trends.
 
     Returns:
         Component: Dash HTML component for the dashboard layout.
@@ -120,7 +119,7 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                             ),
                             dcc.Tab(
                                 label="Trends",
-                                children=[create_tab_two_layout(df, spotify_data)],
+                                children=[create_tab_two_layout(df)],
                             ),
                         ]
                     ),
@@ -199,7 +198,6 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
 
 def create_tab_two_layout(
     df: pd.DataFrame,
-    spotify_data: pd.DataFrame,
 ) -> Component:
     """Create the layout for the 'Trends' tab.
 
@@ -208,7 +206,6 @@ def create_tab_two_layout(
 
     Args:
         df (pd.DataFrame): User listening history DataFrame.
-        spotify_data (pd.DataFrame): Additional Spotify data for trends.
 
     Returns:
         Component: Dash HTML component for the Trends tab.
@@ -260,7 +257,7 @@ def create_tab_two_layout(
                                 "Genres Over Time",
                                 className="card-title",
                             ),
-                            create_genre_trends_layout(df, spotify_data),
+                            create_genre_trends_layout(df),
                             dcc.Loading(
                                 children=[
                                     html.Div(

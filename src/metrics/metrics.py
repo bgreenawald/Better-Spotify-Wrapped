@@ -4,8 +4,6 @@ from typing import Any
 
 import pandas as pd
 
-from src.api.api import SpotifyData
-
 
 def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """Calculate the most played tracks from a filtered Spotify listening history.
@@ -225,81 +223,167 @@ def get_top_albums(
 
 def get_top_artist_genres(
     filtered_df: pd.DataFrame,
-    spotify_data: SpotifyData,
+    *,
+    db_path: str | Path | None = None,
+    con: Any | None = None,
     unique_tracks: bool = False,
     top_artists_per_genre: int = 2,
 ) -> pd.DataFrame:
     """Calculate the most common artist genres in the listening history.
 
-    Counts genre occurrences per track (optionally unique) and lists top
-    artists by play count for each genre.
+    DuckDB-backed implementation using the normalized schema (see DDL.sql).
 
     Args:
-        filtered_df (pd.DataFrame): DataFrame already filtered by filter_songs().
-        spotify_data (SpotifyData): Spotify API data containing tracks and artists.
-        unique_tracks (bool): If True, consider each track URI only once.
-        top_artists_per_genre (int): Number of top artists to include per genre.
+        filtered_df: DataFrame already filtered by filter_songs(). Must contain
+            a 'spotify_track_uri' column to extract Spotify track IDs from.
+        unique_tracks: If True, consider each track ID only once regardless of play count.
+        top_artists_per_genre: Number of top artists to include per genre in the summary.
+        db_path: Optional path to a DuckDB database. If provided (or `con`), the DuckDB path is used.
+        con: Optional DuckDB connection to use.
 
     Returns:
         pd.DataFrame: Genres sorted by frequency with columns:
             'genre', 'play_count', 'percentage', 'top_artists'.
     """
-    # Select track URIs, deduplicating if requested
-    track_uris = (
-        filtered_df["spotify_track_uri"].unique()
-        if unique_tracks
-        else filtered_df["spotify_track_uri"]
-    )
 
-    genre_counts: dict[str, int] = {}
-    genre_artists: dict[str, dict[str, int]] = {}
-    total_tracked = 0
+    # Helper to extract track_id from spotify URI
+    def _extract_track_id(uri: Any) -> str | None:
+        if not isinstance(uri, str):
+            return None
+        if uri.startswith("spotify:track:"):
+            return uri.split(":")[-1]
+        if "open.spotify.com/track/" in uri:
+            part = uri.split("open.spotify.com/track/")[-1]
+            return part.split("?")[0]
+        # Fallback to last colon segment if present
+        if ":" in uri:
+            return uri.split(":")[-1]
+        return None
 
-    for uri in track_uris:
-        track_id = uri.split(":")[-1]
-        track_meta = spotify_data.tracks.get(track_id)
-        if not track_meta:
-            continue
+    use_duckdb = (con is not None) or (db_path is not None)
+    if use_duckdb:
+        try:
+            import duckdb  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional dependency at runtime
+            raise RuntimeError("DuckDB backend requested, but duckdb is not installed.") from exc
 
-        artist_id = track_meta["artists"][0]["id"]
-        artist_meta = spotify_data.artists.get(artist_id)
-        if not artist_meta:
-            continue
+        close_conn = False
+        if con is None:
+            con = duckdb.connect(str(db_path))
+            close_conn = True
+        try:
+            # Prepare play counts per track_id from filtered_df
+            df = filtered_df.copy()
+            if "track_id" not in df.columns:
+                df["track_id"] = df.get("spotify_track_uri").apply(_extract_track_id)
+            plays = df.dropna(subset=["track_id"]).copy()
 
-        genres = artist_meta.get("genres", [])
-        if not genres:
-            continue
+            if unique_tracks:
+                # Each unique track contributes exactly 1
+                play_counts = plays.drop_duplicates(subset=["track_id"])[["track_id"]].assign(
+                    play_count=1
+                )
+                total_tracked = int(play_counts.shape[0])
+            else:
+                # Aggregate counts per track_id
+                play_counts = plays.groupby("track_id").size().reset_index(name="play_count")
+                total_tracked = int(play_counts["play_count"].sum())
 
-        total_tracked += 1
-        artist_name = artist_meta["name"]
+            if play_counts.empty or total_tracked == 0:
+                return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
-        for genre in genres:
-            genre_counts[genre] = genre_counts.get(genre, 0) + 1
-            artists_for_genre = genre_artists.setdefault(genre, {})
-            artists_for_genre[artist_name] = artists_for_genre.get(artist_name, 0) + 1
+            # Register temp relation
+            with contextlib.suppress(Exception):
+                con.unregister("df_play_counts")  # type: ignore[attr-defined]
+            con.register("df_play_counts", play_counts)
 
-    # Build rows for DataFrame
-    rows: list[dict[str, object]] = []
-    for genre, count in genre_counts.items():
-        top_artists = sorted(genre_artists[genre].items(), key=lambda x: (-x[1], x[0]))[
-            :top_artists_per_genre
-        ]
-        formatted_artists = ", ".join(f"{name} ({plays} plays)" for name, plays in top_artists)
-        rows.append(
-            {
-                "genre": genre,
-                "play_count": count,
-                "top_artists": formatted_artists,
-            }
-        )
+            # Total counts per genre (via primary artist for each track)
+            sql_genre_counts = """
+                WITH primary_artist AS (
+                    SELECT track_id, artist_id
+                    FROM (
+                        SELECT b.track_id,
+                               b.artist_id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY b.track_id
+                                   ORDER BY a.artist_name
+                               ) AS rn
+                        FROM bridge_track_artists b
+                        JOIN dim_artists a ON a.artist_id = b.artist_id
+                        WHERE b."role" = 'primary'
+                    ) x
+                    WHERE rn = 1
+                )
+                SELECT g.name AS genre,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1
+                ORDER BY play_count DESC, genre
+            """
+            genre_counts_df = con.execute(sql_genre_counts).df()
 
-    if not rows:
-        return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
+            if genre_counts_df.empty:
+                return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
-    genre_df = pd.DataFrame(rows)
-    genre_df["percentage"] = (genre_df["play_count"] / total_tracked * 100).round(2)
+            # Per-genre, per-artist counts to compute top artists listing
+            sql_artist_genre_counts = """
+                WITH primary_artist AS (
+                    SELECT track_id, artist_id
+                    FROM (
+                        SELECT b.track_id,
+                               b.artist_id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY b.track_id
+                                   ORDER BY a.artist_name
+                               ) AS rn
+                        FROM bridge_track_artists b
+                        JOIN dim_artists a ON a.artist_id = b.artist_id
+                        WHERE b."role" = 'primary'
+                    ) x
+                    WHERE rn = 1
+                )
+                SELECT g.name AS genre,
+                       a.artist_name AS artist,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1, 2
+            """
+            artist_genre_df = con.execute(sql_artist_genre_counts).df()
 
-    return genre_df.sort_values("play_count", ascending=False)
+            # Build final frame: add percentage and formatted top artists per genre
+            genre_counts_df["percentage"] = (
+                (genre_counts_df["play_count"] / total_tracked) * 100
+            ).round(2)
+
+            # Format top artists
+            def format_top_artists(genre: str) -> str:
+                subset = artist_genre_df[artist_genre_df["genre"] == genre]
+                if subset.empty:
+                    return ""
+                subset = subset.sort_values(["play_count", "artist"], ascending=[False, True])
+                top_rows = subset.head(top_artists_per_genre)
+                return ", ".join(
+                    f"{row['artist']} ({int(row['play_count'])} plays)"
+                    for _, row in top_rows.iterrows()
+                )
+
+            genre_counts_df["top_artists"] = genre_counts_df["genre"].apply(format_top_artists)
+            genre_counts_df.rename(columns={"genre": "genre"}, inplace=True)
+            # Standardize column order
+            result = genre_counts_df[["genre", "play_count", "percentage", "top_artists"]]
+            return result.sort_values(["play_count", "genre"], ascending=[False, True])
+        finally:
+            if close_conn:
+                con.close()
+    # If we reach here, neither `con` nor `db_path` was provided
+    raise ValueError("get_top_artist_genres requires a DuckDB connection or db_path.")
 
 
 def get_most_played_artists(filtered_df: pd.DataFrame) -> pd.DataFrame:

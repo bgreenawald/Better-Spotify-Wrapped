@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 from dashboard.callbacks.callbacks import register_callbacks
 from dashboard.conn import get_db_connection
 from dashboard.layouts.layouts import create_layout
-from src.api.api import SpotifyData
 
 # Configure logging
 logging.basicConfig(
@@ -106,13 +105,10 @@ def create_app() -> Dash:
         with contextlib.suppress(Exception):
             conn.close()
 
-    # Placeholder SpotifyData (API is no longer loaded at runtime)
-    spotify_data = SpotifyData(tracks={}, artists={}, albums={})
-
     # Initialize app layout and register callbacks
     logger.info("Initializing layout and callbacks...")
-    app.layout = create_layout(history_df, spotify_data)
-    register_callbacks(app, history_df, spotify_data)
+    app.layout = create_layout(history_df)
+    register_callbacks(app, history_df)
     logger.info("App initialization complete.")
 
     return app

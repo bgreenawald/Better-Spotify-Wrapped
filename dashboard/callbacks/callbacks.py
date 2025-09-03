@@ -63,13 +63,12 @@ def get_plotly_theme(is_dark=False):
         }
 
 
-def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) -> None:
+def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     """Register all Dash callbacks for the listening dashboard.
 
     Args:
         app (Dash): Dash application instance.
         df (pd.DataFrame): DataFrame of listening events.
-        spotify_data (pd.DataFrame): DataFrame of Spotify metadata.
     """
 
     @app.callback(
@@ -271,8 +270,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Top genres
-        top_genres = get_top_artist_genres(filtered, spotify_data)
+        # Top genres (DuckDB-backed)
+        top_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
         if top_genres.empty:
             genres_fig = {"data": [], "layout": theme}
         else:
@@ -363,8 +362,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         overall_artists = get_most_played_artists(filtered)
         track_trends = get_track_trends(filtered)
         overall_tracks = get_most_played_tracks(filtered)
-        genre_trends = get_genre_trends(filtered, spotify_data)
-        overall_genres = get_top_artist_genres(filtered, spotify_data)
+        genre_trends = get_genre_trends(filtered, db_path="data/db/music.db")
+        overall_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
 
         return {
             "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),
