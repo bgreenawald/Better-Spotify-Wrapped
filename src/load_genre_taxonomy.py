@@ -283,7 +283,14 @@ def load_genre_taxonomy(
         map_df["source"] = source
         map_df["confidence"] = 1.0
 
-        # Drop rows where we somehow couldn't resolve genre_id (shouldn't happen)
+        # Check for resolution failures
+        unresolved = map_df[map_df["genre_id"].isna()]
+        if not unresolved.empty:
+            unresolved_parents = unresolved["canonical_parent"].unique().tolist()
+            raise ValueError(
+                f"Failed to resolve genre_id for canonical parents: {unresolved_parents}. "
+                f"Ensure these exist in dim_genres."
+            )
         map_df = map_df.dropna(subset=["genre_id"]).copy()
         map_df["genre_id"] = map_df["genre_id"].astype(int)
 
