@@ -1,17 +1,18 @@
 """Link artist genres from cached Spotify artist JSONs into the database.
 
 This script scans `data/api/cache/artists/*.json` (or a provided cache dir),
-reads each artist payload, and inserts raw genre tags into `tag_evidence` with
-provenance `source='spotify'`, `entity_type='artist'`, and `tag_kind='genre'`.
+reads each artist payload and links canonical genres into `artist_genres`
+using mappings in `map_genre` (provenance `source='spotify'`).
 
-It reuses `populate_artist_genre_evidence_from_cache` from `src.api.api`.
+It reuses `populate_artist_genres_from_cache` from `src.api.api`.
 
 Usage examples:
 
   python -m src.link_artist_genres --db data/db/music.db
   python -m src.link_artist_genres --db refactor-layout/data/db/music.db --cache-dir data/api/cache
 
-Ensure the schema from `DDL.sql` has been applied so that `tag_evidence` exists.
+Ensure the schema from `DDL.sql` has been applied so that `artist_genres`,
+`dim_artists`, `dim_genres`, and `map_genre` exist.
 """
 
 from __future__ import annotations
