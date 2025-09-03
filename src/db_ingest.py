@@ -54,34 +54,49 @@ def _extract_spotify_track_id(uri: str | None) -> str | None:
     return None
 
 
-def _to_timestamp(ts: object) -> str | None:
+ def _to_timestamp(ts: object) -> str | None:
     """Normalize input timestamp to ISO 8601 string without timezone.
-
-    Accepts strings or pandas Timestamps. Returns ISO-like string that SQLite
-    can store as TEXT or NUMERIC and be compatible with `TIMESTAMP`.
-    """
-    if ts is None:
-        return None
+@@
+     if ts is None:
+         return None
+-    if isinstance(ts, pd.Timestamp):
+-        if ts.tzinfo is not None:
+-            ts = ts.tz_convert(None)  # type: ignore[assignment]
     if isinstance(ts, pd.Timestamp):
-        if ts.tzinfo is not None:
-            ts = ts.tz_convert(None)  # type: ignore[assignment]
-        return ts.to_pydatetime().isoformat(sep=" ", timespec="seconds")
+        t = ts
+        # If timezone‐aware (either tzinfo or pandas tz), convert to UTC then drop tz
+        if getattr(t, "tzinfo", None) is not None or getattr(t, "tz", None) is not None:
+            t = t.tz_convert("UTC").tz_localize(None)
+        return t.to_pydatetime().isoformat(sep=" ", timespec="seconds")
+@@
+-    if isinstance(ts, str):
+-        try:
+-            parsed = pd.to_datetime(ts, errors="coerce")
+-            if pd.isna(parsed):
+-                return None
+-            if parsed.tzinfo is not None:
+-                parsed = parsed.tz_convert(None)
+-            return parsed.to_pydatetime().isoformat(sep=" ", timespec="seconds")
+-        except Exception:
     if isinstance(ts, str):
         try:
-            parsed = pd.to_datetime(ts, errors="coerce")
+            # Parse as UTC, then drop tz to get a naive datetime
+            parsed = pd.to_datetime(ts, errors="coerce", utc=True)
             if pd.isna(parsed):
                 return None
-            if parsed.tzinfo is not None:
-                parsed = parsed.tz_convert(None)
-            return parsed.to_pydatetime().isoformat(sep=" ", timespec="seconds")
+            return parsed.tz_localize(None).to_pydatetime().isoformat(sep=" ", timespec="seconds")
         except Exception:
             return None
+@@
+-    if isinstance(ts, dt.datetime):
+-        if ts.tzinfo is not None:
+-            ts = ts.astimezone(dt.timezone.utc).replace(tzinfo=None)
     if isinstance(ts, dt.datetime):
-        if ts.tzinfo is not None:
-            ts = ts.astimezone(dt.timezone.utc).replace(tzinfo=None)
-        return ts.isoformat(sep=" ", timespec="seconds")
-    return None
-
+        d = ts
+        if d.tzinfo is not None:
+            d = d.astimezone(dt.timezone.utc).replace(tzinfo=None)
+        return d.isoformat(sep=" ", timespec="seconds")
+     return None
 
 def _ensure_user(conn: duckdb.DuckDBPyConnection, user_id: str) -> None:
     exists = conn.execute(
