@@ -82,7 +82,9 @@ tmp/
 # Needed data
 listening_history
 data
-src/db_ingest.py
+ # Needed data
+ listening_history
+ data
 
 # Genre info
 genre_taxonomy_results.json
