@@ -4,11 +4,7 @@ from dash import dcc, html
 from dash.development.base_component import Component
 
 from dashboard.components.filters import (
-    create_artist_trends_layout,
-    create_genre_trends_layout,
     create_global_settings,
-    create_monthly_trend_filter,
-    create_track_trends_layout,
     create_trend_filters_section,
     create_wrapped_filters_section,
 )
@@ -217,122 +213,36 @@ def create_tab_two_layout(
                 create_trend_filters_section(df),
                 className="card",
             ),
+            # Chart selector for Trends tab
+            html.Div(
+                [
+                    html.H3("Select Chart", className="card-title"),
+                    dcc.RadioItems(
+                        id="tab-2-chart-selector",
+                        options=[
+                            {"label": "Listening Over Time", "value": "listening"},
+                            {"label": "Genres Over Time", "value": "genres"},
+                            {"label": "Artists Over Time", "value": "artists"},
+                            {"label": "Tracks Over Time", "value": "tracks"},
+                        ],
+                        value="listening",
+                        className="radio-group",
+                    ),
+                ],
+                className="card",
+            ),
             dcc.Loading(
                 overlay_style={
                     "visibility": "visible",
                     "filter": "blur(2px)",
                 },
                 delay_show=2000,
-                children=[
-                    # Listening over time section
-                    html.Div(
-                        [
-                            html.H3(
-                                "Listening Over Time",
-                                className="card-title",
-                            ),
-                            create_monthly_trend_filter(),
-                            html.Div(
-                                [
-                                    html.H3(
-                                        "Listening Trends",
-                                        className="card-title",
-                                    ),
-                                    dcc.Loading(
-                                        children=dcc.Graph(
-                                            id="trends-graph",
-                                            figure={},
-                                            config={"displayModeBar": False},
-                                        )
-                                    ),
-                                ]
-                            ),
-                        ],
-                        className="card",
-                    ),
-                    # Genres over time section
-                    html.Div(
-                        [
-                            html.H3(
-                                "Genres Over Time",
-                                className="card-title",
-                            ),
-                            create_genre_trends_layout(df),
-                            dcc.Loading(
-                                children=[
-                                    html.Div(
-                                        dcc.Graph(
-                                            id="genre-trends-graph",
-                                            config={"displayModeBar": False},
-                                        )
-                                    ),
-                                    html.Div(
-                                        html.Div(
-                                            id="genre-trends-table",
-                                            className="table-container",
-                                        )
-                                    ),
-                                ]
-                            ),
-                        ],
-                        className="card",
-                    ),
-                    # Artists over time section
-                    html.Div(
-                        [
-                            html.H3(
-                                "Artists Over Time",
-                                className="card-title",
-                            ),
-                            create_artist_trends_layout(df),
-                            dcc.Loading(
-                                children=[
-                                    html.Div(
-                                        dcc.Graph(
-                                            id="artist-trends-graph",
-                                            config={"displayModeBar": False},
-                                        )
-                                    ),
-                                    html.Div(
-                                        html.Div(
-                                            id="artist-trends-table",
-                                            className="table-container",
-                                        )
-                                    ),
-                                ]
-                            ),
-                        ],
-                        className="card",
-                    ),
-                    # Tracks over time section
-                    html.Div(
-                        [
-                            html.H3(
-                                "Tracks Over Time",
-                                className="card-title",
-                            ),
-                            create_track_trends_layout(df),
-                            dcc.Loading(
-                                children=[
-                                    dcc.Graph(
-                                        id="track-trends-graph",
-                                        config={"displayModeBar": False},
-                                    ),
-                                    html.Div(
-                                        html.Div(
-                                            id="track-trends-table",
-                                            className="table-container",
-                                        )
-                                    ),
-                                ]
-                            ),
-                        ],
-                        className="card",
-                    ),
-                    # Store intermediate tab-2 data
-                    dcc.Store(id="tab-2-data"),
-                ],
+                children=html.Div(id="tab-2-content"),
             ),
+            # Store intermediate tab-2 data
+            dcc.Store(id="tab-2-data"),
+            # Store cached genre options to avoid recompute
+            dcc.Store(id="genre-options-store"),
         ],
         className="container",
     )

@@ -95,6 +95,9 @@ def create_app() -> Dash:
         assets_folder=str(assets_path),
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
+    # Allow callbacks to reference components that are rendered dynamically
+    # (Tab 2 only mounts one selected chart at a time)
+    app.config.suppress_callback_exceptions = True
 
     # Build base DataFrame from DB for current UI
     try:

@@ -3,8 +3,6 @@ from itertools import chain
 import pandas as pd
 from dash import dcc, html
 
-from src.metrics.trends import get_genre_trends
-
 
 def create_year_dropdown(df: pd.DataFrame) -> html.Div:
     """Create a dropdown for selecting a year from DataFrame timestamps.
@@ -196,7 +194,7 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_genre_trends_layout(df: pd.DataFrame) -> html.Div:
+def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
     """Create the layout for the genre trends analysis section.
 
     Args:
@@ -205,9 +203,6 @@ def create_genre_trends_layout(df: pd.DataFrame) -> html.Div:
     Returns:
         html.Div: Div containing genre filters and sliders.
     """
-    genres_df = get_genre_trends(df, db_path="data/db/music.db")
-    genres = sorted(genres_df["genre"].dropna().unique())
-
     return html.Div(
         [
             html.Div(
@@ -217,9 +212,8 @@ def create_genre_trends_layout(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Genres", className="filter-label"),
                             dcc.Dropdown(
                                 id="genre-filter-dropdown",
-                                options=[
-                                    {"label": genre.title(), "value": genre} for genre in genres
-                                ],
+                                # Options are populated dynamically from tab-2-data
+                                options=[],
                                 multi=True,
                                 className="dropdown",
                             ),
