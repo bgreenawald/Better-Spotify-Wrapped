@@ -25,7 +25,7 @@ from .api.api import populate_artist_genres_from_cache
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=("Insert artist genres from cached Spotify artist JSONs into tag_evidence.")
+        description=("Link artists to canonical genres in artist_genres from cached Spotify artist JSONs.")
     )
     parser.add_argument(
         "--db",
