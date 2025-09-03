@@ -4,9 +4,15 @@ from io import StringIO
 import dash
 import pandas as pd
 import plotly.express as px
-from dash import Dash, Input, Output, State, dash_table
+from dash import Dash, Input, Output, State, dash_table, dcc, html
 from dash.exceptions import PreventUpdate
 
+from dashboard.components.filters import (
+    create_artist_trends_layout,
+    create_genre_trends_layout,
+    create_monthly_trend_filter,
+    create_track_trends_layout,
+)
 from dashboard.components.graphs import create_daily_top_heatmap
 from dashboard.components.stats import create_stats_table
 from src.metrics.metrics import (
@@ -314,6 +320,109 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             stats_table,
             heatmap_fig,
         )
+
+    @app.callback(
+        Output("tab-2-content", "children"),
+        Input("tab-2-chart-selector", "value"),
+    )
+    def render_trends_selected_content(selection: str):
+        """Render only the selected Trends chart and its controls.
+
+        This avoids loading all charts at once by dynamically mounting
+        the selected chart's layout into Tab 2.
+        """
+        if selection == "listening":
+            return html.Div(
+                [
+                    html.H3("Listening Over Time", className="card-title"),
+                    create_monthly_trend_filter(),
+                    html.Div(
+                        [
+                            html.H3("Listening Trends", className="card-title"),
+                            dcc.Loading(
+                                children=dcc.Graph(
+                                    id="trends-graph",
+                                    figure={},
+                                    config={"displayModeBar": False},
+                                )
+                            ),
+                        ]
+                    ),
+                ],
+                className="card",
+            )
+        if selection == "genres":
+            return html.Div(
+                [
+                    html.H3("Genres Over Time", className="card-title"),
+                    create_genre_trends_layout(df),
+                    dcc.Loading(
+                        children=[
+                            html.Div(
+                                dcc.Graph(
+                                    id="genre-trends-graph",
+                                    config={"displayModeBar": False},
+                                )
+                            ),
+                            html.Div(
+                                html.Div(
+                                    id="genre-trends-table",
+                                    className="table-container",
+                                )
+                            ),
+                        ]
+                    ),
+                ],
+                className="card",
+            )
+        if selection == "artists":
+            return html.Div(
+                [
+                    html.H3("Artists Over Time", className="card-title"),
+                    create_artist_trends_layout(df),
+                    dcc.Loading(
+                        children=[
+                            html.Div(
+                                dcc.Graph(
+                                    id="artist-trends-graph",
+                                    config={"displayModeBar": False},
+                                )
+                            ),
+                            html.Div(
+                                html.Div(
+                                    id="artist-trends-table",
+                                    className="table-container",
+                                )
+                            ),
+                        ]
+                    ),
+                ],
+                className="card",
+            )
+        if selection == "tracks":
+            return html.Div(
+                [
+                    html.H3("Tracks Over Time", className="card-title"),
+                    create_track_trends_layout(df),
+                    dcc.Loading(
+                        children=[
+                            dcc.Graph(
+                                id="track-trends-graph",
+                                config={"displayModeBar": False},
+                            ),
+                            html.Div(
+                                html.Div(
+                                    id="track-trends-table",
+                                    className="table-container",
+                                )
+                            ),
+                        ]
+                    ),
+                ],
+                className="card",
+            )
+        # Fallback empty container
+        return html.Div()
 
     @app.callback(
         Output("tab-2-data", "data"),
