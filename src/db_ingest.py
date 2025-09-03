@@ -283,17 +283,18 @@ def load_history_into_fact_plays(
 
     # Prepare bulk frames
     # Tracks to consider
-    tracks_cols = [
-        "spotify_track_id_only",
-        "master_metadata_track_name",
-    ]
+    tracks_cols = ["spotify_track_id_only"]
+    if "master_metadata_track_name" in df_tracks.columns:
+        tracks_cols.append("master_metadata_track_name")
     tracks_df = (
         df_tracks[tracks_cols]
-        .dropna(subset=["spotify_track_id_only"])  # keep only rows with track ids
+        .dropna(subset=["spotify_track_id_only"])
         .drop_duplicates(subset=["spotify_track_id_only"])
         .rename(columns={"master_metadata_track_name": "track_name"})
         .reset_index(drop=True)
     )
+    if "track_name" not in tracks_df.columns:
+        tracks_df["track_name"] = None
     # Derive track_id (Spotify ID) and safe track_name
     if not tracks_df.empty:
         tracks_df["track_id"] = tracks_df["spotify_track_id_only"]
