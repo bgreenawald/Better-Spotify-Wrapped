@@ -270,7 +270,11 @@ def load_history_into_fact_plays(
         mask_tracks &= df["episode_name"].isna()
 
     df_tracks = df.loc[mask_tracks].copy()
-
+    # Remove within-batch dups after normalization
+    df_tracks = df_tracks.drop_duplicates(
+        subset=["spotify_track_id_only", "played_at_iso"],
+        keep="first",
+    )
     # Prepare bulk frames
     # Tracks to consider
     tracks_cols = ["spotify_track_id_only"]
