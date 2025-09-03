@@ -53,31 +53,32 @@ def _display_name(name: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
- def _load_mapping_file(path: Path) -> dict[str, list[str]]:
-     with path.open("r", encoding="utf-8") as f:
-         data = json.load(f)
-     if not isinstance(data, dict):
-         raise ValueError(
-             f"Expected a JSON object mapping child -> [parents], got {type(data).__name__}"
-         )
-     # Normalize keys and values to lowercase/stripped for matching
-     norm: dict[str, list[str]] = {}
-     for child, parents in data.items():
-         c = str(child).strip().lower()
-         if parents is None:
-             parents_list: list[str] = []
-         elif isinstance(parents, str):
-             parents_list = [parents]
-         elif isinstance(parents, list):
-             parents_list = parents
-         else:
-             raise TypeError(
-                 f"Invalid parents type for '{child}': "
-                 f"{type(parents).__name__} (expected list or str)"
-             )
-         ps = [str(p).strip().lower() for p in parents_list if p is not None]
-         norm[c] = ps
-     return norm
+def _load_mapping_file(path: Path) -> dict[str, list[str]]:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Expected a JSON object mapping child -> [parents], got {type(data).__name__}"
+        )
+    # Normalize keys and values to lowercase/stripped for matching
+    norm: dict[str, list[str]] = {}
+    for child, parents in data.items():
+        c = str(child).strip().lower()
+        if parents is None:
+            parents_list: list[str] = []
+        elif isinstance(parents, str):
+            parents_list = [parents]
+        elif isinstance(parents, list):
+            parents_list = parents
+        else:
+            raise TypeError(
+                f"Invalid parents type for '{child}': "
+                f"{type(parents).__name__} (expected list or str)"
+            )
+        ps = [str(p).strip().lower() for p in parents_list if p is not None]
+        norm[c] = ps
+    return norm
+
 
 def _ensure_dim_genres(
     conn: duckdb.DuckDBPyConnection, *, canonical_genres: Iterable[str], level: int = 0
