@@ -332,25 +332,20 @@ def load_genre_taxonomy(
 
             # Build hierarchy pairs using chosen parent
             hier_pairs: list[tuple[int, int]] = []
-            for c in children:
-                parent = child_parent[c]
-                # Skip if somehow parent unresolved
-                p_id = canonical_map.get(parent)
-    for c in children:
-        parent = child_parent[c]
-        # Skip if somehow parent unresolved
-        p_id = canonical_map.get(parent)
-        c_id = child_slug_to_id.get(_slugify(c))
-        if p_id is None or c_id is None:
-            # Log or track unresolved mappings
-            print(f"Warning: Could not resolve hierarchy for child='{c}', parent='{parent}'")
-            continue
-        # Prevent self-referential relationships
-        if p_id == c_id:
-            print(f"Warning: Skipping self-referential relationship for genre '{c}'")
-            continue
-        hier_pairs.append((p_id, c_id))
-
+    if children:
+        # Build hierarchy pairs using chosen parent
+        hier_pairs: list[tuple[int, int]] = []
+        for c in children:
+            parent = child_parent[c]
+            p_id = canonical_map.get(parent)
+            c_id = child_slug_to_id.get(_slugify(c))
+            if p_id is None or c_id is None:
+                print(f"Warning: Could not resolve hierarchy for child='{c}', parent='{parent}'")
+                continue
+            if p_id == c_id:
+                print(f"Warning: Skipping self-referential relationship for genre '{c}'")
+                continue
+            hier_pairs.append((p_id, c_id))
             if hier_pairs:
                 hier_df = pd.DataFrame(hier_pairs, columns=["parent_genre_id", "child_genre_id"])
                 conn.register("df_hier", hier_df)
