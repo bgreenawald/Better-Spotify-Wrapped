@@ -1,6 +1,10 @@
+import contextlib
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 
-from src.api.api import SpotifyData
+from .utils import extract_track_id
 
 
 def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
@@ -58,16 +62,21 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def get_genre_trends(filtered_df: pd.DataFrame, spotify_data: SpotifyData) -> pd.DataFrame:
+def get_genre_trends(
+    filtered_df: pd.DataFrame,
+    *,
+    db_path: str | Path | None = None,
+    con: Any | None = None,
+) -> pd.DataFrame:
     """Calculate genre listening trends over time.
 
-    Optimized version using vectorized operations.
+    DuckDB-backed implementation using the normalized schema (see DDL.sql).
 
     Args:
-        filtered_df (pd.DataFrame): Filtered Spotify listening history. Must
-            contain 'ts' and 'spotify_track_uri' columns.
-        spotify_data (SpotifyData): Spotify data with tracks and artists
-            metadata.
+        filtered_df (pd.DataFrame): Filtered Spotify listening history. Must contain
+            'ts' and 'spotify_track_uri' columns.
+        db_path: Optional DuckDB database path (if `con` not provided).
+        con: Optional DuckDB connection to use.
 
     Returns:
         pd.DataFrame: Genre trends with columns:
@@ -78,110 +87,145 @@ def get_genre_trends(filtered_df: pd.DataFrame, spotify_data: SpotifyData) -> pd
             - top_artists (str)
             - rank (float): Rank of genre by plays within month
     """
-    df = filtered_df.copy()
-    df["month"] = df["ts"].dt.strftime("%Y-%m")
 
-    # Build mapping of track URI to artist names and genres
-    track_mappings = []
-    for uri in df["spotify_track_uri"].unique():
-        if not uri:
-            continue
-        track_id = uri.split(":")[-1]
-        track_meta = spotify_data.tracks.get(track_id)
-        if not track_meta:
-            continue
+    # Helper to extract track_id from spotify URI
+    def _extract_track_id(uri: Any) -> str | None:
+        if not isinstance(uri, str):
+            return None
+        if uri.startswith("spotify:track:"):
+            return uri.split(":")[-1]
+        if "open.spotify.com/track/" in uri:
+            part = uri.split("open.spotify.com/track/")[-1]
+            return part.split("?")[0]
+        if ":" in uri:
+            return uri.split(":")[-1]
+        return None
 
-        artist_id = track_meta["artists"][0]["id"]
-        artist_meta = spotify_data.artists.get(artist_id)
-        if not artist_meta:
-            continue
+    use_duckdb = (con is not None) or (db_path is not None)
+    if not use_duckdb:
+        raise ValueError("get_genre_trends requires a DuckDB connection or db_path.")
 
-        genres = artist_meta.get("genres", [])
-        for genre in genres:
-            track_mappings.append(
-                {
-                    "spotify_track_uri": uri,
-                    "artist_name": artist_meta["name"],
-                    "genre": genre,
-                }
+    try:
+        import duckdb  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError("DuckDB backend requested, but duckdb is not installed.") from exc
+
+    close_conn = False
+    if con is None:
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
+        df = filtered_df.copy()
+        df["month"] = df["ts"].dt.strftime("%Y-%m")
+        if "spotify_track_uri" in df.columns:
+            df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id).astype("string")
+        else:
+            df["track_id"] = pd.Series([pd.NA] * len(df), dtype="string")
+        plays = (
+            df.dropna(subset=["track_id"])  # type: ignore[arg-type]
+            .groupby(["month", "track_id"])  # type: ignore[list-item]
+            .size()
+            .reset_index(name="play_count")
+        )
+
+        if plays.empty:
+            return pd.DataFrame(
+                columns=["month", "genre", "play_count", "percentage", "top_artists", "rank"]
             )
 
-    # Return empty frame if no mappings
-    if not track_mappings:
-        return pd.DataFrame(
-            columns=[
-                "month",
-                "genre",
-                "play_count",
-                "percentage",
-                "top_artists",
-                "rank",
+        with contextlib.suppress(Exception):
+            con.unregister("df_plays")  # type: ignore[attr-defined]
+        con.register("df_plays", plays)
+        # Common CTE definition for genre analysis
+        GENRE_ANALYSIS_CTE = """
+primary_artist AS (
+    SELECT track_id, artist_id
+    FROM (
+        SELECT b.track_id,
+               b.artist_id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY b.track_id
+                   ORDER BY a.artist_name
+               ) AS rn
+        FROM bridge_track_artists b
+        JOIN dim_artists a ON a.artist_id = b.artist_id
+        WHERE b."role" = 'primary'
+    ) x
+    WHERE rn = 1
+),
+genre_artist_month AS (
+    SELECT p.month,
+           g.name AS genre,
+           a.artist_name AS artist,
+           SUM(p.play_count) AS artist_plays
+    FROM df_plays p
+    JOIN primary_artist pa ON pa.track_id = p.track_id
+    JOIN dim_artists a ON a.artist_id = pa.artist_id
+    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+    JOIN dim_genres g ON g.genre_id = ag.genre_id
+    GROUP BY 1, 2, 3
+)
+"""
+
+        # Aggregate per-genre per-month plays via primary artist
+        sql_genre_month = f"""
+            WITH {GENRE_ANALYSIS_CTE},
+            genre_month AS (
+                SELECT month, genre, SUM(artist_plays) AS play_count
+                FROM genre_artist_month
+                GROUP BY 1, 2
+            ),
+            monthly_totals AS (
+                SELECT month, SUM(play_count) AS total_plays
+                FROM genre_month
+                GROUP BY 1
+            )
+            SELECT gm.month,
+                   gm.genre,
+                   gm.play_count,
+                   mt.total_plays
+            FROM genre_month gm
+            JOIN monthly_totals mt USING(month)
+            ORDER BY gm.month, gm.play_count DESC, gm.genre
+        """
+        genre_month_df = con.execute(sql_genre_month).df()
+
+        if genre_month_df.empty:
+            return pd.DataFrame(
+                columns=["month", "genre", "play_count", "percentage", "top_artists", "rank"]
+            )
+
+        # Top artists per month-genre
+        sql_genre_artist = f"""
+            WITH {GENRE_ANALYSIS_CTE}
+            SELECT month, genre, artist, artist_plays
+            FROM genre_artist_month
+        """
+        genre_artist_df = con.execute(sql_genre_artist).df()
+
+        out = genre_month_df.copy()
+        out["percentage"] = (out["play_count"] / out["total_plays"] * 100).round(2)
+        out = out.drop(columns=["total_plays"])
+
+        def format_top(month: str, genre: str) -> str:
+            sub = genre_artist_df[
+                (genre_artist_df["month"] == month) & (genre_artist_df["genre"] == genre)
             ]
-        )
+            if sub.empty:
+                return ""
+            sub = sub.sort_values(["artist_plays", "artist"], ascending=[False, True]).head(2)
+            return ", ".join(f"{r.artist} ({int(r.artist_plays)} plays)" for _, r in sub.iterrows())
 
-    track_info = pd.DataFrame(track_mappings)
-
-    # Merge plays with genre info
-    merged = df.merge(track_info, on="spotify_track_uri")
-
-    # Count plays per artist-genre-month
-    genre_artist_plays = (
-        merged.groupby(["month", "genre", "artist_name"]).size().reset_index(name="artist_plays")
-    )
-
-    # Sum to get play_count per genre-month
-    genre_totals = (
-        genre_artist_plays.groupby(["month", "genre"])["artist_plays"]
-        .sum()
-        .reset_index(name="play_count")
-    )
-
-    # Total plays per month for percentage calc
-    monthly_totals = (
-        genre_totals.groupby("month")["play_count"].sum().reset_index(name="total_plays")
-    )
-
-    # Determine top 2 artists by plays per genre-month
-    top_artists = (
-        genre_artist_plays.sort_values("artist_plays", ascending=False)
-        .groupby(["month", "genre"])
-        .agg(
-            {
-                "artist_name": lambda names: ", ".join(names.head(2)),
-                "artist_plays": lambda counts: ", ".join(
-                    f"({cnt} plays)" for cnt in counts.head(2)
-                ),
-            }
-        )
-        .reset_index()
-    )
-
-    # Combine artist names with play counts
-    top_artists["top_artists"] = top_artists.apply(
-        lambda row: " ".join(
-            f"{name} {plays}"
-            for name, plays in zip(
-                row["artist_name"].split(", "), row["artist_plays"].split(", "), strict=False
-            )
-        ),
-        axis=1,
-    )
-
-    # Merge totals, percentages, and top artists
-    result = genre_totals.merge(monthly_totals, on="month").merge(
-        top_artists[["month", "genre", "top_artists"]], on=["month", "genre"]
-    )
-
-    result["percentage"] = (result["play_count"] / result["total_plays"] * 100).round(2)
-
-    # Clean up and sort
-    result = result.drop("total_plays", axis=1)
-    result = result.sort_values(["month", "play_count"], ascending=[True, False])
-
-    # Add rank within each month
-    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
-
-    return result.reset_index(drop=True)
+        out["top_artists"] = [
+            format_top(m, g) for m, g in zip(out["month"], out["genre"], strict=False)
+        ]
+        out = out.sort_values(["month", "play_count"], ascending=[True, False])
+        out["rank"] = out.groupby("month")["play_count"].rank(method="dense", ascending=False)
+        return out.reset_index(drop=True)
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:

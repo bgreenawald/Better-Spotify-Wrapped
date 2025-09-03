@@ -63,13 +63,12 @@ def get_plotly_theme(is_dark=False):
         }
 
 
-def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) -> None:
+def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     """Register all Dash callbacks for the listening dashboard.
 
     Args:
         app (Dash): Dash application instance.
         df (pd.DataFrame): DataFrame of listening events.
-        spotify_data (pd.DataFrame): DataFrame of Spotify metadata.
     """
 
     @app.callback(
@@ -97,8 +96,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Output("date-range", "end_date"),
         ],
         Input("reset-date-range", "n_clicks"),
+        State("user-id-dropdown", "value"),
     )
-    def reset_year_range_filter(n_clicks: int):
+    def reset_year_range_filter(n_clicks: int, user_id: str | None):
         """Reset the date picker to span the full range of the data.
 
         Args:
@@ -110,8 +110,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         if not n_clicks:
             raise PreventUpdate
 
-        min_ts = df["ts"].min()
-        max_ts = df["ts"].max()
+        df_user = df if not user_id else df[df.get("user_id") == user_id]
+        if df_user.empty:
+            df_user = df
+        min_ts = df_user["ts"].min()
+        max_ts = df_user["ts"].max()
         start = datetime(min_ts.year, min_ts.month, min_ts.day)
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
         return start, end
@@ -126,6 +129,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             Output("daily-song-heatmap", "figure"),
         ],
         [
+            Input("user-id-dropdown", "value"),
             Input("year-dropdown", "value"),
             Input("exclude-december", "value"),
             Input("remove-incognito", "value"),
@@ -136,6 +140,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         ],
     )
     def update_dashboard(
+        user_id,
         selected_year,
         exclude_december,
         remove_incognito,
@@ -171,9 +176,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
             empty_fig = {"data": [], "layout": theme}
             return empty_fig, empty_fig, empty_fig, empty_fig, [], empty_fig
 
-        # Filter the dataset
+        # Filter the dataset (delegate user scoping to filter_songs)
         filtered = filter_songs(
             df,
+            user_id=user_id,
             start_date=pd.Timestamp(datetime(selected_year, 1, 1)),
             end_date=pd.Timestamp(datetime(selected_year, 12, 31)),
             exclude_december=exclude_december,
@@ -236,8 +242,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Top albums
-        top_albums = get_top_albums(filtered, spotify_data)
+        # Top albums (DuckDB-backed)
+        top_albums = get_top_albums(filtered, db_path="data/db/music.db")
         if top_albums.empty:
             albums_fig = {"data": [], "layout": theme}
         else:
@@ -264,8 +270,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
                 },
             }
 
-        # Top genres
-        top_genres = get_top_artist_genres(filtered, spotify_data)
+        # Top genres (DuckDB-backed)
+        top_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
         if top_genres.empty:
             genres_fig = {"data": [], "layout": theme}
         else:
@@ -312,6 +318,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
     @app.callback(
         Output("tab-2-data", "data"),
         [
+            Input("user-id-dropdown", "value"),
             Input("date-range", "start_date"),
             Input("date-range", "end_date"),
             Input("exclude-december", "value"),
@@ -323,6 +330,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         ],
     )
     def update_tab_2_data(
+        user_id,
         start_date,
         end_date,
         exclude_december,
@@ -338,6 +346,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         """
         filtered = filter_songs(
             df,
+            user_id=user_id,
             start_date=pd.to_datetime(start_date),
             end_date=pd.to_datetime(end_date),
             exclude_december=exclude_december,
@@ -353,8 +362,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame, spotify_data: pd.DataFrame) 
         overall_artists = get_most_played_artists(filtered)
         track_trends = get_track_trends(filtered)
         overall_tracks = get_most_played_tracks(filtered)
-        genre_trends = get_genre_trends(filtered, spotify_data)
-        overall_genres = get_top_artist_genres(filtered, spotify_data)
+        genre_trends = get_genre_trends(filtered, db_path="data/db/music.db")
+        overall_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
 
         return {
             "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),

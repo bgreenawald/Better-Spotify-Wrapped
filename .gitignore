@@ -82,3 +82,9 @@ tmp/
 # Needed data
 listening_history
 data
+ # Needed data
+ listening_history
+ data
+
+# Genre info
+genre_taxonomy_results.json

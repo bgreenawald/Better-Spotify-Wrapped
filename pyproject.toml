@@ -17,7 +17,16 @@ dependencies = [
     "pyinstaller>=6.11.1",
     "webdriver-manager>=4.0.2",
     "duckdb>=1.3.2",
+    "google-genai>=1.32.0",
+    "google-generativeai>=0.8.5",
+    "openai>=1.102.0",
 ]
+
+[project.scripts]
+bsw = "src.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [dependency-groups]
 dev = [

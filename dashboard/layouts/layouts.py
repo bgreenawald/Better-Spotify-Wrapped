@@ -15,7 +15,26 @@ from dashboard.components.filters import (
 from dashboard.components.graphs import create_graphs_section_tab_one
 
 
-def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
+def _create_user_selector(df: pd.DataFrame) -> Component:
+    users = sorted(df.get("user_id", pd.Series(dtype=str)).dropna().unique())
+    default_user = users[0] if users else None
+    return html.Div(
+        [
+            html.Label("User", className="filter-label"),
+            dcc.Dropdown(
+                id="user-id-dropdown",
+                options=[{"label": u, "value": u} for u in users],
+                value=default_user,
+                clearable=False,
+                className="dropdown",
+            ),
+        ],
+        className="user-selector",
+        style={"minWidth": "240px"},
+    )
+
+
+def create_layout(df: pd.DataFrame) -> Component:
     """Generate the main dashboard layout.
 
     The layout includes a header, a global settings panel, and two tabs:
@@ -23,7 +42,6 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
 
     Args:
         df (pd.DataFrame): User listening history DataFrame.
-        spotify_data (pd.DataFrame): Additional Spotify data for trends.
 
     Returns:
         Component: Dash HTML component for the dashboard layout.
@@ -78,7 +96,14 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                                 n_clicks=0,
                             ),
                             dbc.Collapse(
-                                dbc.Card(dbc.CardBody(create_global_settings(df))),
+                                dbc.Card(
+                                    dbc.CardBody(
+                                        [
+                                            _create_user_selector(df),
+                                            create_global_settings(df),
+                                        ]
+                                    )
+                                ),
                                 id="collapse",
                                 is_open=False,
                             ),
@@ -94,7 +119,7 @@ def create_layout(df: pd.DataFrame, spotify_data: pd.DataFrame) -> Component:
                             ),
                             dcc.Tab(
                                 label="Trends",
-                                children=[create_tab_two_layout(df, spotify_data)],
+                                children=[create_tab_two_layout(df)],
                             ),
                         ]
                     ),
@@ -173,7 +198,6 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
 
 def create_tab_two_layout(
     df: pd.DataFrame,
-    spotify_data: pd.DataFrame,
 ) -> Component:
     """Create the layout for the 'Trends' tab.
 
@@ -182,7 +206,6 @@ def create_tab_two_layout(
 
     Args:
         df (pd.DataFrame): User listening history DataFrame.
-        spotify_data (pd.DataFrame): Additional Spotify data for trends.
 
     Returns:
         Component: Dash HTML component for the Trends tab.
@@ -234,7 +257,7 @@ def create_tab_two_layout(
                                 "Genres Over Time",
                                 className="card-title",
                             ),
-                            create_genre_trends_layout(df, spotify_data),
+                            create_genre_trends_layout(df),
                             dcc.Loading(
                                 children=[
                                     html.Div(
