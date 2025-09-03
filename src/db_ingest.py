@@ -213,7 +213,13 @@ def load_history_into_fact_plays(
         IngestResult: counts of inserted vs deduped records.
     """
 
-    history_df = load_spotify_history(str(history_dir))  # type: ignore[arg-type]
+    # Validate inputs
+    if (history_dir is None) == (history_df is None):
+        raise ValueError("Provide exactly one of `history_dir` or `history_df`.")
+    if history_df is None:
+        if load_spotify_history is None:
+            raise ImportError("src.io.load_spotify_history is unavailable; pass `history_df` instead.")
+        history_df = load_spotify_history(str(history_dir))  # type: ignore[arg-type]
 
     # Normalize and filter rows
     df = history_df.copy()
