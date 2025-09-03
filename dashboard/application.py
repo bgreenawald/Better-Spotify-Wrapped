@@ -6,6 +6,7 @@ Updated to use preloaded DuckDB data rather than loading JSON/API at runtime.
 
 import contextlib
 import logging
+import os
 from pathlib import Path
 
 import dash_bootstrap_components as dbc
@@ -26,8 +27,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file, overriding existing ones
-load_dotenv(override=True)
+# Only override environment variables in explicit local/test scenarios to prevent overwriting deploy-time env vars
+should_override = os.environ.get("ENVIRONMENT", "") in ["local", "dev", "development", "test"]
+load_dotenv(override=should_override)
 
 
 def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:

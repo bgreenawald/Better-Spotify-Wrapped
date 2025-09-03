@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -261,6 +262,10 @@ def load_api_data() -> SpotifyData:
 def populate_missing_track_isrcs(
     *,
     db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
 ) -> int:
     """Populate `dim_tracks.track_isrc` where NULL using Spotify metadata.
 
@@ -283,7 +288,7 @@ def populate_missing_track_isrcs(
     # 1) Discover targets from the DB
     conn = duckdb.connect(str(db_path))
     try:
-        _ = conn.execute(
+        rows = conn.execute(
             """
             SELECT track_id
             FROM dim_tracks
@@ -291,6 +296,77 @@ def populate_missing_track_isrcs(
             ORDER BY track_id
             """
         ).fetchall()
+    finally:
+        conn.close()
+
+    spotify_ids: list[str] = [r[0] for r in rows if r and r[0]]
+    if limit is not None:
+        spotify_ids = spotify_ids[: max(0, int(limit))]
+    if not spotify_ids:
+        return 0
+
+    # 2) Fetch metadata via cache-aware collector
+    collector = SpotifyDataCollector(
+        client_id=client_id, client_secret=client_secret, cache_dir=cache_dir
+    )
+    tracks = collector.fetch_tracks(spotify_ids)
+
+    # 3) Build records for ISRC updates
+    recs: list[tuple[str, str | None]] = []
+    for t in tracks:
+        tid = t.get("id")
+        if not tid:
+            continue
+        isrc = (t.get("external_ids") or {}).get("isrc")
+        if isrc and str(isrc).strip():
+            recs.append((tid, str(isrc).strip()))
+
+    if not recs:
+        return 0
+
+    # Deduplicate ISRCs to avoid UNIQUE constraint violations on dim_tracks.track_isrc
+    df_isrc = pd.DataFrame(recs, columns=["track_id", "isrc"]).drop_duplicates(
+        subset=["isrc"], keep="first"
+    )
+
+    # 4) Apply updates in a single transaction
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_isrc", df_isrc)
+
+        # Pre-compute how many rows will be updated
+        isrc_to_set = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM dim_tracks d
+            JOIN df_isrc u ON d.track_id = u.track_id
+            WHERE d.track_isrc IS NULL AND u.isrc IS NOT NULL
+            """
+        ).fetchone()[0]
+
+        # UPDATE with uniqueness check to avoid constraint violations
+        conn.execute(
+            """
+            UPDATE dim_tracks AS d
+            SET track_isrc = u.isrc
+            FROM df_isrc AS u
+            WHERE d.track_id = u.track_id
+              AND d.track_isrc IS NULL
+              AND u.isrc IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM dim_tracks d2
+                WHERE d2.track_isrc = u.isrc AND d2.track_id <> d.track_id
+              )
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return int(isrc_to_set)
+    except Exception as e:
+        conn.execute("ROLLBACK;")
+        logging.error("Error updating ISRCs: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -794,76 +870,6 @@ def populate_track_metadata(
             "duration_ms": int(duration_to_set),
             "explicit": int(explicit_to_set),
         }
-    finally:
-        conn.close()
-
-    spotify_ids: list[str] = [r[0] for r in rows if r and r[0]]
-    if limit is not None:
-        spotify_ids = spotify_ids[: max(0, int(limit))]
-    if not spotify_ids:
-        return (0, 0)
-
-    # 2) Fetch metadata (uses cache when available)
-    collector = SpotifyDataCollector(
-        client_id=client_id, client_secret=client_secret, cache_dir=cache_dir
-    )
-    tracks = collector.fetch_tracks(spotify_ids)
-
-    # 3) Build update mapping
-    records: list[tuple[str, int | None, bool | None]] = []
-    for t in tracks:
-        tid = t.get("id")
-        if not tid:
-            continue
-        dur = t.get("duration_ms")
-        try:
-            dur_int = int(dur) if dur is not None else None
-        except Exception:
-            dur_int = None
-        explicit_val = t.get("explicit")
-        explicit_bool = bool(explicit_val) if explicit_val is not None else None
-        records.append((tid, dur_int, explicit_bool))
-
-    if not records:
-        return (0, 0)
-
-    df_updates = pd.DataFrame(records, columns=["track_id", "duration_ms", "explicit"])
-    conn = duckdb.connect(str(db_path))
-    try:
-        conn.execute("BEGIN TRANSACTION;")
-        conn.register("df_updates", df_updates)
-
-        # Pre-compute how many rows will be newly populated
-        duration_to_set = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM dim_tracks d
-            JOIN df_updates u ON d.track_id = u.track_id
-            WHERE d.duration_ms IS NULL AND u.duration_ms IS NOT NULL
-            """
-        ).fetchone()[0]
-        explicit_to_set = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM dim_tracks d
-            JOIN df_updates u ON d.track_id = u.track_id
-            WHERE d.explicit IS NULL AND u.explicit IS NOT NULL
-            """
-        ).fetchone()[0]
-
-        conn.execute(
-            """
-            UPDATE dim_tracks AS d
-            SET
-              duration_ms = COALESCE(d.duration_ms, u.duration_ms),
-              explicit     = COALESCE(d.explicit, u.explicit)
-            FROM df_updates AS u
-            WHERE d.track_id = u.track_id
-              AND (d.duration_ms IS NULL OR d.explicit IS NULL)
-            """
-        )
-        conn.execute("COMMIT;")
-        return int(duration_to_set), int(explicit_to_set)
     finally:
         conn.close()
 

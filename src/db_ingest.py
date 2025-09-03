@@ -197,6 +197,7 @@ def load_history_into_fact_plays(
     db_path: str | Path,
     user_id: str,
     history_dir: str | Path | None = None,
+    history_df: pd.DataFrame | None = None,
 ) -> IngestResult:
     """Load listening history into `fact_plays` and supporting dims.
 
@@ -205,20 +206,38 @@ def load_history_into_fact_plays(
     skipped; only music tracks with a Spotify track URI are ingested.
 
     Args:
-        db_path: Path to SQLite DB (e.g., `data/db/music.db`).
-        user_id: Application-level user identifier (UUID string).
+        db_path: PathLike to the database file (e.g., `data/db/music.db`).
+        user_id: Non-empty application-level user identifier (UUID string).
         history_dir: Directory containing `*.json` history files.
+        history_df: Preloaded DataFrame containing listening history records.
 
     Returns:
-        IngestResult: counts of inserted vs deduped records.
+        IngestResult: Counts of inserted vs deduped records.
     """
 
-    # Validate inputs
+    # Runtime validations
     if (history_dir is None) == (history_df is None):
-        raise ValueError("Provide exactly one of `history_dir` or `history_df`.")
+        raise ValueError("Exactly one of history_dir or history_df must be provided")
+
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise ValueError("user_id must be a non-empty string")
+
+    if history_df is not None:
+        required_columns = {"spotify_track_uri", "ts"}
+        if not required_columns.issubset(history_df.columns):
+            missing = required_columns - set(history_df.columns)
+            raise ValueError(
+                f"history_df is missing required columns: {', '.join(sorted(missing))}"
+            )
+    else:
+        # history_dir provided, validate it exists and is a directory
+        history_path = Path(history_dir) if not isinstance(history_dir, Path) else history_dir
+        if not history_path.exists():
+            raise ValueError(f"history_dir path '{history_path}' does not exist")
+        if not history_path.is_dir():
+            raise ValueError(f"history_dir path '{history_path}' is not a directory")
+
     if history_df is None:
-        if load_spotify_history is None:
-            raise ImportError("src.io.load_spotify_history is unavailable; pass `history_df` instead.")
         history_df = load_spotify_history(str(history_dir))  # type: ignore[arg-type]
 
     # Normalize and filter rows
@@ -396,8 +415,11 @@ def load_history_into_fact_plays(
                   ON f.user_id = p.user_id AND f.track_id = p.track_id AND f.played_at = p.played_at
                 """
             )
-
-        conn.execute("COMMIT;")
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
         return IngestResult(
             inserted_plays=inserted_plays,
             deduped_plays=deduped_plays,

@@ -62,6 +62,7 @@ def filter_songs(
     excluded_artists: list[str] | None = None,
     excluded_albums: list[str] | None = None,
     excluded_genres: list[str] | None = None,
+    allow_missing_user_column: bool = False,
 ) -> pd.DataFrame:
     """Filter listening history based on various criteria.
 
@@ -96,8 +97,14 @@ def filter_songs(
     mask = pd.Series(True, index=history_df.index)
 
     # Optional user filter
-    if user_id is not None and "user_id" in history_df.columns:
-        mask &= history_df["user_id"].eq(user_id)
+    if user_id is not None:
+        if "user_id" not in history_df.columns:
+            if not allow_missing_user_column:
+                raise ValueError(
+                    f"user_id filtering requested ({repr(user_id)}), but 'user_id' column is missing from history_df"
+                )
+        else:
+            mask &= history_df["user_id"].eq(user_id)
 
     # Exclude episodes (podcasts) and missing track URIs
     mask &= history_df["episode_name"].isna()

@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from .utils import extract_track_id
+
 
 def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """Calculate total listening time by month.
@@ -116,7 +118,10 @@ def get_genre_trends(
     try:
         df = filtered_df.copy()
         df["month"] = df["ts"].dt.strftime("%Y-%m")
-        df["track_id"] = df.get("spotify_track_uri").apply(_extract_track_id)
+        if "spotify_track_uri" in df.columns:
+            df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id).astype("string")
+        else:
+            df["track_id"] = pd.Series([pd.NA] * len(df), dtype="string")
         plays = (
             df.dropna(subset=["track_id"])  # type: ignore[arg-type]
             .groupby(["month", "track_id"])  # type: ignore[list-item]
@@ -132,36 +137,40 @@ def get_genre_trends(
         with contextlib.suppress(Exception):
             con.unregister("df_plays")  # type: ignore[attr-defined]
         con.register("df_plays", plays)
+        # Common CTE definition for genre analysis
+        GENRE_ANALYSIS_CTE = """
+primary_artist AS (
+    SELECT track_id, artist_id
+    FROM (
+        SELECT b.track_id,
+               b.artist_id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY b.track_id
+                   ORDER BY a.artist_name
+               ) AS rn
+        FROM bridge_track_artists b
+        JOIN dim_artists a ON a.artist_id = b.artist_id
+        WHERE b."role" = 'primary'
+    ) x
+    WHERE rn = 1
+),
+genre_artist_month AS (
+    SELECT p.month,
+           g.name AS genre,
+           a.artist_name AS artist,
+           SUM(p.play_count) AS artist_plays
+    FROM df_plays p
+    JOIN primary_artist pa ON pa.track_id = p.track_id
+    JOIN dim_artists a ON a.artist_id = pa.artist_id
+    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+    JOIN dim_genres g ON g.genre_id = ag.genre_id
+    GROUP BY 1, 2, 3
+)
+"""
 
         # Aggregate per-genre per-month plays via primary artist
-        sql_genre_month = """
-            WITH primary_artist AS (
-                SELECT track_id, artist_id
-                FROM (
-                    SELECT b.track_id,
-                           b.artist_id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY b.track_id
-                               ORDER BY a.artist_name
-                           ) AS rn
-                    FROM bridge_track_artists b
-                    JOIN dim_artists a ON a.artist_id = b.artist_id
-                    WHERE b."role" = 'primary'
-                ) x
-                WHERE rn = 1
-            ),
-            genre_artist_month AS (
-                SELECT p.month,
-                       g.name AS genre,
-                       a.artist_name AS artist,
-                       SUM(p.play_count) AS artist_plays
-                FROM df_plays p
-                JOIN primary_artist pa ON pa.track_id = p.track_id
-                JOIN dim_artists a ON a.artist_id = pa.artist_id
-                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                JOIN dim_genres g ON g.genre_id = ag.genre_id
-                GROUP BY 1, 2, 3
-            ),
+        sql_genre_month = f"""
+            WITH {GENRE_ANALYSIS_CTE},
             genre_month AS (
                 SELECT month, genre, SUM(artist_plays) AS play_count
                 FROM genre_artist_month
@@ -188,34 +197,8 @@ def get_genre_trends(
             )
 
         # Top artists per month-genre
-        sql_genre_artist = """
-            WITH primary_artist AS (
-                SELECT track_id, artist_id
-                FROM (
-                    SELECT b.track_id,
-                           b.artist_id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY b.track_id
-                               ORDER BY a.artist_name
-                           ) AS rn
-                    FROM bridge_track_artists b
-                    JOIN dim_artists a ON a.artist_id = b.artist_id
-                    WHERE b."role" = 'primary'
-                ) x
-                WHERE rn = 1
-            ),
-            genre_artist_month AS (
-                SELECT p.month,
-                       g.name AS genre,
-                       a.artist_name AS artist,
-                       SUM(p.play_count) AS artist_plays
-                FROM df_plays p
-                JOIN primary_artist pa ON pa.track_id = p.track_id
-                JOIN dim_artists a ON a.artist_id = pa.artist_id
-                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                JOIN dim_genres g ON g.genre_id = ag.genre_id
-                GROUP BY 1, 2, 3
-            )
+        sql_genre_artist = f"""
+            WITH {GENRE_ANALYSIS_CTE}
             SELECT month, genre, artist, artist_plays
             FROM genre_artist_month
         """

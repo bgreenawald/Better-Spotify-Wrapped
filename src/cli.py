@@ -57,7 +57,7 @@ def main() -> None:
     "--user-id",
     type=str,
     required=True,
-    help="User UUID. If omitted, derived deterministically from --user-name.",
+    help="User UUID (required).",
 )
 @click.option(
     "--history-dir",
@@ -89,7 +89,7 @@ def ingest_history(
     """Load listening history JSON files into `fact_plays`.
 
     Example:
-      bsw ingest-history --user-name egreenawald \
+      bsw ingest-history --user-id egreenawald \
         --db data/db/music.db \
         --history-dir data/egreenawald/listening_history \
         --apply-ddl
@@ -141,6 +141,7 @@ def ingest_isrcs(db_path: Path, limit: int | None) -> None:
 
     updated = populate_missing_track_isrcs(
         db_path=db_path,
+        limit=limit,
     )
 
     click.echo(f"Updated rows: {updated}")

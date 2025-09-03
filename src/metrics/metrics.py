@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.metrics.utils import extract_track_id
+
 
 def get_most_played_tracks(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """Calculate the most played tracks from a filtered Spotify listening history.
@@ -124,7 +126,7 @@ def get_top_albums(
             # Derive play counts per track_id from filtered_df
             df = filtered_df.copy()
             if "track_id" not in df.columns:
-                df["track_id"] = df.get("spotify_track_uri").apply(_extract_track_id)
+                df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id)
             play_counts = (
                 df.dropna(subset=["track_id"])
                 .groupby("track_id")
@@ -144,8 +146,9 @@ def get_top_albums(
                 )
 
             # Register plays as a temporary relation
-            with contextlib.suppress(Exception):
-                con.unregister("df_play_counts")  # type: ignore[attr-defined]
+            if hasattr(con, "unregister"):
+                with contextlib.suppress(AttributeError, KeyError):
+                    con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
             # SQL plan:
@@ -275,7 +278,7 @@ def get_top_artist_genres(
             # Prepare play counts per track_id from filtered_df
             df = filtered_df.copy()
             if "track_id" not in df.columns:
-                df["track_id"] = df.get("spotify_track_uri").apply(_extract_track_id)
+                df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id)
             plays = df.dropna(subset=["track_id"]).copy()
 
             if unique_tracks:
@@ -293,8 +296,9 @@ def get_top_artist_genres(
                 return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
             # Register temp relation
-            with contextlib.suppress(Exception):
-                con.unregister("df_play_counts")  # type: ignore[attr-defined]
+            if hasattr(con, "unregister"):
+                with contextlib.suppress(AttributeError, KeyError):
+                    con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
             # Total counts per genre (via primary artist for each track)

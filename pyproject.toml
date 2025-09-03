@@ -25,6 +25,9 @@ dependencies = [
 [project.scripts]
 bsw = "src.cli:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [dependency-groups]
 dev = [
     "dash[testing]>=2.18.2",
