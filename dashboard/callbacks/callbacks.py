@@ -387,7 +387,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Top genres (DuckDB-backed) with LRU cache by filter signature
         cached_top_genres = _TOP_GENRES_WRAPPED_CACHE.get(w_key)
         if cached_top_genres is None:
-            top_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
+            con = None
+            try:
+                con = get_db_connection()
+                top_genres = get_top_artist_genres(filtered, con=con)
+            finally:
+                if con is not None:
+                    with contextlib.suppress(Exception):
+                        con.close()
             _TOP_GENRES_WRAPPED_CACHE.set(w_key, top_genres)
         else:
             top_genres = cached_top_genres
