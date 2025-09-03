@@ -1,5 +1,7 @@
 """Module to process Spotify listening history and export top played tracks."""
 
+import os
+
 import pandas as pd
 
 from src.io import load_spotify_history
@@ -24,9 +26,11 @@ def main():
             start_date=pd.Timestamp(year, 1, 1),
             end_date=pd.Timestamp(year, 12, 31),
             remove_incognito=False,
+            exclude_december=False,
         )
         top_songs_df = get_most_played_tracks(filtered_df)
         output_file = f"tmp/top_songs_{year}.xlsx"
+        os.makedirs("tmp", exist_ok=True)
         top_songs_df.to_excel(output_file)
 
 

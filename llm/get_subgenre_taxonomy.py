@@ -407,14 +407,16 @@ class GenreTaxonomyClassifier:
                     print(f"Downloading results from: {file_id}")
 
                     file_response = client.files.content(file_id)
-                    try:
-                    file_response = client.files.content(file_id)
                     # Handle different SDK response types safely
-                    if hasattr(file_response, 'text'):
+                    if hasattr(file_response, "text"):
                         text = file_response.text
-                    elif hasattr(file_response, 'content'):
+                    elif hasattr(file_response, "content"):
                         content = file_response.content
-                        text = content.decode("utf-8") if isinstance(content, (bytes, bytearray)) else str(content)
+                        text = (
+                            content.decode("utf-8")
+                            if isinstance(content, bytes | bytearray)
+                            else str(content)
+                        )
                     else:
                         # Try to read as bytes
                         text = bytes(file_response).decode("utf-8")
