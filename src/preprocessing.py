@@ -245,12 +245,12 @@ def get_filtered_plays(
         params.append(e_date)
     if exclude_december:
         filters.append("EXTRACT(month FROM p.played_at) <> 12")
-    filters.append("p.duration_ms IS NULL OR p.duration_ms > 0")
+    # Require duration_ms > 0, excluding NULLs
+    filters.append("COALESCE(p.duration_ms, 0) > 0")
     filters.append("COALESCE(p.reason_start, 'unknown') <> 'unknown'")
     filters.append("COALESCE(p.reason_end, 'unknown') <> 'unknown'")
     if remove_incognito:
         filters.append("COALESCE(p.incognito_mode, false) = false")
-
     # Optional name-based exclusions
     extra_where = []
     if rel_tracks:
