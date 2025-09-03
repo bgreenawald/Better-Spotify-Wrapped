@@ -224,6 +224,12 @@ def load_history_into_fact_plays(
     # Normalize and filter rows
     df = history_df.copy()
 
+    # Defensive check for required columns
+    required_cols = {"ts", "spotify_track_uri"}
+    missing = sorted(c for c in required_cols if c not in df.columns)
+    if missing:
+        raise KeyError(f"Missing required columns: {missing}. Got: {sorted(df.columns)}")
+
     # Deduplicate
     df = df.drop_duplicates(subset=["spotify_track_uri", "ts"], keep="first")
 
@@ -232,7 +238,6 @@ def load_history_into_fact_plays(
 
     # Extract Spotify track IDs
     df["spotify_track_id_only"] = df["spotify_track_uri"].apply(_extract_spotify_track_id)
-
     # Filter to track plays only
     mask_tracks = df["spotify_track_id_only"].notna() & df["played_at_iso"].notna()
     if "spotify_episode_uri" in df.columns:
