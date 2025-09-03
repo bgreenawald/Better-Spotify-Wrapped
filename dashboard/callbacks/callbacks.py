@@ -347,7 +347,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         )
         cached_albums = _TOP_ALBUMS_CACHE.get(w_key)
         if cached_albums is None:
-            top_albums = get_top_albums(filtered, db_path="data/db/music.db")
+            con = None
+            try:
+                con = get_db_connection()
+                top_albums = get_top_albums(filtered, con=con)
+            finally:
+                if con is not None:
+                    with contextlib.suppress(Exception):
+                        con.close()
             _TOP_ALBUMS_CACHE.set(w_key, top_albums)
         else:
             top_albums = cached_albums
