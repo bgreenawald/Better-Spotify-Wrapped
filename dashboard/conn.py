@@ -26,11 +26,7 @@ def get_db_path() -> str:
     expanded_path = os.path.expanduser(os.path.expandvars(db_path))
 
     # Check if it's an in-memory database (skip existence check for in-memory DBs)
-    is_memory = (
-        expanded_path == ":memory:"
-        or ":memory:" in expanded_path.lower()
-        or expanded_path.lower() == "memory"
-    )
+    is_memory = expanded_path == ":memory:"
     if not is_memory and not Path(expanded_path).exists():
         logger.error(
             "DuckDB database file not found at resolved path '%s' (expected file-backed DuckDB database)",
