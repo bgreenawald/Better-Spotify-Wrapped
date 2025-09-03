@@ -13,6 +13,7 @@ import duckdb
 
 from .api.api import (
     populate_artist_genre_evidence_from_cache,
+    populate_artist_genres_from_cache,
     populate_duration_and_explicit,
     populate_missing_track_isrcs,
     populate_track_albums,
@@ -327,6 +328,46 @@ def ingest_artist_genres(db_path: Path, limit: int | None, cache_dir: Path | Non
     )
     click.echo(
         f"Artists scanned: {counts['artists_scanned']} | Rows inserted: {counts['rows_inserted']}"
+    )
+
+
+@main.command("link-artist-genres")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of artist JSON files to scan.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+def link_artist_genres(db_path: Path, limit: int | None, cache_dir: Path | None) -> None:
+    """Link artists to canonical genres using cached artist JSONs and map_genre."""
+    counts = populate_artist_genres_from_cache(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+    )
+    click.echo(
+        " | ".join(
+            [
+                f"Artists scanned: {counts['artists_scanned']}",
+                f"Links inserted: {counts['links_inserted']}",
+                f"Unmapped tags: {counts['unmapped_tags']}",
+                f"Artists missing in dim_artists: {counts['artists_missing_dim']}",
+            ]
+        )
     )
 
 

@@ -138,15 +138,14 @@ CREATE TABLE track_genres (
   track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
   genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
   score          REAL NOT NULL,         -- sums to 1.0 per track
-  method_version TEXT NOT NULL,
   PRIMARY KEY (track_id, genre_id)
 );
 
-CREATE TABLE track_artists (
-  track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
+CREATE TABLE artist_genres (
   artist_id      TEXT NOT NULL REFERENCES dim_artists(artist_id),
-  PRIMARY KEY (track_id, artist_id, role)
-)
+  genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
+  PRIMARY KEY (artist_id, genre_id)
+);
 
 CREATE TABLE track_moods (
   track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),

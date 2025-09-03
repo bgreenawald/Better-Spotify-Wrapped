@@ -1098,6 +1098,135 @@ def populate_artist_genre_evidence_from_cache(
         conn.close()
 
 
+def populate_artist_genres_from_cache(
+    *,
+    db_path: str | Path,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+    source: str = "spotify",
+) -> dict[str, int]:
+    """Link artists to canonical genres in `artist_genres` using cached artist JSONs.
+
+    Strategy:
+    - Scan `cache_dir/artists/*.json` for artist payloads.
+    - For each, read `id`, optional `name`, and `genres` list.
+    - Map each raw genre tag to `dim_genres.genre_id` via `map_genre` for the given source.
+    - Insert distinct `(artist_id, genre_id)` rows into `artist_genres` via anti-join.
+      Only insert for artists that exist in `dim_artists` to satisfy FK.
+
+    Returns counts: {"artists_scanned": a, "links_inserted": i, "unmapped_tags": u, "artists_missing_dim": m}.
+    """
+    cache_env = os.getenv("SPOTIFY_API_CACHE_DIR")
+    cache_root = Path(cache_dir or cache_env or "data/api/cache")
+    artists_dir = cache_root / "artists"
+    if not artists_dir.exists():
+        return {
+            "artists_scanned": 0,
+            "links_inserted": 0,
+            "unmapped_tags": 0,
+            "artists_missing_dim": 0,
+        }
+
+    files = sorted(artists_dir.glob("*.json"))
+    if limit is not None:
+        files = files[: max(0, int(limit))]
+
+    # Load mapping dict from map_genre (source, tag_raw lowercased) -> genre_id
+    conn = duckdb.connect(str(db_path))
+    try:
+        map_rows = conn.execute(
+            """
+            SELECT lower(tag_raw) AS tag_lc, genre_id
+            FROM map_genre
+            WHERE source = ?
+            """,
+            [source],
+        ).fetchall()
+        tag_to_genre: dict[str, int] = {
+            str(tag_lc): int(genre_id) for (tag_lc, genre_id) in map_rows
+        }
+
+        # Fetch existing artist IDs to satisfy FK
+        artist_rows = conn.execute("SELECT artist_id FROM dim_artists").fetchall()
+        existing_artists: set[str] = {r[0] for r in artist_rows if r and r[0]}
+    finally:
+        conn.close()
+
+    rows: list[tuple[str, int]] = []
+    artists_scanned = 0
+    unmapped_tags = 0
+    artists_missing_dim = 0
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        aid = data.get("id")
+        genres = data.get("genres") or []
+        if not aid or not isinstance(genres, list):
+            continue
+        artists_scanned += 1
+        if aid not in existing_artists:
+            artists_missing_dim += 1
+            continue
+        for g in genres:
+            if not g or not str(g).strip():
+                continue
+            gid = tag_to_genre.get(str(g).strip().lower())
+            if gid is None:
+                unmapped_tags += 1
+                continue
+            rows.append((str(aid), int(gid)))
+
+    if not rows:
+        return {
+            "artists_scanned": artists_scanned,
+            "links_inserted": 0,
+            "unmapped_tags": unmapped_tags,
+            "artists_missing_dim": artists_missing_dim,
+        }
+
+    df = pd.DataFrame(rows, columns=["artist_id", "genre_id"]).drop_duplicates()
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        conn.register("df_links", df)
+
+        to_insert = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM df_links l
+            ANTI JOIN artist_genres ag
+              ON ag.artist_id = l.artist_id AND ag.genre_id = l.genre_id
+            """
+        ).fetchone()[0]
+
+        conn.execute(
+            """
+            INSERT INTO artist_genres (artist_id, genre_id)
+            SELECT l.artist_id, l.genre_id
+            FROM df_links l
+            -- Satisfy FKs explicitly, though we already filtered
+            JOIN dim_artists a ON a.artist_id = l.artist_id
+            JOIN dim_genres  g ON g.genre_id  = l.genre_id
+            ANTI JOIN artist_genres ag
+              ON ag.artist_id = l.artist_id AND ag.genre_id = l.genre_id
+            """
+        )
+
+        conn.execute("COMMIT;")
+        return {
+            "artists_scanned": int(artists_scanned),
+            "links_inserted": int(to_insert),
+            "unmapped_tags": int(unmapped_tags),
+            "artists_missing_dim": int(artists_missing_dim),
+        }
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Fetch Spotify data and cache it")
