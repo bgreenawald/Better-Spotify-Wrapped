@@ -241,6 +241,8 @@ def create_tab_two_layout(
             ),
             # Store intermediate tab-2 data
             dcc.Store(id="tab-2-data"),
+            # Store cached genre options to avoid recompute
+            dcc.Store(id="genre-options-store"),
         ],
         className="container",
     )

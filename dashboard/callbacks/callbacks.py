@@ -1,3 +1,5 @@
+import contextlib
+from collections import OrderedDict
 from datetime import datetime
 from io import StringIO
 
@@ -15,6 +17,7 @@ from dashboard.components.filters import (
 )
 from dashboard.components.graphs import create_daily_top_heatmap
 from dashboard.components.stats import create_stats_table
+from dashboard.conn import get_db_connection
 from src.metrics.metrics import (
     get_most_played_artists,
     get_most_played_tracks,
@@ -29,6 +32,90 @@ from src.metrics.trends import (
     get_track_trends,
 )
 from src.preprocessing import filter_songs
+
+
+class SimpleLRUCache:
+    """Very small, in-process LRU cache for DataFrames keyed by strings."""
+
+    def __init__(self, maxsize: int = 20):
+        self.maxsize = maxsize
+        self._store: OrderedDict[str, pd.DataFrame] = OrderedDict()
+
+    def get(self, key: str) -> pd.DataFrame | None:
+        if key in self._store:
+            val = self._store.pop(key)
+            self._store[key] = val
+            return val
+        return None
+
+    def set(self, key: str, value: pd.DataFrame) -> None:
+        if key in self._store:
+            self._store.pop(key)
+        self._store[key] = value
+        if len(self._store) > self.maxsize:
+            self._store.popitem(last=False)
+
+
+# Lightweight in-process LRU caches for expensive, DuckDB-backed computations
+_GENRE_TRENDS_CACHE = SimpleLRUCache(maxsize=20)
+_OVERALL_GENRES_CACHE = SimpleLRUCache(maxsize=20)
+_TOP_ALBUMS_CACHE = SimpleLRUCache(maxsize=20)
+_TOP_GENRES_WRAPPED_CACHE = SimpleLRUCache(maxsize=20)
+
+
+def _make_filter_cache_key(
+    user_id,
+    start_date,
+    end_date,
+    exclude_december,
+    remove_incognito,
+    excluded_tracks,
+    excluded_genres,
+    excluded_artists,
+    excluded_albums,
+) -> str:
+    """Create a stable cache key from filter inputs."""
+
+    def _to_tuple(x):
+        if x is None:
+            return ()
+        if isinstance(x, list | tuple | set):
+            return tuple(sorted(map(str, x)))
+        return (str(x),)
+
+    parts = (
+        _to_tuple(user_id),
+        _to_tuple(start_date),
+        _to_tuple(end_date),
+        _to_tuple(bool(exclude_december)),
+        _to_tuple(bool(remove_incognito)),
+        _to_tuple(excluded_tracks),
+        _to_tuple(excluded_genres),
+        _to_tuple(excluded_artists),
+        _to_tuple(excluded_albums),
+    )
+    return "|".join([";".join(p) for p in parts])
+
+
+def _make_wrapped_cache_key(
+    user_id,
+    selected_year,
+    exclude_december,
+    remove_incognito,
+    excluded_tracks,
+    excluded_artists,
+    excluded_albums,
+) -> str:
+    parts = (
+        str(user_id or ""),
+        f"year:{selected_year}" if selected_year else "year:",
+        f"exdec:{bool(exclude_december)}",
+        f"rm_incog:{bool(remove_incognito)}",
+        "tracks:" + ",".join(sorted(map(str, excluded_tracks or []))),
+        "artists:" + ",".join(sorted(map(str, excluded_artists or []))),
+        "albums:" + ",".join(sorted(map(str, excluded_albums or []))),
+    )
+    return "|".join(parts)
 
 
 def get_plotly_theme(is_dark=False):
@@ -248,8 +335,22 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             }
 
-        # Top albums (DuckDB-backed)
-        top_albums = get_top_albums(filtered, db_path="data/db/music.db")
+        # Top albums (DuckDB-backed) with LRU cache by filter signature
+        w_key = _make_wrapped_cache_key(
+            user_id,
+            selected_year,
+            exclude_december,
+            remove_incognito,
+            excluded_tracks,
+            excluded_artists,
+            excluded_albums,
+        )
+        cached_albums = _TOP_ALBUMS_CACHE.get(w_key)
+        if cached_albums is None:
+            top_albums = get_top_albums(filtered, db_path="data/db/music.db")
+            _TOP_ALBUMS_CACHE.set(w_key, top_albums)
+        else:
+            top_albums = cached_albums
         if top_albums.empty:
             albums_fig = {"data": [], "layout": theme}
         else:
@@ -276,8 +377,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             }
 
-        # Top genres (DuckDB-backed)
-        top_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
+        # Top genres (DuckDB-backed) with LRU cache by filter signature
+        cached_top_genres = _TOP_GENRES_WRAPPED_CACHE.get(w_key)
+        if cached_top_genres is None:
+            top_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
+            _TOP_GENRES_WRAPPED_CACHE.set(w_key, top_genres)
+        else:
+            top_genres = cached_top_genres
         if top_genres.empty:
             genres_fig = {"data": [], "layout": theme}
         else:
@@ -436,6 +542,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("excluded-genres-filter-dropdown", "value"),
             Input("excluded-artists-filter-dropdown", "value"),
             Input("excluded-albums-filter-dropdown", "value"),
+            Input("tab-2-chart-selector", "value"),
         ],
     )
     def update_tab_2_data(
@@ -448,6 +555,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         excluded_genres,
         excluded_artists,
         excluded_albums,
+        selection,
     ):
         """Serialize filtered data for Tab 2 (trends and tables).
 
@@ -465,24 +573,87 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             excluded_artists=excluded_artists,
             excluded_albums=excluded_albums,
         )
+        data_out: dict[str, str] = {}
+        # Compute-on-demand by selected chart to reduce work
+        if selection == "listening":
+            monthly_stats = get_listening_time_by_month(filtered)
+            data_out["monthly_stats"] = monthly_stats.to_json(date_format="iso", orient="split")
+        elif selection == "artists":
+            artist_trends = get_artist_trends(filtered)
+            overall_artists = get_most_played_artists(filtered)
+            data_out["artist_trends"] = artist_trends.to_json(date_format="iso", orient="split")
+            data_out["overall_artists"] = overall_artists.to_json(date_format="iso", orient="split")
+        elif selection == "tracks":
+            track_trends = get_track_trends(filtered)
+            overall_tracks = get_most_played_tracks(filtered)
+            data_out["track_trends"] = track_trends.to_json(date_format="iso", orient="split")
+            data_out["overall_tracks"] = overall_tracks.to_json(date_format="iso", orient="split")
+        elif selection == "genres":
+            # Cache heavy DuckDB-backed computations keyed by filter signature
+            key = _make_filter_cache_key(
+                user_id,
+                start_date,
+                end_date,
+                exclude_december,
+                remove_incognito,
+                excluded_tracks,
+                excluded_genres,
+                excluded_artists,
+                excluded_albums,
+            )
+            genre_trends_df = _GENRE_TRENDS_CACHE.get(key)
+            if genre_trends_df is None:
+                genre_trends_df = get_genre_trends(filtered, db_path="data/db/music.db")
+                _GENRE_TRENDS_CACHE.set(key, genre_trends_df)
+            overall_genres_df = _OVERALL_GENRES_CACHE.get(key)
+            if overall_genres_df is None:
+                overall_genres_df = get_top_artist_genres(filtered, db_path="data/db/music.db")
+                _OVERALL_GENRES_CACHE.set(key, overall_genres_df)
+            data_out["genre_trends"] = genre_trends_df.to_json(date_format="iso", orient="split")
+            data_out["overall_genres"] = overall_genres_df.to_json(
+                date_format="iso", orient="split"
+            )
 
-        monthly_stats = get_listening_time_by_month(filtered)
-        artist_trends = get_artist_trends(filtered)
-        overall_artists = get_most_played_artists(filtered)
-        track_trends = get_track_trends(filtered)
-        overall_tracks = get_most_played_tracks(filtered)
-        genre_trends = get_genre_trends(filtered, db_path="data/db/music.db")
-        overall_genres = get_top_artist_genres(filtered, db_path="data/db/music.db")
+        return data_out
 
-        return {
-            "monthly_stats": monthly_stats.to_json(date_format="iso", orient="split"),
-            "artist_trends": artist_trends.to_json(date_format="iso", orient="split"),
-            "overall_artists": overall_artists.to_json(date_format="iso", orient="split"),
-            "track_trends": track_trends.to_json(date_format="iso", orient="split"),
-            "overall_tracks": overall_tracks.to_json(date_format="iso", orient="split"),
-            "genre_trends": genre_trends.to_json(date_format="iso", orient="split"),
-            "overall_genres": overall_genres.to_json(date_format="iso", orient="split"),
-        }
+    @app.callback(
+        [
+            Output("genre-options-store", "data"),
+            Output("genre-filter-dropdown", "options"),
+        ],
+        [Input("tab-2-data", "data"), Input("tab-2-chart-selector", "value")],
+        prevent_initial_call=True,
+    )
+    def populate_genre_options(data, selection):
+        """Populate genre dropdown options from precomputed Tab 2 data.
+
+        Avoids expensive DB work during layout creation by deriving the
+        distinct genre list from the already computed `overall_genres`.
+        Falls back to dim_genres if overall is not available yet.
+        """
+        if selection != "genres":
+            raise PreventUpdate
+        # Prefer precomputed overall_genres to reflect filters
+        if data and "overall_genres" in data:
+            overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
+            if overall.empty or "genre" not in overall.columns:
+                return dash.no_update, []
+            genres = sorted(overall["genre"].dropna().unique())
+            opts = [{"label": g.title(), "value": g} for g in genres]
+            return opts, opts
+        # Fallback: load distinct genres from dim_genres (fast query)
+        try:
+            con = get_db_connection()
+            genres_df = con.execute("SELECT name FROM dim_genres ORDER BY name").df()
+            genres = genres_df["name"].dropna().astype(str).tolist()
+            opts = [{"label": g.title(), "value": g} for g in genres]
+            return opts, opts
+        except Exception:
+            # If DB unavailable, leave empty options
+            return dash.no_update, []
+        finally:
+            with contextlib.suppress(Exception):
+                con.close()
 
     @app.callback(
         Output("trends-graph", "figure"),
@@ -496,6 +667,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         """Render monthly line chart for the selected metric."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
+        if not data or "monthly_stats" not in data:
+            raise PreventUpdate
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
         labels = {
             "total_hours": "Total Listening Hours",
@@ -536,6 +709,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         """Update genre trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
+        if not data or "genre_trends" not in data or "overall_genres" not in data:
+            raise PreventUpdate
         trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
@@ -603,6 +778,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         """Update artist trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
+        if not data or "artist_trends" not in data or "overall_artists" not in data:
+            raise PreventUpdate
         trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_artists"]), orient="split")
 
@@ -675,6 +852,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         """Update track trends line chart and summary table."""
         is_dark = theme_data.get("dark", False) if theme_data else False
         theme = get_plotly_theme(is_dark)
+        if not data or "track_trends" not in data or "overall_tracks" not in data:
+            raise PreventUpdate
         trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_tracks"]), orient="split")
 
