@@ -105,6 +105,7 @@ def _make_wrapped_cache_key(
     excluded_tracks,
     excluded_artists,
     excluded_albums,
+    excluded_genres,
 ) -> str:
     parts = (
         str(user_id or ""),
@@ -114,6 +115,7 @@ def _make_wrapped_cache_key(
         "tracks:" + ",".join(sorted(map(str, excluded_tracks or []))),
         "artists:" + ",".join(sorted(map(str, excluded_artists or []))),
         "albums:" + ",".join(sorted(map(str, excluded_albums or []))),
+        "genres:" + ",".join(sorted(map(str, excluded_genres or []))),
     )
     return "|".join(parts)
 
@@ -515,6 +517,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 excluded_tracks or [],
                 excluded_artists or [],
                 excluded_albums or [],
+                excluded_genres or [],
             )
             cached_albums = _TOP_ALBUMS_CACHE.get(w_key)
             if cached_albums is None:
@@ -722,7 +725,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if not data or "daily_counts" not in data:
             return {"data": [], "layout": theme}
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
-        return create_daily_top_heatmap(df, theme)
+        fig_or_div = create_daily_top_heatmap(df, theme)
+        if isinstance(fig_or_div, dict) or hasattr(fig_or_div, "to_plotly_json"):
+            return fig_or_div
+        return {"data": [], "layout": theme}
 
     @app.callback(
         Output("tab-2-content", "children"),

@@ -237,11 +237,19 @@ def get_filtered_plays(
 
     def _table_exists(name: str) -> bool:
         try:
-            row = con.execute(
-                "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
-                [name],
-            ).fetchone()
-            return row is not None
+            if "." in name:
+                schema_part, table_part = name.split(".", 1)
+                row = con.execute(
+                    "SELECT 1 FROM duckdb_tables() WHERE LOWER(schema_name) = LOWER(?) AND LOWER(table_name) = LOWER(?)",
+                    [schema_part, table_part],
+                ).fetchone()
+                return row is not None
+            else:
+                df = con.execute(
+                    "SELECT LOWER(table_name) as ln_table, LOWER(schema_name) as ln_schema FROM duckdb_tables()"
+                ).df()
+                lower_name = name.lower()
+                return any(lower_name == row.ln_table for row in df.itertuples())
         except Exception:
             return False
 

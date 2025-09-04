@@ -499,8 +499,10 @@ def get_track_trends(
             "master_metadata_track_name",
             "master_metadata_album_artist_name",
         ]
-    ).agg({"track_artist": "count", "ms_played": "mean"})
-    track_metrics.columns = ["play_count", "avg_duration_ms"]
+    ).agg(
+        play_count=pd.NamedAgg(column="track_artist", aggfunc="size"),
+        avg_duration_ms=pd.NamedAgg(column="ms_played", aggfunc="mean"),
+    )
     track_metrics = track_metrics.reset_index()
     monthly_totals = (
         track_metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")

@@ -99,6 +99,7 @@ def get_most_played_tracks(
                         "master_metadata_album_artist_name": "artist",
                     }
                 )
+                m["artist_id"] = m["artist_id"].fillna("")
                 res = res.merge(
                     m,
                     on=["track_name", "artist", "artist_id"],
@@ -107,6 +108,11 @@ def get_most_played_tracks(
         except Exception:
             # If anything goes wrong, default to empty tuples
             res["artist_genres"] = [() for _ in range(len(res))]
+        # Guarantee artist_genres exists and handle NaNs
+        if not res.empty and "artist_genres" not in res.columns:
+            res["artist_genres"] = [() for _ in range(len(res))]
+        if not res.empty and "artist_genres" in res.columns:
+            res["artist_genres"] = res["artist_genres"].fillna(())
         # Ensure stable types
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
@@ -131,9 +137,9 @@ def get_most_played_tracks(
         .reset_index(name="play_count")
     )
     grouped = grouped.sort_values("play_count", ascending=False)
+    total_plays = grouped["play_count"].sum() or 1
     if limit is not None and limit > 0:
         grouped = grouped.head(limit)
-    total_plays = grouped["play_count"].sum() or 1
     grouped["percentage"] = grouped["play_count"] / total_plays
     grouped.rename(
         columns={
@@ -534,6 +540,8 @@ def get_most_played_artists(
         # Reattach artist_genres from filtered_df
         try:
             if "artist_genres" in filtered_df.columns and not res.empty:
+                # Coerce artist_id to non-null strings for consistent matching
+                res["artist_id"] = res["artist_id"].fillna("").astype(str)
                 m = (
                     filtered_df[
                         [
@@ -545,9 +553,18 @@ def get_most_played_artists(
                     .drop_duplicates(subset=["master_metadata_album_artist_name", "artist_id"])
                     .rename(columns={"master_metadata_album_artist_name": "artist"})
                 )
+                m["artist_id"] = m["artist_id"].fillna("").astype(str)
                 res = res.merge(m, on=["artist", "artist_id"], how="left")
+                # Guarantee artist_genres exists with empty lists where missing
+                if "artist_genres" not in res.columns:
+                    res["artist_genres"] = [[] for _ in range(len(res))]
+                else:
+                    res["artist_genres"] = res["artist_genres"].fillna([])
         except Exception:
-            res["artist_genres"] = [() for _ in range(len(res))]
+            if "artist_genres" not in res.columns:
+                res["artist_genres"] = [[] for _ in range(len(res))]
+            else:
+                res["artist_genres"] = res["artist_genres"].fillna([])
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
@@ -582,9 +599,9 @@ def get_most_played_artists(
         on=["master_metadata_album_artist_name", "artist_id", "artist_genres"],
     )
     stats = stats.sort_values("play_count", ascending=False)
+    total_plays = stats["play_count"].sum() or 1
     if limit is not None and limit > 0:
         stats = stats.head(limit)
-    total_plays = stats["play_count"].sum() or 1
     stats["percentage"] = (stats["play_count"] / total_plays * 100).round(2)
     stats.rename(columns={"master_metadata_album_artist_name": "artist"}, inplace=True)
     return stats
