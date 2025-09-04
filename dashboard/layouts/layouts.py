@@ -145,15 +145,8 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 create_wrapped_filters_section(df),
                 className="card",
             ),
-            # Graphs section with loading indicator
-            dcc.Loading(
-                children=create_graphs_section_tab_one(),
-                overlay_style={
-                    "visibility": "visible",
-                    "filter": "blur(2px)",
-                },
-                delay_show=2000,
-            ),
+            # Graphs section (each graph handles its own loading state)
+            create_graphs_section_tab_one(),
             # Detailed statistics
             html.Div(
                 [
@@ -165,7 +158,7 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 ],
                 className="card",
             ),
-            # Daily song heatmap
+            # Daily song heatmap (local loading)
             dcc.Loading(
                 children=html.Div(
                     [
@@ -183,9 +176,10 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 ),
                 overlay_style={
                     "visibility": "visible",
-                    "filter": "blur(2px)",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
                 },
-                delay_show=2000,
+                delay_show=0,
+                type="default",
             ),
             # Store precomputed Wrapped tab data
             dcc.Store(id="tab-1-data"),
@@ -233,13 +227,15 @@ def create_tab_two_layout(
                 ],
                 className="card",
             ),
+            # Tab-2 content with outer loader to avoid blank flash on mount
             dcc.Loading(
+                children=html.Div(id="tab-2-content"),
+                delay_show=0,
                 overlay_style={
                     "visibility": "visible",
-                    "filter": "blur(2px)",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
                 },
-                delay_show=2000,
-                children=html.Div(id="tab-2-content"),
+                type="default",
             ),
             # Store intermediate tab-2 data
             dcc.Store(id="tab-2-data"),

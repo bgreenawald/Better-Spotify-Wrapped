@@ -157,10 +157,14 @@ def get_genre_trends(
     try:
         df = filtered_df.copy()
         df["month"] = df["ts"].dt.strftime("%Y-%m")
-        if "spotify_track_uri" in df.columns:
-            df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id).astype("string")
+        # Prefer existing track_id to avoid repeated URI parsing
+        if "track_id" in df.columns:
+            tid = df["track_id"].astype("string")
+        elif "spotify_track_uri" in df.columns:
+            tid = df.get("spotify_track_uri").apply(extract_track_id).astype("string")
         else:
-            df["track_id"] = pd.Series([pd.NA] * len(df), dtype="string")
+            tid = pd.Series([pd.NA] * len(df), dtype="string")
+        df["track_id"] = tid
         plays = (
             df.dropna(subset=["track_id"])  # type: ignore[arg-type]
             .groupby(["month", "track_id"])  # type: ignore[list-item]
@@ -176,40 +180,35 @@ def get_genre_trends(
         with contextlib.suppress(Exception):
             con.unregister("df_plays")  # type: ignore[attr-defined]
         con.register("df_plays", plays)
-        # Common CTE definition for genre analysis
-        GENRE_ANALYSIS_CTE = """
-primary_artist AS (
-    SELECT track_id, artist_id
-    FROM (
-        SELECT b.track_id,
-               b.artist_id,
-               ROW_NUMBER() OVER (
-                   PARTITION BY b.track_id
-                   ORDER BY a.artist_name
-               ) AS rn
-        FROM bridge_track_artists b
-        JOIN dim_artists a ON a.artist_id = b.artist_id
-        WHERE b."role" = 'primary'
-    ) x
-    WHERE rn = 1
-),
-genre_artist_month AS (
-    SELECT p.month,
-           g.name AS genre,
-           a.artist_name AS artist,
-           SUM(p.play_count) AS artist_plays
-    FROM df_plays p
-    JOIN primary_artist pa ON pa.track_id = p.track_id
-    JOIN dim_artists a ON a.artist_id = pa.artist_id
-    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-    JOIN dim_genres g ON g.genre_id = ag.genre_id
-    GROUP BY 1, 2, 3
-)
-"""
-
-        # Aggregate per-genre per-month plays via primary artist
-        sql_genre_month = f"""
-            WITH {GENRE_ANALYSIS_CTE},
+        # One-pass SQL: compute per-month genre plays, percentage, rank, and top artists
+        sql = """
+            WITH primary_artist AS (
+                SELECT track_id, artist_id
+                FROM (
+                    SELECT b.track_id,
+                           b.artist_id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY b.track_id
+                               ORDER BY a.artist_name
+                           ) AS rn
+                    FROM bridge_track_artists b
+                    JOIN dim_artists a ON a.artist_id = b.artist_id
+                    WHERE b."role" = 'primary'
+                ) x
+                WHERE rn = 1
+            ),
+            genre_artist_month AS (
+                SELECT p.month,
+                       g.name AS genre,
+                       a.artist_name AS artist,
+                       SUM(p.play_count) AS artist_plays
+                FROM df_plays p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1, 2, 3
+            ),
             genre_month AS (
                 SELECT month, genre, SUM(artist_plays) AS play_count
                 FROM genre_artist_month
@@ -219,48 +218,35 @@ genre_artist_month AS (
                 SELECT month, SUM(play_count) AS total_plays
                 FROM genre_month
                 GROUP BY 1
+            ),
+            artist_ranked AS (
+                SELECT month, genre, artist, artist_plays,
+                       ROW_NUMBER() OVER (PARTITION BY month, genre ORDER BY artist_plays DESC, artist) AS rn
+                FROM genre_artist_month
+            ),
+            top2 AS (
+                SELECT month, genre,
+                       STRING_AGG(artist || ' (' || CAST(artist_plays AS BIGINT) || ' plays)', ', ' ORDER BY rn) AS top_artists
+                FROM artist_ranked
+                WHERE rn <= 2
+                GROUP BY 1,2
             )
             SELECT gm.month,
                    gm.genre,
-                   gm.play_count,
-                   mt.total_plays
+                   CAST(gm.play_count AS BIGINT) AS play_count,
+                   ROUND((gm.play_count::DOUBLE / NULLIF(mt.total_plays, 0)) * 100, 2) AS percentage,
+                   COALESCE(t2.top_artists, '') AS top_artists,
+                   DENSE_RANK() OVER (PARTITION BY gm.month ORDER BY gm.play_count DESC, gm.genre) AS rank
             FROM genre_month gm
-            JOIN monthly_totals mt USING(month)
+            JOIN monthly_totals mt USING (month)
+            LEFT JOIN top2 t2 ON t2.month = gm.month AND t2.genre = gm.genre
             ORDER BY gm.month, gm.play_count DESC, gm.genre
         """
-        genre_month_df = con.execute(sql_genre_month).df()
-
-        if genre_month_df.empty:
+        out = con.execute(sql).df()
+        if out.empty:
             return pd.DataFrame(
                 columns=["month", "genre", "play_count", "percentage", "top_artists", "rank"]
             )
-
-        # Top artists per month-genre
-        sql_genre_artist = f"""
-            WITH {GENRE_ANALYSIS_CTE}
-            SELECT month, genre, artist, artist_plays
-            FROM genre_artist_month
-        """
-        genre_artist_df = con.execute(sql_genre_artist).df()
-
-        out = genre_month_df.copy()
-        out["percentage"] = (out["play_count"] / out["total_plays"] * 100).round(2)
-        out = out.drop(columns=["total_plays"])
-
-        def format_top(month: str, genre: str) -> str:
-            sub = genre_artist_df[
-                (genre_artist_df["month"] == month) & (genre_artist_df["genre"] == genre)
-            ]
-            if sub.empty:
-                return ""
-            sub = sub.sort_values(["artist_plays", "artist"], ascending=[False, True]).head(2)
-            return ", ".join(f"{r.artist} ({int(r.artist_plays)} plays)" for _, r in sub.iterrows())
-
-        out["top_artists"] = [
-            format_top(m, g) for m, g in zip(out["month"], out["genre"], strict=False)
-        ]
-        out = out.sort_values(["month", "play_count"], ascending=[True, False])
-        out["rank"] = out.groupby("month")["play_count"].rank(method="dense", ascending=False)
         return out.reset_index(drop=True)
     finally:
         if close_conn:

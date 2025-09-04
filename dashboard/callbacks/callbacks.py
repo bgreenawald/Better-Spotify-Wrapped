@@ -57,10 +57,10 @@ class SimpleLRUCache:
 
 
 # Lightweight in-process LRU caches for expensive, DuckDB-backed computations
-_GENRE_TRENDS_CACHE = SimpleLRUCache(maxsize=20)
-_OVERALL_GENRES_CACHE = SimpleLRUCache(maxsize=20)
-_TOP_ALBUMS_CACHE = SimpleLRUCache(maxsize=20)
-_TOP_GENRES_WRAPPED_CACHE = SimpleLRUCache(maxsize=20)
+_GENRE_TRENDS_CACHE = SimpleLRUCache(maxsize=50)
+_OVERALL_GENRES_CACHE = SimpleLRUCache(maxsize=50)
+_TOP_ALBUMS_CACHE = SimpleLRUCache(maxsize=50)
+_TOP_GENRES_WRAPPED_CACHE = SimpleLRUCache(maxsize=50)
 
 
 def _make_filter_cache_key(
@@ -805,13 +805,18 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     create_monthly_trend_filter(),
                     html.Div(
                         [
-                            html.H3("Listening Trends", className="card-title"),
                             dcc.Loading(
                                 children=dcc.Graph(
                                     id="trends-graph",
                                     figure={},
                                     config={"displayModeBar": False},
-                                )
+                                ),
+                                delay_show=300,
+                                overlay_style={
+                                    "visibility": "visible",
+                                    "backgroundColor": "rgba(0,0,0,0.15)",
+                                },
+                                type="default",
                             ),
                         ]
                     ),
@@ -837,7 +842,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -861,7 +872,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -883,7 +900,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -973,26 +996,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             )
             genre_trends_df = _GENRE_TRENDS_CACHE.get(key)
             if genre_trends_df is None:
-                # Use a fresh read-only connection for the heavy join
-                con_g = None
-                try:
-                    con_g = get_db_connection()
-                    genre_trends_df = get_genre_trends(filtered, con=con_g)
-                finally:
-                    if con_g is not None:
-                        with contextlib.suppress(Exception):
-                            con_g.close()
+                # Use existing connection to avoid setup overhead
+                genre_trends_df = get_genre_trends(filtered, con=con)
                 _GENRE_TRENDS_CACHE.set(key, genre_trends_df)
             overall_genres_df = _OVERALL_GENRES_CACHE.get(key)
             if overall_genres_df is None:
-                con_g2 = None
-                try:
-                    con_g2 = get_db_connection()
-                    overall_genres_df = get_top_artist_genres(filtered, con=con_g2)
-                finally:
-                    if con_g2 is not None:
-                        with contextlib.suppress(Exception):
-                            con_g2.close()
+                overall_genres_df = get_top_artist_genres(filtered, con=con)
                 _OVERALL_GENRES_CACHE.set(key, overall_genres_df)
             data_out["genre_trends"] = genre_trends_df.to_json(date_format="iso", orient="split")
             data_out["overall_genres"] = overall_genres_df.to_json(
@@ -1008,10 +1017,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Output("genre-options-store", "data"),
             Output("genre-filter-dropdown", "options"),
         ],
-        [Input("tab-2-data", "data"), Input("tab-2-chart-selector", "value")],
+        [
+            Input("tab-2-data", "data"),
+            Input("tab-2-chart-selector", "value"),
+            Input("genre-hide-level0-radio", "value"),
+        ],
         prevent_initial_call=True,
     )
-    def populate_genre_options(data, selection):
+    def populate_genre_options(data, selection, hide_level0):
         """Populate genre dropdown options from precomputed Tab 2 data.
 
         Avoids expensive DB work during layout creation by deriving the
@@ -1026,12 +1039,29 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             if overall.empty or "genre" not in overall.columns:
                 return dash.no_update, []
             genres = sorted(overall["genre"].dropna().unique())
+            # Optionally exclude level-0 genres from options
+            if hide_level0:
+                try:
+                    con = get_db_connection()
+                    lvl0 = con.execute(
+                        "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
+                    ).df()
+                    if not lvl0.empty:
+                        lvl0_set = set(lvl0["name"].astype(str).tolist())
+                        genres = [g for g in genres if g not in lvl0_set]
+                except Exception:
+                    pass
+                finally:
+                    with contextlib.suppress(Exception):
+                        con.close()
             opts = [{"label": g.title(), "value": g} for g in genres]
             return opts, opts
         # Fallback: load distinct genres from dim_genres (fast query)
         try:
             con = get_db_connection()
-            genres_df = con.execute("SELECT name FROM dim_genres ORDER BY name").df()
+            genres_df = con.execute("SELECT name, level FROM dim_genres ORDER BY name").df()
+            if hide_level0 and "level" in genres_df.columns:
+                genres_df = genres_df[genres_df["level"] != 0]
             genres = genres_df["name"].dropna().astype(str).tolist()
             opts = [{"label": g.title(), "value": g} for g in genres]
             return opts, opts
@@ -1090,10 +1120,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
+            Input("genre-hide-level0-radio", "value"),
             Input("tab-2-data", "data"),
         ],
     )
-    def update_genre_trends_graph(selected_genres, top_n, display_type, data):
+    def update_genre_trends_graph(selected_genres, top_n, display_type, hide_level0, data):
         """Update genre trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
@@ -1105,11 +1136,35 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
+        # Optionally remove level-0 (parent) genres from both datasets
+        if hide_level0:
+            try:
+                con = get_db_connection()
+                lvl0 = con.execute(
+                    "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
+                ).df()
+                if not lvl0.empty:
+                    lvl0_set = set(lvl0["name"].astype(str).tolist())
+                    trends = trends[~trends["genre"].isin(lvl0_set)]
+                    overall = overall[~overall["genre"].isin(lvl0_set)]
+                    # If user had selected any level-0 genres, drop them
+                    if selected_genres:
+                        selected_genres = [g for g in selected_genres if g not in lvl0_set]
+            except Exception:
+                pass
+            finally:
+                with contextlib.suppress(Exception):
+                    con.close()
+
         # Choose y-axis field
         if display_type == "percentage":
             y_col, y_title = "percentage", "Percentage of Tracks"
         else:
             y_col, y_title = "play_count", "Number of Plays"
+
+        # If filtering removed all rows, return empty artifacts gracefully
+        if overall.empty or trends.empty:
+            return {"data": [], "layout": theme}, []
 
         # Auto-select top genres if none chosen
         if not selected_genres:

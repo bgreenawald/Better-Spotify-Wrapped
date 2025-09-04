@@ -224,6 +224,24 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                         ],
                         className="filter-item",
                     ),
+                    html.Div(
+                        [
+                            html.Label(
+                                "Exclude Parent Genres (Level 0)",
+                                className="filter-label",
+                            ),
+                            dcc.RadioItems(
+                                id="genre-hide-level0-radio",
+                                options=[
+                                    {"label": "Yes", "value": True},
+                                    {"label": "No", "value": False},
+                                ],
+                                value=False,
+                                className="radio-group",
+                            ),
+                        ],
+                        className="filter-item",
+                    ),
                 ],
                 className="filters-section",
             ),
