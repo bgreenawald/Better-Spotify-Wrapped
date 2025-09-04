@@ -277,16 +277,55 @@ def get_filtered_plays(
         extra_where.append(f"COALESCE(ar.artist_name, '') NOT IN (SELECT val FROM {rel_artists})")
     if rel_albums:
         extra_where.append(f"COALESCE(al.album_name, '') NOT IN (SELECT val FROM {rel_albums})")
-    if rel_genres and _table_exists("track_genres") and _table_exists("dim_genres"):
-        # Anti-join any track that maps to excluded canonical genres
-        extra_where.append(
-            f"p.track_id NOT IN (\n"
-            f"  SELECT tg.track_id\n"
-            f"  FROM track_genres tg\n"
-            f"  JOIN dim_genres g ON g.genre_id = tg.genre_id\n"
-            f"  WHERE g.name IN (SELECT val FROM {rel_genres})\n"
-            f")"
-        )
+    # Global genre exclusion using both track_genres and artist_genres, honoring parent mappings
+    if rel_genres and _table_exists("dim_genres"):
+        has_tg = _table_exists("track_genres")
+        has_ag = _table_exists("artist_genres") and _table_exists("bridge_track_artists")
+        clauses: list[str] = []
+        # Normalize comparison to lower-case to avoid case mismatches
+        has_hier = _table_exists("genre_hierarchy")
+        if has_tg:
+            # Exclude tracks tagged with an excluded child genre name
+            clauses.append(
+                "SELECT tg.track_id FROM track_genres tg "
+                "JOIN dim_genres g ON g.genre_id = tg.genre_id "
+                f"WHERE lower(g.name) IN (SELECT lower(val) FROM {rel_genres})"
+            )
+            # Exclude tracks whose child maps to an excluded parent genre
+            if has_hier:
+                clauses.append(
+                    "SELECT tg.track_id FROM track_genres tg "
+                    "JOIN genre_hierarchy gh ON gh.child_genre_id = tg.genre_id "
+                    "JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id "
+                    f"WHERE lower(pg.name) IN (SELECT lower(val) FROM {rel_genres})"
+                )
+        if has_ag:
+            # Exclude tracks whose primary artist has an excluded child or parent genre
+            if has_hier:
+                clauses.append(
+                    "SELECT b.track_id FROM bridge_track_artists b "
+                    "JOIN artist_genres ag ON ag.artist_id = b.artist_id "
+                    "JOIN dim_genres g ON g.genre_id = ag.genre_id "
+                    "WHERE b.role = 'primary' AND ("
+                    f"lower(g.name) IN (SELECT lower(val) FROM {rel_genres})"
+                    " OR EXISTS ("
+                    "   SELECT 1 FROM genre_hierarchy gh "
+                    "   JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id "
+                    "   WHERE gh.child_genre_id = ag.genre_id "
+                    f"     AND lower(pg.name) IN (SELECT lower(val) FROM {rel_genres})"
+                    " ) )"
+                )
+            else:
+                clauses.append(
+                    "SELECT b.track_id FROM bridge_track_artists b "
+                    "JOIN artist_genres ag ON ag.artist_id = b.artist_id "
+                    "JOIN dim_genres g ON g.genre_id = ag.genre_id "
+                    "WHERE b.role = 'primary' AND "
+                    f"lower(g.name) IN (SELECT lower(val) FROM {rel_genres})"
+                )
+        if clauses:
+            union_subq = " UNION ".join(clauses)
+            extra_where.append("p.track_id NOT IN (" + union_subq + ")")
 
     where_clause = " AND \n            ".join(filters + extra_where)
 
