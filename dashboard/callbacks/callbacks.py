@@ -751,13 +751,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             height=450,
         )
         # Parent nodes may not carry customdata; child nodes will include top artists when available
-        fig.update_traces(
-            hovertemplate=(
-                "%{label}<br>Plays: %{value}" + "<br>Top Artists: %{customdata[0]}"
-                if ("top_artists" in sb.columns)
-                else "" + "<extra></extra>"
-            )
-        )
+        base_hover = "%{label}<br>Plays: %{value}"
+        artists_hover = "<br>Top Artists: %{customdata[0]}" if "top_artists" in sb.columns else ""
+        fig.update_traces(hovertemplate=base_hover + artists_hover + "<extra></extra>")
         return fig
 
     @app.callback(

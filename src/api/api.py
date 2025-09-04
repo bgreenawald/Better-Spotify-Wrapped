@@ -1209,10 +1209,12 @@ def populate_artist_genres_from_cache(
             slug = raw.replace(" ", "_").lower()
             gid_child = name_to_id.get(glc) or slug_to_id.get(slug)
             if gid_child is not None:
-                # If the direct match is level 1, link it. If it's level 0 and already
-                # added via parent mapping, dedup will handle.
-                rows.append((str(aid), int(gid_child)))
-                matched_any = True
+                # Update to use level_by_id: only create direct link for level 1,
+                # or level 0 only if no parent mapping exists for this tag
+                level = level_by_id.get(gid_child, -1)
+                if level == 1 or (level == 0 and gid_parent is None):
+                    rows.append((str(aid), int(gid_child)))
+                    matched_any = True
 
             if not matched_any:
                 unmapped_tags += 1
