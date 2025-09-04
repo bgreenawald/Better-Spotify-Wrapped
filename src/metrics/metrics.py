@@ -370,6 +370,7 @@ def get_top_artist_genres(
         try:
             # Prepare play counts per track_id from filtered_df
             df = filtered_df.copy()
+            # Prefer existing track_id to avoid repeated URI parsing
             if "track_id" not in df.columns:
                 df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id)
             plays = df.dropna(subset=["track_id"]).copy()
@@ -394,8 +395,8 @@ def get_top_artist_genres(
                     con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
-            # Total counts per genre (via primary artist for each track)
-            sql_genre_counts = """
+            # Compute per-genre totals and top artists string in a single SQL pass
+            sql = f"""
                 WITH primary_artist AS (
                     SELECT track_id, artist_id
                     FROM (
@@ -410,71 +411,54 @@ def get_top_artist_genres(
                         WHERE b."role" = 'primary'
                     ) x
                     WHERE rn = 1
+                ),
+                genre_counts AS (
+                    SELECT g.name AS genre,
+                           SUM(p.play_count) AS play_count
+                    FROM df_play_counts p
+                    JOIN primary_artist pa ON pa.track_id = p.track_id
+                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                    JOIN dim_genres g ON g.genre_id = ag.genre_id
+                    GROUP BY 1
+                ),
+                artist_genre_counts AS (
+                    SELECT g.name AS genre,
+                           a.artist_name AS artist,
+                           SUM(p.play_count) AS play_count
+                    FROM df_play_counts p
+                    JOIN primary_artist pa ON pa.track_id = p.track_id
+                    JOIN dim_artists a ON a.artist_id = pa.artist_id
+                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                    JOIN dim_genres g ON g.genre_id = ag.genre_id
+                    GROUP BY 1, 2
+                ),
+                ranked AS (
+                    SELECT genre, artist, play_count,
+                           ROW_NUMBER() OVER (PARTITION BY genre ORDER BY play_count DESC, artist) AS rn
+                    FROM artist_genre_counts
+                ),
+                top_str AS (
+                    SELECT genre,
+                           STRING_AGG(artist || ' (' || CAST(play_count AS BIGINT) || ' plays)', ', ' ORDER BY rn) AS top_artists
+                    FROM ranked
+                    WHERE rn <= {int(top_artists_per_genre)}
+                    GROUP BY 1
                 )
-                SELECT g.name AS genre,
-                       SUM(p.play_count) AS play_count
-                FROM df_play_counts p
-                JOIN primary_artist pa ON pa.track_id = p.track_id
-                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                JOIN dim_genres g ON g.genre_id = ag.genre_id
-                GROUP BY 1
-                ORDER BY play_count DESC, genre
+                SELECT gc.genre,
+                       CAST(gc.play_count AS BIGINT) AS play_count,
+                       COALESCE(ts.top_artists, '') AS top_artists
+                FROM genre_counts gc
+                LEFT JOIN top_str ts ON ts.genre = gc.genre
+                ORDER BY gc.play_count DESC, gc.genre
             """
-            genre_counts_df = con.execute(sql_genre_counts).df()
+            out = con.execute(sql).df()
 
-            if genre_counts_df.empty:
+            if out.empty:
                 return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
-            # Per-genre, per-artist counts to compute top artists listing
-            sql_artist_genre_counts = """
-                WITH primary_artist AS (
-                    SELECT track_id, artist_id
-                    FROM (
-                        SELECT b.track_id,
-                               b.artist_id,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY b.track_id
-                                   ORDER BY a.artist_name
-                               ) AS rn
-                        FROM bridge_track_artists b
-                        JOIN dim_artists a ON a.artist_id = b.artist_id
-                        WHERE b."role" = 'primary'
-                    ) x
-                    WHERE rn = 1
-                )
-                SELECT g.name AS genre,
-                       a.artist_name AS artist,
-                       SUM(p.play_count) AS play_count
-                FROM df_play_counts p
-                JOIN primary_artist pa ON pa.track_id = p.track_id
-                JOIN dim_artists a ON a.artist_id = pa.artist_id
-                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                JOIN dim_genres g ON g.genre_id = ag.genre_id
-                GROUP BY 1, 2
-            """
-            artist_genre_df = con.execute(sql_artist_genre_counts).df()
-
-            # Build final frame: add percentage and formatted top artists per genre
-            genre_counts_df["percentage"] = (
-                (genre_counts_df["play_count"] / total_tracked) * 100
-            ).round(2)
-
-            # Format top artists
-            def format_top_artists(genre: str) -> str:
-                subset = artist_genre_df[artist_genre_df["genre"] == genre]
-                if subset.empty:
-                    return ""
-                subset = subset.sort_values(["play_count", "artist"], ascending=[False, True])
-                top_rows = subset.head(top_artists_per_genre)
-                return ", ".join(
-                    f"{row['artist']} ({int(row['play_count'])} plays)"
-                    for _, row in top_rows.iterrows()
-                )
-
-            genre_counts_df["top_artists"] = genre_counts_df["genre"].apply(format_top_artists)
-            genre_counts_df.rename(columns={"genre": "genre"}, inplace=True)
-            # Standardize column order
-            result = genre_counts_df[["genre", "play_count", "percentage", "top_artists"]]
+            # Add percentage column based on total_tracked (preserves original behavior)
+            out["percentage"] = (out["play_count"] / total_tracked * 100).round(2)
+            result = out[["genre", "play_count", "percentage", "top_artists"]]
             return result.sort_values(["play_count", "genre"], ascending=[False, True])
         finally:
             if close_conn:

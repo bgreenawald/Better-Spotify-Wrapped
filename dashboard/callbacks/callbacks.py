@@ -57,10 +57,10 @@ class SimpleLRUCache:
 
 
 # Lightweight in-process LRU caches for expensive, DuckDB-backed computations
-_GENRE_TRENDS_CACHE = SimpleLRUCache(maxsize=20)
-_OVERALL_GENRES_CACHE = SimpleLRUCache(maxsize=20)
-_TOP_ALBUMS_CACHE = SimpleLRUCache(maxsize=20)
-_TOP_GENRES_WRAPPED_CACHE = SimpleLRUCache(maxsize=20)
+_GENRE_TRENDS_CACHE = SimpleLRUCache(maxsize=50)
+_OVERALL_GENRES_CACHE = SimpleLRUCache(maxsize=50)
+_TOP_ALBUMS_CACHE = SimpleLRUCache(maxsize=50)
+_TOP_GENRES_WRAPPED_CACHE = SimpleLRUCache(maxsize=50)
 
 
 def _make_filter_cache_key(
@@ -973,26 +973,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             )
             genre_trends_df = _GENRE_TRENDS_CACHE.get(key)
             if genre_trends_df is None:
-                # Use a fresh read-only connection for the heavy join
-                con_g = None
-                try:
-                    con_g = get_db_connection()
-                    genre_trends_df = get_genre_trends(filtered, con=con_g)
-                finally:
-                    if con_g is not None:
-                        with contextlib.suppress(Exception):
-                            con_g.close()
+                # Use existing connection to avoid setup overhead
+                genre_trends_df = get_genre_trends(filtered, con=con)
                 _GENRE_TRENDS_CACHE.set(key, genre_trends_df)
             overall_genres_df = _OVERALL_GENRES_CACHE.get(key)
             if overall_genres_df is None:
-                con_g2 = None
-                try:
-                    con_g2 = get_db_connection()
-                    overall_genres_df = get_top_artist_genres(filtered, con=con_g2)
-                finally:
-                    if con_g2 is not None:
-                        with contextlib.suppress(Exception):
-                            con_g2.close()
+                overall_genres_df = get_top_artist_genres(filtered, con=con)
                 _OVERALL_GENRES_CACHE.set(key, overall_genres_df)
             data_out["genre_trends"] = genre_trends_df.to_json(date_format="iso", orient="split")
             data_out["overall_genres"] = overall_genres_df.to_json(
