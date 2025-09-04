@@ -118,32 +118,42 @@ def create_top_artists_graph(top_artists=None):
 
 
 def create_top_genres_graph(top_genres=None):
-    """Create a horizontal bar chart of the top genres by track count.
+    """Create a two-level sunburst of genres using parent hierarchy.
+
+    Notes:
+        - Inner ring: parent genres (level 0 in DDL).
+        - Outer ring: level 1 sub-genres. Sub-genres mapped to multiple
+          parents are duplicated (counted once per parent).
 
     Args:
-        top_genres (pd.DataFrame, optional): DataFrame with columns
-            'genre', 'track_count', 'percentage', and 'top_artists'.
-            Defaults to None.
+        top_genres (pd.DataFrame, optional): If provided, should contain columns
+            'genre' and 'play_count' (or 'track_count'). When absent, the
+            figure is supplied by the callbacks.
 
     Returns:
-        html.Div: Dash container with the bar chart.
+        html.Div: Dash container with the sunburst chart.
     """
     graph_layout = create_graph_style()
 
-    if top_genres is not None:
-        df = top_genres.head(10)
-        percent_labels = [f"{pct}%" for pct in df["percentage"]]
-        fig = px.bar(
-            df,
-            x="track_count",
-            y="genre",
-            text=percent_labels,
-            orientation="h",
-            labels={"genre": "Genre", "track_count": "Track Count"},
-            hover_data=["top_artists", "percentage"],
+    fig = {}
+    if top_genres is not None and not getattr(top_genres, "empty", True):
+        # Build a simple fallback sunburst directly from flat counts in case this
+        # helper is used outside of callbacks. This does not resolve DB taxonomy.
+        df = top_genres.copy()
+        # Normalize column name
+        if "track_count" in df.columns and "play_count" not in df.columns:
+            df = df.rename(columns={"track_count": "play_count"})
+        # Use a flat ring by treating each genre as its own parent; callbacks will
+        # provide the full two-level taxonomy-aware figure.
+        sb_df = pd.DataFrame(
+            {
+                "parent": df["genre"],
+                "child": df["genre"],
+                "value": df["play_count"],
+            }
         )
+        fig = px.sunburst(sb_df, path=["parent", "child"], values="value")
         fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954")
 
     return html.Div(
         className="graph-card card",
@@ -153,7 +163,7 @@ def create_top_genres_graph(top_genres=None):
                     html.H3("Top Genres", className="card-title"),
                     dcc.Graph(
                         id="top-genres-graph",
-                        figure=fig if top_genres is not None else {},
+                        figure=fig,
                         config={"displayModeBar": False},
                     ),
                 ]

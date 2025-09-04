@@ -20,7 +20,6 @@ PARENT_GENRES: list[str] = [
     "folk",
     "funk",
     "gospel",
-    "hip hop",
     "jazz",
     "metal",
     "new age",

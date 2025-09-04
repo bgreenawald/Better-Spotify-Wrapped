@@ -533,6 +533,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             else:
                 top_genres = cached_top_genres
 
+            # Build hierarchical rows for sunburst (parents + children)
+            try:
+                from src.metrics.metrics import get_genre_sunburst_rows
+
+                sb_rows = get_genre_sunburst_rows(filtered, con=con)
+            except Exception:
+                sb_rows = pd.DataFrame(columns=["parent", "child", "value"])
+
             daily_counts = get_playcount_by_day(filtered, con=con, top_only=True)
 
             # Stats summary (preformatted to avoid shipping large DataFrame)
@@ -559,6 +567,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "top_artists": top_artists.to_json(orient="split"),
                 "top_albums": top_albums.to_json(orient="split"),
                 "top_genres": top_genres.to_json(orient="split"),
+                "top_genres_sunburst": sb_rows.to_json(orient="split"),
                 "daily_counts": daily_counts.to_json(date_format="iso", orient="split"),
                 "stats_summary": stats_summary,
             }
@@ -671,32 +680,81 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     )
     def render_top_genres_figure(data):
         theme = get_plotly_theme(False)
-        if not data or "top_genres" not in data:
+        if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
             return {"data": [], "layout": theme}
-        df = pd.read_json(StringIO(data["top_genres"]), orient="split")
-        if df.empty:
+        # Prefer precomputed hierarchical rows when available
+        if "top_genres_sunburst" in data:
+            sb = pd.read_json(StringIO(data["top_genres_sunburst"]), orient="split")
+        else:
+            # Fallback: derive rows from flat top_genres + taxonomy
+            df = pd.read_json(StringIO(data["top_genres"]), orient="split")
+            if df.empty:
+                return {"data": [], "layout": theme}
+            try:
+                con = get_db_connection()
+                edges = con.execute(
+                    """
+                    SELECT p.name AS parent, c.name AS child
+                    FROM genre_hierarchy gh
+                    JOIN dim_genres p ON p.genre_id = gh.parent_genre_id
+                    JOIN dim_genres c ON c.genre_id = gh.child_genre_id
+                    """
+                ).df()
+                parents = con.execute(
+                    "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
+                ).df()
+            finally:
+                with contextlib.suppress(Exception):
+                    con.close()
+
+            parents_set = {str(x).strip() for x in parents["name"]} if not parents.empty else set()
+            child_to_parents: dict[str, list[str]] = {}
+            if not edges.empty:
+                for _, row in edges.iterrows():
+                    child = str(row["child"]).strip()
+                    parent = str(row["parent"]).strip()
+                    child_to_parents.setdefault(child.lower(), []).append(parent)
+            rows: list[dict[str, str | int | float]] = []
+            for _, r in df.iterrows():
+                g = str(r.get("genre", "")).strip()
+                if not g:
+                    continue
+                count = int(r.get("play_count") or r.get("track_count") or 0)
+                if count <= 0:
+                    continue
+                gl = g.lower()
+                parents_for_child = child_to_parents.get(gl)
+                if parents_for_child:
+                    for p in parents_for_child:
+                        rows.append({"parent": p, "child": g, "value": count})
+                elif g in parents_set:
+                    rows.append({"parent": g, "child": f"{g} (direct)", "value": count})
+                else:
+                    rows.append({"parent": "Other", "child": g, "value": count})
+            sb = pd.DataFrame(rows)
+
+        if sb.empty:
             return {"data": [], "layout": theme}
-        return {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": df["play_count"].head(10),
-                    "y": df["genre"].head(10),
-                    "orientation": "h",
-                    "text": [f"{pct:.1f}%" for pct in df["percentage"].head(10)],
-                    "customdata": df[["percentage", "top_artists"]].head(10).values,
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": (
-                        "Genre: %{y}<br>Tracks: %{x}<br>Percentage: %{customdata[0]:.1f}%<br>Top Artists: %{customdata[1]}<extra></extra>"
-                    ),
-                }
-            ],
-            "layout": {
-                **theme,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Track Count"},
-                "yaxis": {**theme.get("yaxis", {}), "title": ""},
-            },
-        }
+
+        import plotly.express as px
+
+        # Include top artists in hover for child/direct nodes
+        fig = px.sunburst(
+            sb,
+            path=["parent", "child"],
+            values="value",
+            custom_data=["top_artists"] if "top_artists" in sb.columns else None,
+        )
+        fig.update_layout(
+            **theme,
+            margin={"t": 30, "b": 30, "l": 30, "r": 30},
+            height=450,
+        )
+        # Parent nodes may not carry customdata; child nodes will include top artists when available
+        base_hover = "%{label}<br>Plays: %{value}"
+        artists_hover = "<br>Top Artists: %{customdata[0]}" if "top_artists" in sb.columns else ""
+        fig.update_traces(hovertemplate=base_hover + artists_hover + "<extra></extra>")
+        return fig
 
     @app.callback(
         Output("detailed-stats", "children"),

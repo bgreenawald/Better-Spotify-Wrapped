@@ -1151,6 +1151,23 @@ def populate_artist_genres_from_cache(
         tag_to_genre: dict[str, int] = {
             str(tag_lc): int(genre_id) for (tag_lc, genre_id) in map_rows
         }
+        # Also load dim_genres for direct child matches by name/slug
+        dg_rows = conn.execute(
+            """
+            SELECT lower(name) AS name_lc, lower(slug) AS slug_lc, genre_id, COALESCE(level, -1) AS level
+            FROM dim_genres
+            WHERE COALESCE(active, TRUE)
+            """
+        ).fetchall()
+        name_to_id: dict[str, int] = {}
+        slug_to_id: dict[str, int] = {}
+        level_by_id: dict[int, int] = {}
+        for name_lc, slug_lc, gid, lvl in dg_rows:
+            if isinstance(name_lc, str):
+                name_to_id[name_lc] = int(gid)
+            if isinstance(slug_lc, str):
+                slug_to_id[slug_lc] = int(gid)
+            level_by_id[int(gid)] = int(lvl)
 
         # Fetch existing artist IDs to satisfy FK
         artist_rows = conn.execute("SELECT artist_id FROM dim_artists").fetchall()
@@ -1179,11 +1196,28 @@ def populate_artist_genres_from_cache(
         for g in genres:
             if not g or not str(g).strip():
                 continue
-            gid = tag_to_genre.get(str(g).strip().lower())
-            if gid is None:
+            raw = str(g).strip()
+            glc = raw.lower()
+            gid_parent = tag_to_genre.get(glc)
+            matched_any = False
+            if gid_parent is not None:
+                rows.append((str(aid), int(gid_parent)))
+                matched_any = True
+
+            # Try direct child match by dim_genres name or slug (e.g., 'indie pop')
+            # Slug policy follows load_genre_taxonomy: replace spaces with underscores only
+            slug = raw.replace(" ", "_").lower()
+            gid_child = name_to_id.get(glc) or slug_to_id.get(slug)
+            if gid_child is not None:
+                # Update to use level_by_id: only create direct link for level 1,
+                # or level 0 only if no parent mapping exists for this tag
+                level = level_by_id.get(gid_child, -1)
+                if level == 1 or (level == 0 and gid_parent is None):
+                    rows.append((str(aid), int(gid_child)))
+                    matched_any = True
+
+            if not matched_any:
                 unmapped_tags += 1
-                continue
-            rows.append((str(aid), int(gid)))
 
     if not rows:
         return {

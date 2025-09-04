@@ -112,7 +112,10 @@ def get_most_played_tracks(
         if not res.empty and "artist_genres" not in res.columns:
             res["artist_genres"] = [() for _ in range(len(res))]
         if not res.empty and "artist_genres" in res.columns:
-            res["artist_genres"] = res["artist_genres"].fillna(())
+            # Cannot use fillna with non-scalar tuple/list; coerce per-row instead
+            res["artist_genres"] = res["artist_genres"].apply(
+                lambda v: v if isinstance(v, list | tuple) else ()
+            )
         # Ensure stable types
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
@@ -480,6 +483,228 @@ def get_top_artist_genres(
     raise ValueError("get_top_artist_genres requires a DuckDB connection or db_path.")
 
 
+def get_genre_sunburst_rows(
+    filtered_df: pd.DataFrame,
+    *,
+    db_path: str | Path | None = None,
+    con: Any | None = None,
+) -> pd.DataFrame:
+    """Return rows suitable for a two-level genre sunburst with top artists per wedge.
+
+    Columns: 'parent' (level-0 name), 'child' (level-1 name or '<Parent> (direct)'),
+    'value' (plays), 'top_artists' (top 2 artists as "Name (plays)" formatted).
+    """
+    if filtered_df.empty:
+        return pd.DataFrame(columns=["parent", "child", "value", "top_artists"])
+
+    use_duckdb = (con is not None) or (db_path is not None)
+    if not use_duckdb:
+        return pd.DataFrame(columns=["parent", "child", "value", "top_artists"])
+
+    try:
+        import duckdb  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("DuckDB backend requested, but duckdb is not installed.") from exc
+
+    close_conn = False
+    if con is None:
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+    try:
+        df = filtered_df.copy()
+        if "track_id" not in df.columns:
+            df["track_id"] = df.get("spotify_track_uri").apply(extract_track_id)
+        play_counts = (
+            df.dropna(subset=["track_id"]).groupby("track_id").size().reset_index(name="play_count")
+        )
+        if play_counts.empty:
+            return pd.DataFrame(columns=["parent", "child", "value", "top_artists"])
+
+        if hasattr(con, "unregister"):
+            with contextlib.suppress(AttributeError, KeyError):
+                con.unregister("df_play_counts")
+        con.register("df_play_counts", play_counts)
+
+        sql = """
+            WITH primary_artist AS (
+                SELECT track_id, artist_id
+                FROM (
+                    SELECT b.track_id,
+                           b.artist_id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY b.track_id
+                               ORDER BY a.artist_name
+                           ) AS rn
+                    FROM bridge_track_artists b
+                    JOIN dim_artists a ON a.artist_id = b.artist_id
+                    WHERE b."role" = 'primary'
+                ) x
+                WHERE rn = 1
+            ),
+            child_totals AS (
+                SELECT cg.name AS child, SUM(p.play_count) AS value
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN genre_hierarchy gh ON gh.child_genre_id = ag.genre_id
+                JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                WHERE cg.level = 1
+                GROUP BY 1
+            ),
+            child_artists AS (
+                SELECT cg.name AS child, a.artist_name, SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                JOIN genre_hierarchy gh ON gh.child_genre_id = ag.genre_id
+                JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                WHERE cg.level = 1
+                GROUP BY 1,2
+            ),
+            child_ranked AS (
+                SELECT child, artist_name, play_count,
+                       ROW_NUMBER() OVER (PARTITION BY child ORDER BY play_count DESC, artist_name) AS rn
+                FROM child_artists
+            ),
+            child_top AS (
+                SELECT child,
+                       STRING_AGG(artist_name || ' (' || CAST(play_count AS BIGINT) || ' plays)', ', ' ORDER BY rn) AS top_artists
+                FROM child_ranked
+                WHERE rn <= 2
+                GROUP BY 1
+            ),
+            sub AS (
+                SELECT pg.name AS parent, cg.name AS child, t.value,
+                       COALESCE(ct.top_artists, '') AS top_artists
+                FROM genre_hierarchy gh
+                JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                JOIN child_totals t ON t.child = cg.name
+                LEFT JOIN child_top ct ON ct.child = cg.name
+                WHERE cg.level = 1
+            ),
+            direct_totals AS (
+                SELECT g.name AS parent, SUM(p.play_count) AS value
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                WHERE g.level = 0
+                GROUP BY 1
+            ),
+            direct_artists AS (
+                SELECT g.name AS parent, a.artist_name, SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                WHERE g.level = 0
+                GROUP BY 1,2
+            ),
+            direct_ranked AS (
+                SELECT parent, artist_name, play_count,
+                       ROW_NUMBER() OVER (PARTITION BY parent ORDER BY play_count DESC, artist_name) AS rn
+                FROM direct_artists
+            ),
+            direct_top AS (
+                SELECT parent,
+                       STRING_AGG(artist_name || ' (' || CAST(play_count AS BIGINT) || ' plays)', ', ' ORDER BY rn) AS top_artists
+                FROM direct_ranked
+                WHERE rn <= 2
+                GROUP BY 1
+            ),
+            direct AS (
+                SELECT d.parent, (d.parent || ' (direct)') AS child, d.value,
+                       COALESCE(dt.top_artists, '') AS top_artists
+                FROM direct_totals d
+                LEFT JOIN direct_top dt ON dt.parent = d.parent
+            )
+            SELECT parent, child, value, top_artists FROM sub
+            UNION ALL
+            SELECT parent, child, value, top_artists FROM direct
+        """
+        out = con.execute(sql).df()
+        # Fallback using track_genres if no children
+        try:
+            has_real_children = False
+            if not out.empty:
+                has_real_children = any(not str(c).endswith(" (direct)") for c in out["child"])
+            if not has_real_children:
+                alt_sql = """
+                    WITH tg_counts AS (
+                        SELECT g.genre_id, g.name AS genre_name, g.level, a.artist_name,
+                               SUM(p.play_count * tg.score) AS play_count
+                        FROM df_play_counts p
+                        JOIN dim_tracks t ON t.track_id = p.track_id
+                        JOIN track_genres tg ON tg.track_id = t.track_id
+                        JOIN dim_genres g ON g.genre_id = tg.genre_id
+                        JOIN bridge_track_artists b ON b.track_id = t.track_id AND b."role"='primary'
+                        JOIN dim_artists a ON a.artist_id = b.artist_id
+                        GROUP BY 1,2,3,4
+                    ),
+                    child_totals AS (
+                        SELECT cg.name AS child, SUM(c.play_count) AS value
+                        FROM tg_counts c
+                        JOIN genre_hierarchy gh ON gh.child_genre_id = c.genre_id
+                        JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                        WHERE cg.level = 1
+                        GROUP BY 1
+                    ),
+                    child_artists AS (
+                        SELECT cg.name AS child, c.artist_name, SUM(c.play_count) AS play_count
+                        FROM tg_counts c
+                        JOIN genre_hierarchy gh ON gh.child_genre_id = c.genre_id
+                        JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                        WHERE cg.level = 1
+                        GROUP BY 1,2
+                    ),
+                    child_ranked AS (
+                        SELECT child, artist_name, play_count,
+                               ROW_NUMBER() OVER (PARTITION BY child ORDER BY play_count DESC, artist_name) AS rn
+                        FROM child_artists
+                    ),
+                    child_top AS (
+                        SELECT child,
+                               STRING_AGG(artist_name || ' (' || CAST(play_count AS BIGINT) || ' plays)', ', ' ORDER BY rn) AS top_artists
+                        FROM child_ranked
+                        WHERE rn <= 2
+                        GROUP BY 1
+                    ),
+                    sub AS (
+                        SELECT pg.name AS parent, cg.name AS child, t.value,
+                               COALESCE(ct.top_artists, '') AS top_artists
+                        FROM genre_hierarchy gh
+                        JOIN dim_genres cg ON cg.genre_id = gh.child_genre_id
+                        JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                        JOIN child_totals t ON t.child = cg.name
+                        LEFT JOIN child_top ct ON ct.child = cg.name
+                        WHERE cg.level = 1
+                    ),
+                    direct AS (
+                        SELECT g.name AS parent, (g.name || ' (direct)') AS child, SUM(c.play_count) AS value,
+                               '' AS top_artists
+                        FROM tg_counts c
+                        JOIN dim_genres g ON g.genre_id = c.genre_id
+                        WHERE g.level = 0
+                        GROUP BY 1,2
+                    )
+                    SELECT parent, child, value, top_artists FROM sub
+                    UNION ALL
+                    SELECT parent, child, value, top_artists FROM direct
+                """
+                alt = con.execute(alt_sql).df()
+                if not alt.empty:
+                    out = alt
+        except Exception:
+            pass
+        return out
+    finally:
+        if close_conn:
+            con.close()
+
+
 def get_most_played_artists(
     filtered_df: pd.DataFrame,
     *,
@@ -559,12 +784,16 @@ def get_most_played_artists(
                 if "artist_genres" not in res.columns:
                     res["artist_genres"] = [[] for _ in range(len(res))]
                 else:
-                    res["artist_genres"] = res["artist_genres"].fillna([])
+                    res["artist_genres"] = res["artist_genres"].apply(
+                        lambda v: v if isinstance(v, list | tuple) else []
+                    )
         except Exception:
             if "artist_genres" not in res.columns:
                 res["artist_genres"] = [[] for _ in range(len(res))]
             else:
-                res["artist_genres"] = res["artist_genres"].fillna([])
+                res["artist_genres"] = res["artist_genres"].apply(
+                    lambda v: v if isinstance(v, list | tuple) else []
+                )
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
