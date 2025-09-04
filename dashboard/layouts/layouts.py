@@ -187,6 +187,8 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 },
                 delay_show=2000,
             ),
+            # Store precomputed Wrapped tab data
+            dcc.Store(id="tab-1-data"),
         ],
         className="container",
     )

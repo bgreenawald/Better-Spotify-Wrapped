@@ -54,9 +54,7 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
     Returns:
         html.Div: Div containing exclusion dropdowns and radio items.
     """
-    tracks = df["master_metadata_track_name"].dropna().unique().tolist()
-    artists = df["master_metadata_album_artist_name"].dropna().unique().tolist()
-    albums = df["master_metadata_album_album_name"].dropna().unique().tolist()
+    # Keep genres precomputed (small) but shift large lists to server-side
     genres = sorted(set(chain.from_iterable(df["artist_genres"].dropna())))
 
     return html.Div(
@@ -68,8 +66,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Excluded Artists", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-artists-filter-dropdown",
-                                options=[{"label": artist, "value": artist} for artist in artists],
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
+                                placeholder="Type to search artists…",
                                 className="dropdown",
                             ),
                         ],
@@ -97,8 +97,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Excluded Albums", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-albums-filter-dropdown",
-                                options=[{"label": album, "value": album} for album in albums],
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
+                                placeholder="Type to search albums…",
                                 className="dropdown",
                             ),
                         ],
@@ -109,8 +111,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Excluded Tracks", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-tracks-filter-dropdown",
-                                options=[{"label": track, "value": track} for track in tracks],
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
+                                placeholder="Type to search tracks…",
                                 className="dropdown",
                             ),
                         ],
@@ -262,7 +266,7 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
+def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
     """Create the layout for the artist trends analysis section.
 
     Args:
@@ -271,8 +275,6 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
     Returns:
         html.Div: Div containing artist filters and sliders.
     """
-    artists = sorted(df["master_metadata_album_artist_name"].dropna().unique())
-
     return html.Div(
         [
             html.Div(
@@ -282,8 +284,10 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Artists", className="filter-label"),
                             dcc.Dropdown(
                                 id="artist-filter-dropdown",
-                                options=[{"label": artist, "value": artist} for artist in artists],
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
+                                placeholder="Type to search artists…",
                                 className="dropdown",
                             ),
                         ],
@@ -335,7 +339,7 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
+def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
     """Create the layout for the track trends analysis section.
 
     Args:
@@ -344,37 +348,6 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
     Returns:
         html.Div: Div containing track filters and sliders.
     """
-    df_tracks = (
-        df.drop_duplicates(
-            subset=[
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-            ]
-        )
-        .dropna(
-            subset=[
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-            ]
-        )
-        .sort_values(
-            by="master_metadata_track_name",
-            ascending=True,
-        )
-    )
-
-    options = [
-        {
-            "label": (
-                f"{row.master_metadata_track_name} - {row.master_metadata_album_artist_name}"
-            ),
-            "value": (
-                f"{row.master_metadata_track_name} - {row.master_metadata_album_artist_name}"
-            ),
-        }
-        for row in df_tracks.itertuples()
-    ]
-
     return html.Div(
         [
             html.Div(
@@ -384,8 +357,10 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Tracks", className="filter-label"),
                             dcc.Dropdown(
                                 id="track-filter-dropdown",
-                                options=options,
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
+                                placeholder="Type to search tracks…",
                                 className="dropdown",
                             ),
                         ],
