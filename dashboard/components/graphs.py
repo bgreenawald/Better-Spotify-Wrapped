@@ -60,16 +60,20 @@ def create_top_tracks_graph(top_tracks=None):
     return html.Div(
         className="graph-card card",
         children=[
+            html.H3("Most Played Tracks", className="card-title"),
             dcc.Loading(
-                children=[
-                    html.H3("Most Played Tracks", className="card-title"),
-                    dcc.Graph(
-                        id="top-tracks-graph",
-                        figure=fig if top_tracks is not None else {},
-                        config={"displayModeBar": False},
-                    ),
-                ]
-            )
+                children=dcc.Graph(
+                    id="top-tracks-graph",
+                    figure=fig if top_tracks is not None else {},
+                    config={"displayModeBar": False},
+                ),
+                delay_show=0,
+                overlay_style={
+                    "visibility": "visible",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
+                },
+                type="default",
+            ),
         ],
     )
 
@@ -103,16 +107,20 @@ def create_top_artists_graph(top_artists=None):
     return html.Div(
         className="graph-card card",
         children=[
+            html.H3("Top Artists", className="card-title"),
             dcc.Loading(
-                children=[
-                    html.H3("Top Artists", className="card-title"),
-                    dcc.Graph(
-                        id="top-artists-graph",
-                        figure=fig if top_artists is not None else {},
-                        config={"displayModeBar": False},
-                    ),
-                ]
-            )
+                children=dcc.Graph(
+                    id="top-artists-graph",
+                    figure=fig if top_artists is not None else {},
+                    config={"displayModeBar": False},
+                ),
+                delay_show=0,
+                overlay_style={
+                    "visibility": "visible",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
+                },
+                type="default",
+            ),
         ],
     )
 
@@ -158,16 +166,20 @@ def create_top_genres_graph(top_genres=None):
     return html.Div(
         className="graph-card card",
         children=[
+            html.H3("Top Genres", className="card-title"),
             dcc.Loading(
-                children=[
-                    html.H3("Top Genres", className="card-title"),
-                    dcc.Graph(
-                        id="top-genres-graph",
-                        figure=fig,
-                        config={"displayModeBar": False},
-                    ),
-                ]
-            )
+                children=dcc.Graph(
+                    id="top-genres-graph",
+                    figure=fig,
+                    config={"displayModeBar": False},
+                ),
+                delay_show=0,
+                overlay_style={
+                    "visibility": "visible",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
+                },
+                type="default",
+            ),
         ],
     )
 
@@ -209,16 +221,20 @@ def create_top_albums_graph(top_albums=None):
     return html.Div(
         className="graph-card card",
         children=[
+            html.H3("Top Albums", className="card-title"),
             dcc.Loading(
-                children=[
-                    html.H3("Top Albums", className="card-title"),
-                    dcc.Graph(
-                        id="top-albums-graph",
-                        figure=fig if top_albums is not None else {},
-                        config={"displayModeBar": False},
-                    ),
-                ]
-            )
+                children=dcc.Graph(
+                    id="top-albums-graph",
+                    figure=fig if top_albums is not None else {},
+                    config={"displayModeBar": False},
+                ),
+                delay_show=0,
+                overlay_style={
+                    "visibility": "visible",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
+                },
+                type="default",
+            ),
         ],
     )
 

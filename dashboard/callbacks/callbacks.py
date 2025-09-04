@@ -805,13 +805,18 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     create_monthly_trend_filter(),
                     html.Div(
                         [
-                            html.H3("Listening Trends", className="card-title"),
                             dcc.Loading(
                                 children=dcc.Graph(
                                     id="trends-graph",
                                     figure={},
                                     config={"displayModeBar": False},
-                                )
+                                ),
+                                delay_show=300,
+                                overlay_style={
+                                    "visibility": "visible",
+                                    "backgroundColor": "rgba(0,0,0,0.15)",
+                                },
+                                type="default",
                             ),
                         ]
                     ),
@@ -837,7 +842,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -861,7 +872,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -883,7 +900,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                     className="table-container",
                                 )
                             ),
-                        ]
+                        ],
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
