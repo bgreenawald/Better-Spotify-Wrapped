@@ -7,7 +7,11 @@ import pandas as pd
 from .utils import extract_track_id
 
 
-def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
+def get_listening_time_by_month(
+    filtered_df: pd.DataFrame,
+    *,
+    con: Any | None = None,
+) -> pd.DataFrame:
     """Calculate total listening time by month.
 
     Args:
@@ -23,7 +27,52 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
             - total_hours (float): Total listening time in hours
             - avg_hours_per_day (float): Average listening time per day
     """
-    # Group by month string and compute total playtime and unique counts
+    if con is not None and not filtered_df.empty:
+        df = filtered_df[
+            [
+                "ts",
+                "ms_played",
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+            ]
+        ].copy()
+        rel = "df_monthly_in"
+        with contextlib.suppress(Exception):
+            con.unregister(rel)
+        con.register(rel, df)
+
+        sql = f"""
+            WITH base AS (
+                SELECT strftime(ts, '%Y-%m') AS month,
+                       ms_played,
+                       master_metadata_track_name AS track,
+                       master_metadata_album_artist_name AS artist
+                FROM {rel}
+            ), monthly AS (
+                SELECT month,
+                       SUM(ms_played) AS ms_played,
+                       COUNT(DISTINCT track) AS unique_tracks,
+                       COUNT(DISTINCT artist) AS unique_artists
+                FROM base
+                GROUP BY 1
+            ), days AS (
+                SELECT month,
+                       CAST(EXTRACT(day FROM (date_trunc('month', strptime(month || '-01', '%Y-%m-%d'))
+                              + INTERVAL 1 MONTH - INTERVAL 1 DAY)) AS INTEGER) AS days_in_month
+                FROM monthly
+            )
+            SELECT m.month,
+                   m.unique_tracks,
+                   m.unique_artists,
+                   ROUND(m.ms_played / (1000.0 * 60.0 * 60.0), 2) AS total_hours,
+                   ROUND((m.ms_played / (1000.0 * 60.0 * 60.0)) / NULLIF(d.days_in_month, 0), 2) AS avg_hours_per_day
+            FROM monthly m
+            JOIN days d USING (month)
+            ORDER BY m.month
+        """
+        return con.execute(sql).df().reset_index(drop=True)
+
+    # Fallback to pandas
     monthly = (
         filtered_df.groupby(filtered_df["ts"].dt.strftime("%Y-%m"))
         .agg(
@@ -35,11 +84,7 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
-
-    # Convert milliseconds to hours
     monthly["total_hours"] = monthly["ms_played"] / (1000 * 60 * 60)
-
-    # Rename for clarity
     monthly.columns = [
         "month",
         "ms_played",
@@ -47,16 +92,10 @@ def get_listening_time_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
         "unique_artists",
         "total_hours",
     ]
-
-    # Compute days in each month and average hours per day
     monthly["days_in_month"] = monthly["month"].apply(lambda m: pd.Period(m).days_in_month)
     monthly["avg_hours_per_day"] = monthly["total_hours"] / monthly["days_in_month"]
-
-    # Round numeric columns
     monthly["total_hours"] = monthly["total_hours"].round(2)
     monthly["avg_hours_per_day"] = monthly["avg_hours_per_day"].round(2)
-
-    # Drop intermediates, sort, and return
     result = monthly.drop(["ms_played", "days_in_month"], axis=1)
     result = result.sort_values("month").reset_index(drop=True)
     return result
@@ -228,7 +267,11 @@ genre_artist_month AS (
             con.close()
 
 
-def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
+def get_artist_trends(
+    filtered_df: pd.DataFrame,
+    *,
+    con: Any | None = None,
+) -> pd.DataFrame:
     """Calculate artist listening trends over time.
 
     Args:
@@ -247,23 +290,107 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
             - top_tracks (str)
             - rank (float)
     """
+    if con is not None and not filtered_df.empty:
+        df = filtered_df[
+            [
+                "ts",
+                "master_metadata_album_artist_name",
+                "master_metadata_track_name",
+                "ms_played",
+            ]
+        ].copy()
+
+        rel = "df_artist_trends_in"
+        with contextlib.suppress(Exception):
+            con.unregister(rel)
+        con.register(rel, df)
+
+        sql_metrics = f"""
+            WITH base AS (
+                SELECT strftime(ts, '%Y-%m') AS month,
+                       master_metadata_album_artist_name AS artist,
+                       master_metadata_track_name AS track,
+                       ms_played
+                FROM {rel}
+            ), metrics AS (
+                SELECT month,
+                       artist,
+                       COUNT(*) AS play_count,
+                       COUNT(DISTINCT track) AS unique_tracks,
+                       AVG(ms_played) AS avg_duration_ms
+                FROM base
+                GROUP BY 1,2
+            ), monthly_totals AS (
+                SELECT month, SUM(play_count) AS total_plays FROM metrics GROUP BY 1
+            )
+            SELECT m.month,
+                   m.artist,
+                   m.play_count,
+                   m.unique_tracks,
+                   ROUND((m.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage,
+                   (m.avg_duration_ms / (1000.0 * 60.0)) AS avg_duration_min
+            FROM metrics m
+            JOIN monthly_totals t USING (month)
+            ORDER BY m.month, m.play_count DESC, m.artist
+        """
+        metrics_df = con.execute(sql_metrics).df()
+
+        sql_top2 = f"""
+            WITH base AS (
+                SELECT strftime(ts, '%Y-%m') AS month,
+                       master_metadata_album_artist_name AS artist,
+                       master_metadata_track_name AS track
+                FROM {rel}
+            ), track_counts AS (
+                SELECT month, artist, track, COUNT(*) AS track_plays
+                FROM base
+                GROUP BY 1,2,3
+            ), ranked AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY month, artist
+                           ORDER BY track_plays DESC, track
+                       ) AS rn
+                FROM track_counts
+            )
+            SELECT month, artist, track, track_plays
+            FROM ranked
+            WHERE rn <= 2
+            ORDER BY month, artist, track_plays DESC, track
+        """
+        top2_df = con.execute(sql_top2).df()
+
+        if not top2_df.empty:
+            top_tracks = (
+                top2_df.groupby(["month", "artist"])
+                .apply(
+                    lambda grp: ", ".join(
+                        f"{row['track']} ({int(row['track_plays'])} plays)"
+                        for _, row in grp.iterrows()
+                    )
+                )
+                .reset_index(name="top_tracks")
+            )
+            out = metrics_df.merge(top_tracks, on=["month", "artist"], how="left")
+        else:
+            out = metrics_df.copy()
+            out["top_tracks"] = ""
+
+        out["rank"] = out.groupby("month")["play_count"].rank(method="dense", ascending=False)
+        return out.reset_index(drop=True)
+
+    # Fallback to pandas implementation
     df = filtered_df.copy()
     df["month"] = df["ts"].dt.strftime("%Y-%m")
-
-    # Count plays per track per artist-month
     track_counts = (
         df.groupby(["month", "master_metadata_album_artist_name", "master_metadata_track_name"])
         .size()
         .reset_index(name="track_plays")
     )
-
-    # Rank and select top 2 tracks per artist-month
     track_counts["track_rank"] = track_counts.groupby(
         ["month", "master_metadata_album_artist_name"]
     )["track_plays"].rank(method="dense", ascending=False)
     top_tracks_df = track_counts[track_counts["track_rank"] <= 2]
-
-    # Aggregate top tracks strings
     top_tracks_by_artist = (
         top_tracks_df.sort_values("track_plays", ascending=False)
         .groupby(["month", "master_metadata_album_artist_name"])
@@ -275,44 +402,30 @@ def get_artist_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index(name="top_tracks")
     )
-
-    # Compute artist metrics: play count, unique tracks, avg duration
     metrics = df.groupby(["month", "master_metadata_album_artist_name"]).agg(
-        {
-            "master_metadata_track_name": ["count", "nunique"],
-            "ms_played": "mean",
-        }
+        {"master_metadata_track_name": ["count", "nunique"], "ms_played": "mean"}
     )
     metrics.columns = ["play_count", "unique_tracks", "avg_duration_ms"]
     metrics = metrics.reset_index()
-
-    # Compute monthly totals for percentage
     monthly_totals = metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
     metrics = metrics.merge(monthly_totals, on="month")
     metrics["percentage"] = (metrics["play_count"] / metrics["total_plays"] * 100).round(2)
-
-    # Convert duration to minutes
     metrics["avg_duration_min"] = (metrics["avg_duration_ms"] / (1000 * 60)).round(2)
-
-    # Combine with top tracks
     result = metrics.merge(
-        top_tracks_by_artist,
-        on=["month", "master_metadata_album_artist_name"],
-        how="left",
+        top_tracks_by_artist, on=["month", "master_metadata_album_artist_name"], how="left"
     )
-
-    # Clean up and rename
     result = result.drop(["avg_duration_ms", "total_plays"], axis=1)
     result = result.rename(columns={"master_metadata_album_artist_name": "artist"})
-
-    # Sort and rank
     result = result.sort_values(["month", "play_count"], ascending=[True, False])
     result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
-
     return result.reset_index(drop=True)
 
 
-def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
+def get_track_trends(
+    filtered_df: pd.DataFrame,
+    *,
+    con: Any | None = None,
+) -> pd.DataFrame:
     """Calculate track listening trends over time.
 
     Args:
@@ -331,15 +444,54 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
             - avg_duration_min (float)
             - rank (float)
     """
+    if con is not None and not filtered_df.empty:
+        df = filtered_df[
+            [
+                "ts",
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+                "ms_played",
+            ]
+        ].copy()
+        rel = "df_track_trends_in"
+        with contextlib.suppress(Exception):
+            con.unregister(rel)
+        con.register(rel, df)
+
+        sql = f"""
+            WITH base AS (
+                SELECT strftime(ts, '%Y-%m') AS month,
+                       master_metadata_track_name AS track,
+                       master_metadata_album_artist_name AS artist,
+                       (master_metadata_track_name || ' - ' || master_metadata_album_artist_name) AS track_artist,
+                       ms_played
+                FROM {rel}
+            ), metrics AS (
+                SELECT month, track, artist, track_artist,
+                       COUNT(*) AS play_count,
+                       AVG(ms_played) AS avg_duration_ms
+                FROM base
+                GROUP BY 1,2,3,4
+            ), totals AS (
+                SELECT month, SUM(play_count) AS total_plays FROM metrics GROUP BY 1
+            )
+            SELECT m.month, m.track, m.artist, m.track_artist,
+                   m.play_count,
+                   ROUND((m.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage,
+                   (m.avg_duration_ms / (1000.0 * 60.0)) AS avg_duration_min,
+                   DENSE_RANK() OVER (PARTITION BY m.month ORDER BY m.play_count DESC, m.track_artist) AS rank
+            FROM metrics m
+            JOIN totals t USING (month)
+            ORDER BY m.month, m.play_count DESC, m.track_artist
+        """
+        return con.execute(sql).df().reset_index(drop=True)
+
+    # Fallback to pandas implementation
     df = filtered_df.copy()
     df["month"] = df["ts"].dt.strftime("%Y-%m")
-
-    # Combine track name and artist
     df["track_artist"] = (
         df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
     )
-
-    # Compute play count and avg duration per track-artist-month
     track_metrics = df.groupby(
         [
             "month",
@@ -347,16 +499,9 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
             "master_metadata_track_name",
             "master_metadata_album_artist_name",
         ]
-    ).agg(
-        {
-            "track_artist": "count",
-            "ms_played": "mean",
-        }
-    )
+    ).agg({"track_artist": "count", "ms_played": "mean"})
     track_metrics.columns = ["play_count", "avg_duration_ms"]
     track_metrics = track_metrics.reset_index()
-
-    # Monthly totals for percentage
     monthly_totals = (
         track_metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
     )
@@ -364,11 +509,7 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
     track_metrics["percentage"] = (
         track_metrics["play_count"] / track_metrics["total_plays"] * 100
     ).round(2)
-
-    # Convert duration to minutes
     track_metrics["avg_duration_min"] = (track_metrics["avg_duration_ms"] / (1000 * 60)).round(2)
-
-    # Clean up and rename columns
     result = track_metrics.drop(["avg_duration_ms", "total_plays"], axis=1)
     result = result.rename(
         columns={
@@ -376,9 +517,6 @@ def get_track_trends(filtered_df: pd.DataFrame) -> pd.DataFrame:
             "master_metadata_album_artist_name": "artist",
         }
     )
-
-    # Sort and rank
     result = result.sort_values(["month", "play_count"], ascending=[True, False])
     result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
-
     return result.reset_index(drop=True)

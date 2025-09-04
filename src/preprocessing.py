@@ -235,6 +235,16 @@ def get_filtered_plays(
     rel_albums = _register_list_param(con, "excluded_albums", excluded_albums)
     rel_genres = _register_list_param(con, "excluded_genres", excluded_genres)
 
+    def _table_exists(name: str) -> bool:
+        try:
+            row = con.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+                [name],
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
     filters = ["p.user_id = ?"]
     params: list[object] = [user_id]
     if s_date is not None:
@@ -259,7 +269,7 @@ def get_filtered_plays(
         extra_where.append(f"COALESCE(ar.artist_name, '') NOT IN (SELECT val FROM {rel_artists})")
     if rel_albums:
         extra_where.append(f"COALESCE(al.album_name, '') NOT IN (SELECT val FROM {rel_albums})")
-    if rel_genres:
+    if rel_genres and _table_exists("track_genres") and _table_exists("dim_genres"):
         # Anti-join any track that maps to excluded canonical genres
         extra_where.append(
             f"p.track_id NOT IN (\n"
