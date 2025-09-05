@@ -1,5 +1,6 @@
 from itertools import chain
 
+import dash_mantine_components as dmc  # type: ignore
 import pandas as pd
 from dash import dcc, html
 
@@ -21,6 +22,10 @@ def create_year_dropdown(df: pd.DataFrame) -> html.Div:
                 id="year-dropdown",
                 options=[{"label": str(year), "value": year} for year in years],
                 value=years[-1] if years else None,
+                placeholder="Select year…",
+                clearable=False,
+                persistence=True,
+                persistence_type="local",
                 className="dropdown",
             ),
         ],
@@ -70,6 +75,8 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 options=[],
                                 multi=True,
                                 placeholder="Type to search artists…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -82,6 +89,9 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 id="excluded-genres-filter-dropdown",
                                 options=[{"label": genre, "value": genre} for genre in genres],
                                 multi=True,
+                                placeholder="Filter genres…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -101,6 +111,8 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 options=[],
                                 multi=True,
                                 placeholder="Type to search albums…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -115,6 +127,8 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 options=[],
                                 multi=True,
                                 placeholder="Type to search tracks…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -136,6 +150,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 ],
                                 value=True,
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -151,6 +169,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 ],
                                 value=True,
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -176,26 +198,61 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     start_date = min_ts.date() if hasattr(min_ts, "date") else min_ts
     end_date = max_ts.date() if hasattr(max_ts, "date") else max_ts
 
-    return html.Div(
-        [
-            html.Label("Select Date Range", className="filter-label"),
-            dcc.DatePickerRange(
-                id="date-range",
-                min_date_allowed=start_date,
-                max_date_allowed=end_date,
-                start_date=start_date,
-                end_date=end_date,
-                className="datepicker",
-            ),
-            html.Button(
-                "Reset Date Range",
-                id="reset-date-range",
-                className="reset-button",
-                n_clicks=0,
-            ),
-        ],
-        className="filter-item",
+    children: list = [html.Label("Select Date Range", className="filter-label")]
+
+    # Mantine v2 DatePickerInput in range mode (dropdown opens/closes)
+    children.append(
+        dmc.DatePickerInput(
+            id="date-range-mc",
+            type="range",
+            value=[start_date, end_date],
+            minDate=start_date,
+            maxDate=end_date,
+            allowSingleDateInRange=True,
+            numberOfColumns=2,
+            firstDayOfWeek=1,
+            size="sm",
+            variant="filled",
+            popoverProps={
+                "withinPortal": True,
+                "zIndex": 4000,
+                "position": "bottom-start",
+                "offset": 8,
+            },
+            persistence=True,
+            persistence_type="local",
+        )
     )
+    # Preset chips
+    children.append(
+        dmc.SegmentedControl(
+            id="date-range-preset",
+            data=[
+                {"label": "Last 30d", "value": "30d"},
+                {"label": "YTD", "value": "ytd"},
+                {"label": "All", "value": "all"},
+                {"label": "Custom", "value": "custom"},
+            ],
+            value="custom",
+            size="xs",
+            radius="xl",
+            persistence=True,
+            persistence_type="local",
+            style={"marginTop": "8px"},
+        )
+    )
+
+    # Inline reset
+    children.append(
+        html.Button(
+            "Reset Date Range",
+            id="reset-date-range",
+            className="reset-button",
+            n_clicks=0,
+        )
+    )
+
+    return html.Div(children, className="filter-item")
 
 
 def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
@@ -219,6 +276,9 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                                 # Options are populated dynamically from tab-2-data
                                 options=[],
                                 multi=True,
+                                placeholder="Filter genres…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -238,6 +298,10 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                                 ],
                                 value=False,
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -258,6 +322,8 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                                 value=5,
                                 marks={i: str(i) for i in range(3, 16, 3)},
                                 className="slider",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -273,6 +339,10 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                                 ],
                                 value="play_count",
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -306,6 +376,8 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 options=[],
                                 multi=True,
                                 placeholder="Type to search artists…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -327,6 +399,8 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 value=5,
                                 marks={i: str(i) for i in range(3, 16, 3)},
                                 className="slider",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -346,6 +420,10 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 ],
                                 value="play_count",
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -379,6 +457,8 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 options=[],
                                 multi=True,
                                 placeholder="Type to search tracks…",
+                                persistence=True,
+                                persistence_type="local",
                                 className="dropdown",
                             ),
                         ],
@@ -400,6 +480,8 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 value=5,
                                 marks={i: str(i) for i in range(3, 16, 3)},
                                 className="slider",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -415,6 +497,10 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 ],
                                 value="track_count",
                                 className="radio-group",
+                                inputClassName="radio-pill",
+                                labelClassName="radio-pill-label",
+                                persistence=True,
+                                persistence_type="local",
                             ),
                         ],
                         className="filter-item",
@@ -446,6 +532,10 @@ def create_monthly_trend_filter() -> html.Div:
                 id="metric-dropdown",
                 options=options,
                 value="total_hours",
+                placeholder="Select metric…",
+                clearable=False,
+                persistence=True,
+                persistence_type="local",
                 className="dropdown",
             ),
         ],

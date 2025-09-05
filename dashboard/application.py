@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 import dash_bootstrap_components as dbc
+import dash_mantine_components as dmc  # type: ignore
 import duckdb
 import pandas as pd
 from dash import Dash, dcc, html
@@ -117,56 +118,65 @@ def create_app() -> Dash:
 
     # Initialize app layout and register callbacks
     logger.info("Initializing layout and callbacks...")
-    app.layout = create_layout(history_df)
+    base_layout = create_layout(history_df)
+    app.layout = dmc.MantineProvider(
+        id="mantine-provider",
+        defaultColorScheme="light",
+        withCssVariables=True,
+        theme={
+            "primaryColor": "green",
+        },
+        children=base_layout,
+    )
 
     # Validation layout includes dynamic tab contents to satisfy callback ID checks
     # and prevent "nonexistent object used in Input" errors during chart switching.
-    app.validation_layout = html.Div(
-        [
-            create_layout(history_df),
-            # Tab 2 dynamic layouts and targets
-            html.Div(
-                [
-                    # Genres
-                    html.Div(
-                        [
-                            html.H3("Genres Over Time", className="card-title"),
-                            # Controls
-                            create_genre_trends_layout(history_df),
-                            # Targets
-                            dcc.Graph(id="genre-trends-graph"),
-                            html.Div(id="genre-trends-table"),
-                        ]
-                    ),
-                    # Artists
-                    html.Div(
-                        [
-                            html.H3("Artists Over Time", className="card-title"),
-                            create_artist_trends_layout(history_df),
-                            dcc.Graph(id="artist-trends-graph"),
-                            html.Div(id="artist-trends-table"),
-                        ]
-                    ),
-                    # Tracks
-                    html.Div(
-                        [
-                            html.H3("Tracks Over Time", className="card-title"),
-                            create_track_trends_layout(history_df),
-                            dcc.Graph(id="track-trends-graph"),
-                            html.Div(id="track-trends-table"),
-                        ]
-                    ),
-                    # Listening (monthly)
-                    html.Div(
-                        [
-                            html.H3("Listening Over Time", className="card-title"),
-                            dcc.Graph(id="trends-graph"),
-                        ]
-                    ),
-                ]
-            ),
-        ]
-    )
+    validation_children = [
+        create_layout(history_df),
+        # Tab 2 dynamic layouts and targets
+        html.Div(
+            [
+                # Genres
+                html.Div(
+                    [
+                        html.H3("Genres Over Time", className="card-title"),
+                        # Controls
+                        create_genre_trends_layout(history_df),
+                        # Targets
+                        dcc.Graph(id="genre-trends-graph"),
+                        html.Div(id="genre-trends-table"),
+                    ]
+                ),
+                # Artists
+                html.Div(
+                    [
+                        html.H3("Artists Over Time", className="card-title"),
+                        create_artist_trends_layout(history_df),
+                        dcc.Graph(id="artist-trends-graph"),
+                        html.Div(id="artist-trends-table"),
+                    ]
+                ),
+                # Tracks
+                html.Div(
+                    [
+                        html.H3("Tracks Over Time", className="card-title"),
+                        create_track_trends_layout(history_df),
+                        dcc.Graph(id="track-trends-graph"),
+                        html.Div(id="track-trends-table"),
+                    ]
+                ),
+                # Listening (monthly)
+                html.Div(
+                    [
+                        html.H3("Listening Over Time", className="card-title"),
+                        dcc.Graph(id="trends-graph"),
+                    ]
+                ),
+            ]
+        ),
+    ]
+    # Keep validation layout minimal and avoid duplicating MantineProvider IDs
+    app.validation_layout = html.Div(validation_children)
     register_callbacks(app, history_df)
     logger.info("App initialization complete.")
 
@@ -175,4 +185,4 @@ def create_app() -> Dash:
 
 if __name__ == "__main__":
     app = create_app()
-    app.run_server(debug=True)
+    app.run(debug=True)
