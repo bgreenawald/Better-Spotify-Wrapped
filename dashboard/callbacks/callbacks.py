@@ -1418,14 +1418,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         [
-            Output("theme-toggle", "value"),
+            Output("theme-toggle", "checked"),
             Output("app-container", "className"),
-            Output("theme-icon", "children"),
             Output("theme-store", "data"),
         ],
         [
             Input("theme-store", "data"),
-            Input("theme-toggle", "value"),
+            Input("theme-toggle", "checked"),
         ],
         prevent_initial_call=False,
     )
@@ -1462,10 +1461,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 is_dark = False
 
         theme_class = "dark-theme" if is_dark else ""
-        icon = "☀️" if is_dark else "🌙"
         theme_store_data = {"dark": is_dark}
 
-        return is_dark, theme_class, icon, theme_store_data
+        return is_dark, theme_class, theme_store_data
 
     # Clientside restyle-only callbacks to avoid server roundtrips
     app.clientside_callback(
