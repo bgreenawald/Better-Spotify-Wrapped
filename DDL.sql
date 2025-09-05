@@ -172,3 +172,31 @@ CREATE TABLE agg_user_mood_monthly (
   avg_score_weighted REAL NOT NULL,
   PRIMARY KEY (user_id, month, mood_id)
 );
+
+-- ========================
+-- Indexes (query accelerators)
+-- ========================
+-- Note: DuckDB is columnar and often scans efficiently without indexes.
+-- These indexes target frequent join/filter keys used throughout the app.
+
+-- fact_plays: frequent filters by user_id and played_at, and joins by track_id
+CREATE INDEX IF NOT EXISTS idx_fact_plays_user_time ON fact_plays(user_id, played_at);
+CREATE INDEX IF NOT EXISTS idx_fact_plays_track     ON fact_plays(track_id);
+-- Composite on the dedupe key helps anti-joins and lookups (matches UNIQUE columns)
+CREATE INDEX IF NOT EXISTS idx_fact_plays_user_track_played ON fact_plays(user_id, track_id, played_at);
+
+-- dim_tracks: join by album_id; lookups by track_id occur via fact_plays join
+CREATE INDEX IF NOT EXISTS idx_dim_tracks_album ON dim_tracks(album_id);
+
+-- bridge_track_artists: frequent join by (track_id, role='primary'); sometimes by (artist_id, role)
+CREATE INDEX IF NOT EXISTS idx_bridge_track_role  ON bridge_track_artists(track_id, role);
+CREATE INDEX IF NOT EXISTS idx_bridge_artist_role ON bridge_track_artists(artist_id, role);
+
+-- artist_genres and track_genres: joins by both sides
+CREATE INDEX IF NOT EXISTS idx_artist_genres_artist ON artist_genres(artist_id);
+CREATE INDEX IF NOT EXISTS idx_artist_genres_genre  ON artist_genres(genre_id);
+CREATE INDEX IF NOT EXISTS idx_track_genres_track   ON track_genres(track_id);
+CREATE INDEX IF NOT EXISTS idx_track_genres_genre   ON track_genres(genre_id);
+
+-- dim_albums: joins by album_id from dim_tracks
+CREATE INDEX IF NOT EXISTS idx_dim_albums_album_id ON dim_albums(album_id);
