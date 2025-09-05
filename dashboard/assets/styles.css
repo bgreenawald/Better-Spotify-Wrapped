@@ -186,7 +186,7 @@ body {
 /* Lightweight skeleton placeholder */
 /* skeleton shimmer removed */
 
-.dark-theme body {
+body.dark-theme {
     background-color: var(--bg);
     color: var(--text);
 }
