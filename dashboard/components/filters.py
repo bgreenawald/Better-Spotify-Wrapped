@@ -252,6 +252,9 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
         )
     )
 
+    # Track how the date range was changed (preset/reset/manual)
+    children.append(dcc.Store(id="date-range-source", storage_type="memory"))
+
     return html.Div(children, className="filter-item")
 
 

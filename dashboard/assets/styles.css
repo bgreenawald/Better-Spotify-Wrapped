@@ -154,6 +154,70 @@ body {
     --bs-btn-hover-border-color: #269a4f;
 }
 
+/* Subtle action buttons (Reset / Export) */
+.reset-button,
+.dash-table-container .export,
+.dash-table-container a.export,
+.dash-table-container button.export {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin-top: 6px;
+    border-radius: 999px;
+    border: 1px solid var(--spotify-green);
+    background: transparent;
+    color: var(--spotify-green);
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+
+.reset-button:hover,
+.dash-table-container .export:hover,
+.dash-table-container a.export:hover,
+.dash-table-container button.export:hover {
+    background: var(--spotify-green);
+    color: #fff;
+    border-color: var(--spotify-green);
+    box-shadow: 0 2px 6px rgba(29, 185, 84, 0.25);
+}
+
+.reset-button:active,
+.dash-table-container .export:active,
+.dash-table-container a.export:active,
+.dash-table-container button.export:active {
+    transform: translateY(0.5px);
+}
+
+.reset-button:focus-visible,
+.dash-table-container .export:focus-visible,
+.dash-table-container a.export:focus-visible,
+.dash-table-container button.export:focus-visible {
+    outline: 2px solid var(--spotify-green);
+    outline-offset: 2px;
+}
+
+/* Dark theme adjustments */
+.dark-theme .reset-button,
+.dark-theme .dash-table-container .export,
+.dark-theme .dash-table-container a.export,
+.dark-theme .dash-table-container button.export {
+    border-color: var(--spotify-green);
+    color: var(--spotify-green);
+    background: transparent;
+}
+
+.dark-theme .reset-button:hover,
+.dark-theme .dash-table-container .export:hover,
+.dark-theme .dash-table-container a.export:hover,
+.dark-theme .dash-table-container button.export:hover {
+    background: var(--spotify-green);
+    color: #fff;
+}
+
 /* Theme toggle styles */
 .header-content {
     display: flex;
