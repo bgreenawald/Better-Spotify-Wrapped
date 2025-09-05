@@ -13,12 +13,14 @@ def get_listening_time_by_month(
     db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
-    """Calculate total listening time by month.
+    """Calculate total listening time by month (DuckDB-only).
 
     Args:
         filtered_df (pd.DataFrame): Filtered Spotify listening history. Must
             contain 'ts', 'ms_played', 'master_metadata_track_name', and
             'master_metadata_album_artist_name' columns.
+        db_path (str | Path | None): Optional DuckDB database path if `con` not provided.
+        con (Any | None): DuckDB connection to use.
 
     Returns:
         pd.DataFrame: Monthly listening statistics with columns:
@@ -103,9 +105,9 @@ def get_genre_trends(
     db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
-    """Calculate genre listening trends over time.
+    """Calculate genre listening trends over time (DuckDB-only).
 
-    DuckDB-backed implementation using the normalized schema (see DDL.sql).
+    Uses the normalized schema (see DDL.sql).
 
     Args:
         filtered_df (pd.DataFrame): Filtered Spotify listening history. Must contain
@@ -242,12 +244,14 @@ def get_artist_trends(
     db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
-    """Calculate artist listening trends over time.
+    """Calculate artist listening trends over time (DuckDB-only).
 
     Args:
         filtered_df (pd.DataFrame): Filtered Spotify listening history. Must
             contain 'ts', 'master_metadata_album_artist_name',
             'master_metadata_track_name', and 'ms_played' columns.
+        db_path (str | Path | None): Optional DuckDB database path if `con` not provided.
+        con (Any | None): DuckDB connection to use.
 
     Returns:
         pd.DataFrame: Artist trends with columns:
@@ -383,12 +387,14 @@ def get_track_trends(
     db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
-    """Calculate track listening trends over time.
+    """Calculate track listening trends over time (DuckDB-only).
 
     Args:
         filtered_df (pd.DataFrame): Filtered Spotify listening history. Must
             contain 'ts', 'master_metadata_track_name',
             'master_metadata_album_artist_name', and 'ms_played' columns.
+        db_path (str | Path | None): Optional DuckDB database path if `con` not provided.
+        con (Any | None): DuckDB connection to use.
 
     Returns:
         pd.DataFrame: Track trends with columns:
