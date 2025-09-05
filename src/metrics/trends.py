@@ -49,16 +49,19 @@ def get_listening_time_by_month(
     close_conn = False
     if con is None:
         import duckdb  # type: ignore
+
         con = duckdb.connect(str(db_path))
         close_conn = True
 
     try:
-        df = filtered_df[[
-            "ts",
-            "ms_played",
-            "master_metadata_track_name",
-            "master_metadata_album_artist_name",
-        ]].copy()
+        df = filtered_df[
+            [
+                "ts",
+                "ms_played",
+                "master_metadata_track_name",
+                "master_metadata_album_artist_name",
+            ]
+        ].copy()
         rel = "df_monthly_in"
         with contextlib.suppress(Exception):
             con.unregister(rel)
@@ -274,6 +277,7 @@ def get_artist_trends(
     close_conn = False
     if con is None:
         import duckdb  # type: ignore
+
         con = duckdb.connect(str(db_path))
         close_conn = True
 
@@ -354,7 +358,8 @@ def get_artist_trends(
                     lambda grp: ", ".join(
                         f"{row['track']} ({int(row['track_plays'])} plays)"
                         for _, row in grp.iterrows()
-                    )
+                    ),
+                    include_groups=False,
                 )
                 .reset_index(name="top_tracks")
             )
@@ -416,6 +421,7 @@ def get_track_trends(
     close_conn = False
     if con is None:
         import duckdb  # type: ignore
+
         con = duckdb.connect(str(db_path))
         close_conn = True
 
