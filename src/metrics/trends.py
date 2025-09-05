@@ -10,6 +10,7 @@ from .utils import extract_track_id
 def get_listening_time_by_month(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
     """Calculate total listening time by month.
@@ -27,15 +28,35 @@ def get_listening_time_by_month(
             - total_hours (float): Total listening time in hours
             - avg_hours_per_day (float): Average listening time per day
     """
-    if con is not None and not filtered_df.empty:
-        df = filtered_df[
-            [
-                "ts",
-                "ms_played",
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
+    # Empty input → empty output with stable columns
+    if filtered_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "month",
+                "unique_tracks",
+                "unique_artists",
+                "total_hours",
+                "avg_hours_per_day",
             ]
-        ].copy()
+        )
+
+    # Require DuckDB backend
+    if con is None and db_path is None:
+        raise ValueError("get_listening_time_by_month requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
+        df = filtered_df[[
+            "ts",
+            "ms_played",
+            "master_metadata_track_name",
+            "master_metadata_album_artist_name",
+        ]].copy()
         rel = "df_monthly_in"
         with contextlib.suppress(Exception):
             con.unregister(rel)
@@ -71,34 +92,9 @@ def get_listening_time_by_month(
             ORDER BY m.month
         """
         return con.execute(sql).df().reset_index(drop=True)
-
-    # Fallback to pandas
-    monthly = (
-        filtered_df.groupby(filtered_df["ts"].dt.strftime("%Y-%m"))
-        .agg(
-            {
-                "ms_played": "sum",
-                "master_metadata_track_name": "nunique",
-                "master_metadata_album_artist_name": "nunique",
-            }
-        )
-        .reset_index()
-    )
-    monthly["total_hours"] = monthly["ms_played"] / (1000 * 60 * 60)
-    monthly.columns = [
-        "month",
-        "ms_played",
-        "unique_tracks",
-        "unique_artists",
-        "total_hours",
-    ]
-    monthly["days_in_month"] = monthly["month"].apply(lambda m: pd.Period(m).days_in_month)
-    monthly["avg_hours_per_day"] = monthly["total_hours"] / monthly["days_in_month"]
-    monthly["total_hours"] = monthly["total_hours"].round(2)
-    monthly["avg_hours_per_day"] = monthly["avg_hours_per_day"].round(2)
-    result = monthly.drop(["ms_played", "days_in_month"], axis=1)
-    result = result.sort_values("month").reset_index(drop=True)
-    return result
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_genre_trends(
@@ -243,6 +239,7 @@ def get_genre_trends(
 def get_artist_trends(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
     """Calculate artist listening trends over time.
@@ -263,7 +260,31 @@ def get_artist_trends(
             - top_tracks (str)
             - rank (float)
     """
-    if con is not None and not filtered_df.empty:
+    # Empty input → empty output
+    if filtered_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "month",
+                "artist",
+                "play_count",
+                "unique_tracks",
+                "percentage",
+                "avg_duration_min",
+                "top_tracks",
+                "rank",
+            ]
+        )
+
+    if con is None and db_path is None:
+        raise ValueError("get_artist_trends requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             [
                 "ts",
@@ -351,52 +372,15 @@ def get_artist_trends(
 
         out["rank"] = out.groupby("month")["play_count"].rank(method="dense", ascending=False)
         return out.reset_index(drop=True)
-
-    # Fallback to pandas implementation
-    df = filtered_df.copy()
-    df["month"] = df["ts"].dt.strftime("%Y-%m")
-    track_counts = (
-        df.groupby(["month", "master_metadata_album_artist_name", "master_metadata_track_name"])
-        .size()
-        .reset_index(name="track_plays")
-    )
-    track_counts["track_rank"] = track_counts.groupby(
-        ["month", "master_metadata_album_artist_name"]
-    )["track_plays"].rank(method="dense", ascending=False)
-    top_tracks_df = track_counts[track_counts["track_rank"] <= 2]
-    top_tracks_by_artist = (
-        top_tracks_df.sort_values("track_plays", ascending=False)
-        .groupby(["month", "master_metadata_album_artist_name"])
-        .apply(
-            lambda grp: ", ".join(
-                f"{row['master_metadata_track_name']} ({row['track_plays']} plays)"
-                for _, row in grp.head(2).iterrows()
-            )
-        )
-        .reset_index(name="top_tracks")
-    )
-    metrics = df.groupby(["month", "master_metadata_album_artist_name"]).agg(
-        {"master_metadata_track_name": ["count", "nunique"], "ms_played": "mean"}
-    )
-    metrics.columns = ["play_count", "unique_tracks", "avg_duration_ms"]
-    metrics = metrics.reset_index()
-    monthly_totals = metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
-    metrics = metrics.merge(monthly_totals, on="month")
-    metrics["percentage"] = (metrics["play_count"] / metrics["total_plays"] * 100).round(2)
-    metrics["avg_duration_min"] = (metrics["avg_duration_ms"] / (1000 * 60)).round(2)
-    result = metrics.merge(
-        top_tracks_by_artist, on=["month", "master_metadata_album_artist_name"], how="left"
-    )
-    result = result.drop(["avg_duration_ms", "total_plays"], axis=1)
-    result = result.rename(columns={"master_metadata_album_artist_name": "artist"})
-    result = result.sort_values(["month", "play_count"], ascending=[True, False])
-    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
-    return result.reset_index(drop=True)
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_track_trends(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
     """Calculate track listening trends over time.
@@ -417,7 +401,30 @@ def get_track_trends(
             - avg_duration_min (float)
             - rank (float)
     """
-    if con is not None and not filtered_df.empty:
+    if filtered_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "month",
+                "track",
+                "artist",
+                "track_artist",
+                "play_count",
+                "percentage",
+                "avg_duration_min",
+                "rank",
+            ]
+        )
+
+    if con is None and db_path is None:
+        raise ValueError("get_track_trends requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             [
                 "ts",
@@ -458,40 +465,6 @@ def get_track_trends(
             ORDER BY m.month, m.play_count DESC, m.track_artist
         """
         return con.execute(sql).df().reset_index(drop=True)
-
-    # Fallback to pandas implementation
-    df = filtered_df.copy()
-    df["month"] = df["ts"].dt.strftime("%Y-%m")
-    df["track_artist"] = (
-        df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
-    )
-    track_metrics = df.groupby(
-        [
-            "month",
-            "track_artist",
-            "master_metadata_track_name",
-            "master_metadata_album_artist_name",
-        ]
-    ).agg(
-        play_count=pd.NamedAgg(column="track_artist", aggfunc="size"),
-        avg_duration_ms=pd.NamedAgg(column="ms_played", aggfunc="mean"),
-    )
-    track_metrics = track_metrics.reset_index()
-    monthly_totals = (
-        track_metrics.groupby("month")["play_count"].sum().reset_index(name="total_plays")
-    )
-    track_metrics = track_metrics.merge(monthly_totals, on="month")
-    track_metrics["percentage"] = (
-        track_metrics["play_count"] / track_metrics["total_plays"] * 100
-    ).round(2)
-    track_metrics["avg_duration_min"] = (track_metrics["avg_duration_ms"] / (1000 * 60)).round(2)
-    result = track_metrics.drop(["avg_duration_ms", "total_plays"], axis=1)
-    result = result.rename(
-        columns={
-            "master_metadata_track_name": "track",
-            "master_metadata_album_artist_name": "artist",
-        }
-    )
-    result = result.sort_values(["month", "play_count"], ascending=[True, False])
-    result["rank"] = result.groupby("month")["play_count"].rank(method="dense", ascending=False)
-    return result.reset_index(drop=True)
+    finally:
+        if close_conn:
+            con.close()
