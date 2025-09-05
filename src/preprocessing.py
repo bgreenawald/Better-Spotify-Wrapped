@@ -354,7 +354,8 @@ def get_filtered_plays(
                 p.track_id,
                 t.track_name,
                 t.album_id,
-                ar.artist_id,
+                -- Normalize artist_id: trim and strip any URI prefix like 'spotify:artist:'
+                REGEXP_REPLACE(TRIM(ar.artist_id), '.*:', '') AS artist_id,
                 ar.artist_name,
                 al.album_name
             FROM fact_plays p
@@ -364,20 +365,46 @@ def get_filtered_plays(
             LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id
             LEFT JOIN dim_albums al ON al.album_id = t.album_id
             WHERE {where_clause}
+        ), artist_genres_agg AS (
+            -- Build formatted artist genres as "Child (Parent1, Parent2)" when parents exist;
+            -- otherwise just the genre name. De-duplicate labels per artist.
+            WITH parent_map AS (
+                SELECT gh.child_genre_id,
+                       STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
+                FROM genre_hierarchy gh
+                JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                WHERE COALESCE(pg.active, TRUE)
+                GROUP BY gh.child_genre_id
+            ), labels AS (
+                SELECT DISTINCT TRIM(ag.artist_id) AS artist_id,
+                       CASE
+                           WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
+                           ELSE (g.name || ' (' || pm.parent_names || ')')
+                       END AS label
+                FROM artist_genres ag
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                LEFT JOIN parent_map pm ON pm.child_genre_id = g.genre_id
+                WHERE COALESCE(g.active, TRUE)
+            )
+            SELECT artist_id, list(label) AS artist_genres
+            FROM labels
+            GROUP BY artist_id
         )
         SELECT
-            ts,
-            ms_played,
-            reason_start,
-            reason_end,
-            skipped,
-            incognito_mode,
-            track_id,
-            track_name,
-            artist_id,
-            artist_name,
-            album_name
-        FROM plays
+            p.ts,
+            p.ms_played,
+            p.reason_start,
+            p.reason_end,
+            p.skipped,
+            p.incognito_mode,
+            p.track_id,
+            p.track_name,
+            p.artist_id,
+            p.artist_name,
+            p.album_name,
+            aga.artist_genres
+        FROM plays p
+        LEFT JOIN artist_genres_agg aga ON aga.artist_id = p.artist_id
     """
 
     df = con.execute(sql, params).df()
@@ -395,8 +422,24 @@ def get_filtered_plays(
             },
             inplace=True,
         )
-        # Placeholder for genres until taxonomy joins are wired
-        df["artist_genres"] = [() for _ in range(len(df))]
+        # Normalize list/array to tuples for downstream stability
+        if "artist_genres" not in df.columns:
+            df["artist_genres"] = [() for _ in range(len(df))]
+        else:
+
+            def _to_tuple(v):
+                try:
+                    if v is None:
+                        return ()
+                    if isinstance(v, list | tuple | set):
+                        return tuple(v)
+                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
+                        return tuple(v)
+                except Exception:
+                    pass
+                return ()
+
+            df["artist_genres"] = df["artist_genres"].apply(_to_tuple)
 
     # Ensure dtypes are pandas-friendly
     if "ts" in df.columns:

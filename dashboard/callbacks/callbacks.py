@@ -124,6 +124,12 @@ def _fmt_genres(g):
     """Format a genre value that may be a scalar, list-like, or NaN."""
     if isinstance(g, list | tuple | set):
         return ", ".join(map(str, g))
+    # Handle numpy arrays or other iterables (but not strings/dicts)
+    try:
+        if hasattr(g, "__iter__") and not isinstance(g, str | bytes | dict):
+            return ", ".join(map(str, list(g)))
+    except Exception:
+        pass
     try:
         if pd.isna(g):
             return ""
@@ -377,7 +383,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 levels = df_opt.get("level").astype(int).tolist() if not df_opt.empty else []
                 # Show level in the label; keep raw name as the value
                 options = [
-                    {"label": f"{n} (L{lvl})", "value": n} for n, lvl in zip(names, levels)
+                    {"label": f"{n} (L{lvl})", "value": n}
+                    for n, lvl in zip(names, levels, strict=False)
                 ]
             finally:
                 with contextlib.suppress(Exception):
@@ -1439,18 +1446,15 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         plot_df = trends[trends["artist"].isin(selected_artists)].copy()
         # Attach formatted artist genres for hover
-        try:
-            if "artist" in overall.columns and "artist_genres" in overall.columns and not plot_df.empty:
-                genre_map = (
-                    overall[["artist", "artist_genres"]]
-                    .drop_duplicates("artist")
-                    .assign(artist_genres=lambda d: d["artist_genres"].apply(_fmt_genres))
-                    .set_index("artist")["artist_genres"]
-                    .to_dict()
-                )
-                plot_df["artist_genres"] = plot_df["artist"].map(genre_map)
-        except Exception:
-            pass
+        if "artist" in overall.columns and "artist_genres" in overall.columns and not plot_df.empty:
+            genre_map = (
+                overall[["artist", "artist_genres"]]
+                .drop_duplicates("artist")
+                .assign(artist_genres=lambda d: d["artist_genres"].apply(_fmt_genres))
+                .set_index("artist")["artist_genres"]
+                .to_dict()
+            )
+            plot_df["artist_genres"] = plot_df["artist"].map(genre_map)
         fig = px.line(
             plot_df,
             x="month",

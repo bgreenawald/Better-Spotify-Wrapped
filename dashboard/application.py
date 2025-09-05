@@ -56,13 +56,13 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
                 ve.incognito_mode,
                 ve.track_id,
                 ve.track_name AS master_metadata_track_name,
-                ve.artist_id AS artist_id,
+                REGEXP_REPLACE(TRIM(ve.artist_id), '.*:', '') AS artist_id,
                 ve.artist_name AS master_metadata_album_artist_name,
                 ve.album_name AS master_metadata_album_album_name
             FROM v_plays_enriched ve
         ), artist_genres_agg AS (
-            -- Build formatted artist genres as "Child (Parent1, Parent2)"
-            -- Only include level-1 (child) genres; respect multi-parent mapping.
+            -- Build formatted artist genres as "Child (Parent1, Parent2)" when parents exist;
+            -- otherwise just the genre name. De-duplicate labels per artist.
             WITH parent_map AS (
                 SELECT gh.child_genre_id,
                        STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
@@ -70,19 +70,20 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
                 JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
                 WHERE COALESCE(pg.active, TRUE)
                 GROUP BY gh.child_genre_id
-            )
-            SELECT ag.artist_id,
-                   list(
+            ), labels AS (
+                SELECT DISTINCT TRIM(ag.artist_id) AS artist_id,
                        CASE
-                           WHEN COALESCE(pm.parent_names, '') = '' THEN c.name
-                           ELSE (c.name || ' (' || pm.parent_names || ')')
-                       END
-                   ) AS artist_genres
-            FROM artist_genres ag
-            JOIN dim_genres c ON c.genre_id = ag.genre_id AND c.level = 1
-            LEFT JOIN parent_map pm ON pm.child_genre_id = c.genre_id
-            WHERE COALESCE(c.active, TRUE)
-            GROUP BY ag.artist_id
+                           WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
+                           ELSE (g.name || ' (' || pm.parent_names || ')')
+                       END AS label
+                FROM artist_genres ag
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                LEFT JOIN parent_map pm ON pm.child_genre_id = g.genre_id
+                WHERE COALESCE(g.active, TRUE)
+            )
+            SELECT artist_id, list(label) AS artist_genres
+            FROM labels
+            GROUP BY artist_id
         )
         SELECT p.*, aga.artist_genres
         FROM plays p
@@ -100,11 +101,24 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         if "artist_genres" not in df.columns:
             df["artist_genres"] = [() for _ in range(len(df))]
         else:
-            df["artist_genres"] = df["artist_genres"].apply(
-                lambda v: tuple(v) if isinstance(v, (list, tuple)) else ()
-            )
+
+            def _to_tuple(v):
+                try:
+                    if v is None:
+                        return ()
+                    if isinstance(v, list | tuple | set):
+                        return tuple(v)
+                    # Handle numpy arrays or other iterables (exclude strings/dicts)
+                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
+                        return tuple(v)
+                except Exception:
+                    pass
+                return ()
+
+            df["artist_genres"] = df["artist_genres"].apply(_to_tuple)
         # Ensure ts is datetime
         df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        # End normalization
     return df
 
 

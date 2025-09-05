@@ -81,6 +81,7 @@ def get_most_played_tracks(
             {lim}
         """
         res = con.execute(sql).df()
+        # end query
         # Bring back artist_genres via a lightweight mapping from the filtered_df
         try:
             if "artist_genres" in filtered_df.columns and not res.empty:
@@ -695,38 +696,87 @@ def get_most_played_artists(
             {lim}
         """
         res = con.execute(sql).df()
-        # Reattach artist_genres from filtered_df
+        # Attach artist_genres directly from DB taxonomy to avoid reliance on input frame
         try:
-            if "artist_genres" in filtered_df.columns and not res.empty:
-                # Coerce artist_id to non-null strings for consistent matching
-                res["artist_id"] = res["artist_id"].fillna("").astype(str)
-                m = (
-                    filtered_df[
-                        [
-                            "master_metadata_album_artist_name",
-                            "artist_id",
-                            "artist_genres",
-                        ]
-                    ]
-                    .drop_duplicates(subset=["master_metadata_album_artist_name", "artist_id"])
-                    .rename(columns={"master_metadata_album_artist_name": "artist"})
+            if not res.empty:
+                # Prepare a small relation of artist_ids present
+                aid = res[["artist_id"]].assign(
+                    artist_id=lambda d: d["artist_id"].fillna("").astype(str).str.strip(),
                 )
-                m["artist_id"] = m["artist_id"].fillna("").astype(str)
-                res = res.merge(m, on=["artist", "artist_id"], how="left")
-                # Guarantee artist_genres exists with empty lists where missing
-                if "artist_genres" not in res.columns:
-                    res["artist_genres"] = [[] for _ in range(len(res))]
-                else:
-                    res["artist_genres"] = res["artist_genres"].apply(
-                        lambda v: v if isinstance(v, list | tuple) else []
-                    )
+                aid = aid[aid["artist_id"] != ""].drop_duplicates()
+                if not aid.empty:
+                    rel_ids = "rel_artist_ids"
+                    with contextlib.suppress(Exception):
+                        con.unregister(rel_ids)
+                    con.register(rel_ids, aid)
+                    sql_gen = f"""
+                        WITH parent_map AS (
+                            SELECT gh.child_genre_id,
+                                   STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
+                            FROM genre_hierarchy gh
+                            JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                            WHERE COALESCE(pg.active, TRUE)
+                            GROUP BY gh.child_genre_id
+                        ), labels AS (
+                            SELECT DISTINCT REGEXP_REPLACE(TRIM(ag.artist_id), '.*:', '') AS artist_id,
+                                   CASE
+                                       WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
+                                       ELSE (g.name || ' (' || pm.parent_names || ')')
+                                   END AS label
+                            FROM artist_genres ag
+                            JOIN dim_genres g ON g.genre_id = ag.genre_id
+                            LEFT JOIN parent_map pm ON pm.child_genre_id = g.genre_id
+                            JOIN {rel_ids} r ON r.artist_id = REGEXP_REPLACE(TRIM(ag.artist_id), '.*:', '')
+                            WHERE COALESCE(g.active, TRUE)
+                        )
+                        SELECT artist_id, list(label) AS artist_genres
+                        FROM labels
+                        GROUP BY artist_id
+                    """
+                    genres_map = con.execute(sql_gen).df()
+                    if not genres_map.empty:
+                        res = res.merge(genres_map, on="artist_id", how="left")
         except Exception:
-            if "artist_genres" not in res.columns:
-                res["artist_genres"] = [[] for _ in range(len(res))]
-            else:
-                res["artist_genres"] = res["artist_genres"].apply(
-                    lambda v: v if isinstance(v, list | tuple) else []
-                )
+            pass
+        # Fallback to input-mapped genres if still missing
+        if "artist_genres" not in res.columns:
+            try:
+                if "artist_genres" in filtered_df.columns and not res.empty:
+                    res["artist_id"] = res["artist_id"].fillna("").astype(str)
+                    m = (
+                        filtered_df[
+                            [
+                                "master_metadata_album_artist_name",
+                                "artist_id",
+                                "artist_genres",
+                            ]
+                        ]
+                        .drop_duplicates(subset=["master_metadata_album_artist_name", "artist_id"])
+                        .rename(columns={"master_metadata_album_artist_name": "artist"})
+                    )
+                    m["artist_id"] = m["artist_id"].fillna("").astype(str)
+                    res = res.merge(m, on=["artist", "artist_id"], how="left")
+            except Exception:
+                pass
+        # Normalize column to list for downstream formatting
+        if "artist_genres" not in res.columns:
+            res["artist_genres"] = [[] for _ in range(len(res))]
+        else:
+
+            def _to_list(v):
+                try:
+                    if v is None:
+                        return []
+                    if isinstance(v, list | tuple | set):
+                        return list(v)
+                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
+                        return list(v)
+                except Exception:
+                    pass
+                return []
+
+            res["artist_genres"] = res["artist_genres"].apply(_to_list)
+        # end normalization
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
