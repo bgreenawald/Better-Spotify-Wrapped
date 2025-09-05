@@ -1,6 +1,6 @@
 import contextlib
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 
 import dash
@@ -429,12 +429,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return _merge_selected(options, selected_values)
 
     @app.callback(
-        [
-            Output("date-range", "start_date"),
-            Output("date-range", "end_date"),
-        ],
+        Output("date-range-mc", "value", allow_duplicate=True),
         Input("reset-date-range", "n_clicks"),
         State("user-id-dropdown", "value"),
+        prevent_initial_call=True,
     )
     def reset_year_range_filter(n_clicks: int, user_id: str | None):
         """Reset the date picker to span the full range of the data.
@@ -455,7 +453,44 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         max_ts = df_user["ts"].max()
         start = datetime(min_ts.year, min_ts.month, min_ts.day)
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
-        return start, end
+        return [start, end]
+
+    # Preset chips -> update Mantine range value
+    @app.callback(
+        Output("date-range-mc", "value", allow_duplicate=True),
+        Input("date-range-preset", "value"),
+        State("user-id-dropdown", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_date_preset(preset: str, user_id: str | None):
+        if not preset or preset == "custom":
+            raise PreventUpdate
+        df_user = df if not user_id else df[df.get("user_id") == user_id]
+        if df_user.empty:
+            df_user = df
+        min_ts = df_user["ts"].min()
+        max_ts = df_user["ts"].max()
+        end = datetime(max_ts.year, max_ts.month, max_ts.day)
+        if preset == "30d":
+            start = end - timedelta(days=30)
+        elif preset == "ytd":
+            start = datetime(end.year, 1, 1)
+        elif preset == "all":
+            start = datetime(min_ts.year, min_ts.month, min_ts.day)
+        else:
+            raise PreventUpdate
+        return [start, end]
+
+    # When user manually picks dates, set preset to "custom"
+    @app.callback(
+        Output("date-range-preset", "value"),
+        Input("date-range-mc", "value"),
+        prevent_initial_call=True,
+    )
+    def set_preset_custom_on_manual_change(_value):
+        if not _value or len(_value) != 2:
+            raise PreventUpdate
+        return "custom"
 
     # --- Wrapped Tab (Tab 1): Build a single data store, then per-figure callbacks ---
 
@@ -580,9 +615,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     @app.callback(
         Output("top-tracks-graph", "figure"),
         Input("tab-1-data", "data"),
+        State("theme-store", "data"),
     )
-    def render_top_tracks_figure(data):
-        theme = get_plotly_theme(False)
+    def render_top_tracks_figure(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "top_tracks" not in data:
             return {"data": [], "layout": theme}
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
@@ -611,9 +648,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     @app.callback(
         Output("top-artists-graph", "figure"),
         Input("tab-1-data", "data"),
+        State("theme-store", "data"),
     )
-    def render_top_artists_figure(data):
-        theme = get_plotly_theme(False)
+    def render_top_artists_figure(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "top_artists" not in data:
             return {"data": [], "layout": theme}
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
@@ -644,9 +683,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     @app.callback(
         Output("top-albums-graph", "figure"),
         Input("tab-1-data", "data"),
+        State("theme-store", "data"),
     )
-    def render_top_albums_figure(data):
-        theme = get_plotly_theme(False)
+    def render_top_albums_figure(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "top_albums" not in data:
             return {"data": [], "layout": theme}
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
@@ -677,9 +718,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     @app.callback(
         Output("top-genres-graph", "figure"),
         Input("tab-1-data", "data"),
+        State("theme-store", "data"),
     )
-    def render_top_genres_figure(data):
-        theme = get_plotly_theme(False)
+    def render_top_genres_figure(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
             return {"data": [], "layout": theme}
         # Prefer precomputed hierarchical rows when available
@@ -777,9 +820,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     @app.callback(
         Output("daily-song-heatmap", "figure"),
         Input("tab-1-data", "data"),
+        State("theme-store", "data"),
     )
-    def render_daily_heatmap(data):
-        theme = get_plotly_theme(False)
+    def render_daily_heatmap(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "daily_counts" not in data:
             return {"data": [], "layout": theme}
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
@@ -918,8 +963,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Output("tab-2-data", "data"),
         [
             Input("user-id-dropdown", "value"),
-            Input("date-range", "start_date"),
-            Input("date-range", "end_date"),
+            Input("date-range-mc", "value"),
             Input("exclude-december", "value"),
             Input("remove-incognito", "value"),
             Input("excluded-tracks-filter-dropdown", "value"),
@@ -931,8 +975,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     )
     def update_tab_2_data(
         user_id,
-        start_date,
-        end_date,
+        date_range,
         exclude_december,
         remove_incognito,
         excluded_tracks,
@@ -950,6 +993,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         con = get_db_connection()
         try:
+            if not date_range or len(date_range) != 2:
+                raise PreventUpdate
+            start_date, end_date = date_range
             filtered = get_filtered_plays(
                 con,
                 user_id=user_id,
@@ -1077,15 +1123,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         [
             Input("metric-dropdown", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_trend_dashboard(selected_metric, data):
+    def update_trend_dashboard(selected_metric, data, theme_data):
         """Render monthly line chart for the selected metric.
 
         Uses a default (light) theme; a separate restyle-only callback
         applies the active theme without triggering recomputation.
         """
-        theme = get_plotly_theme(False)
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "monthly_stats" not in data:
             raise PreventUpdate
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
@@ -1122,15 +1170,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("genre-display-type-radio", "value"),
             Input("genre-hide-level0-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_genre_trends_graph(selected_genres, top_n, display_type, hide_level0, data):
+    def update_genre_trends_graph(
+        selected_genres, top_n, display_type, hide_level0, data, theme_data
+    ):
         """Update genre trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
-        theme = get_plotly_theme(False)
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "genre_trends" not in data or "overall_genres" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
@@ -1217,15 +1269,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_artist_trends_graph(selected_artists, top_n, display_type, data):
+    def update_artist_trends_graph(selected_artists, top_n, display_type, data, theme_data):
         """Update artist trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
-        theme = get_plotly_theme(False)
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "artist_trends" not in data or "overall_artists" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
@@ -1294,15 +1348,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),
             Input("tab-2-data", "data"),
+            Input("theme-store", "data"),
         ],
     )
-    def update_track_trends_graph(selected_tracks, top_n, display_type, data):
+    def update_track_trends_graph(selected_tracks, top_n, display_type, data, theme_data):
         """Update track trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
-        theme = get_plotly_theme(False)
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
         if not data or "track_trends" not in data or "overall_tracks" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
@@ -1442,3 +1498,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         State("track-trends-graph", "figure"),
         prevent_initial_call=True,
     )
+
+    # Update Mantine provider theme for dmc components
+    @app.callback(
+        Output("mantine-provider", "forceColorScheme"),
+        Output("mantine-provider", "theme"),
+        Input("theme-store", "data"),
+    )
+    def set_mantine_theme(theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        scheme = "dark" if is_dark else "light"
+        return scheme, {"primaryColor": "green"}

@@ -13,8 +13,8 @@ def create_graph_style():
         "paper_bgcolor": "white",
         "plot_bgcolor": "white",
         "font": {"family": "Segoe UI, sans-serif"},
-        "margin": {"t": 30, "b": 30, "l": 200, "r": 30},
-        "height": 450,
+        "margin": {"t": 30, "b": 30, "l": 120, "r": 30},
+        "height": 440,
         "yaxis": {
             "gridcolor": "#eee",
             "automargin": True,
@@ -48,7 +48,7 @@ def create_top_tracks_graph(top_tracks=None):
             hover_data=["artist"],
         )
         fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954")
+        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
 
         # Truncate long track names for readability
         truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["track_name"]]
@@ -102,7 +102,7 @@ def create_top_artists_graph(top_artists=None):
             hover_data=["unique_tracks"],
         )
         fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954")
+        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
 
     return html.Div(
         className="graph-card card",
@@ -209,7 +209,7 @@ def create_top_albums_graph(top_albums=None):
             hover_data=["artist", "tracks_played", "total_tracks"],
         )
         fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954")
+        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
 
         # Truncate long album names for readability
         truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["album_name"]]
@@ -363,9 +363,11 @@ def create_daily_top_heatmap(
             "Date: %{customdata[0]}<br>Track: %{customdata[1]}<br>Plays: %{z}<extra></extra>"
         ),
         colorbar={
-            "title": "Plays",
+            "title": {
+                "text": "Plays",
+                "font": {"color": "#e0e0e0" if is_dark else "#000000"},
+            },
             "tickfont": {"color": "#e0e0e0" if is_dark else "#000000"},
-            "titlefont": {"color": "#e0e0e0" if is_dark else "#000000"},
         },
     )
 

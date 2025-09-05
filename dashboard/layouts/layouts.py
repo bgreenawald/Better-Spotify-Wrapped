@@ -22,6 +22,9 @@ def _create_user_selector(df: pd.DataFrame) -> Component:
                 options=[{"label": u, "value": u} for u in users],
                 value=default_user,
                 clearable=False,
+                placeholder="Select user…",
+                persistence=True,
+                persistence_type="local",
                 className="dropdown",
             ),
         ],
@@ -64,6 +67,7 @@ def create_layout(df: pd.DataFrame) -> Component:
                                                     "🌙",
                                                     className="theme-toggle-label",
                                                     id="theme-icon",
+                                                    title="Toggle dark mode",
                                                 ),
                                                 dbc.Switch(
                                                     id="theme-toggle",
@@ -85,10 +89,14 @@ def create_layout(df: pd.DataFrame) -> Component:
                     html.Div(
                         [
                             dbc.Button(
-                                "Global Settings",
+                                [
+                                    "Global Settings",
+                                    html.Span(" ▼"),
+                                ],
                                 id="collapse-button",
                                 className="mb-3 global-settings-button",
                                 color="primary",
+                                size="sm",
                                 n_clicks=0,
                             ),
                             dbc.Collapse(
@@ -110,11 +118,11 @@ def create_layout(df: pd.DataFrame) -> Component:
                     dcc.Tabs(
                         [
                             dcc.Tab(
-                                label="Wrapped",
+                                label="🎁 Wrapped",
                                 children=[create_tab_one_layout(df)],
                             ),
                             dcc.Tab(
-                                label="Trends",
+                                label="📈 Trends",
                                 children=[create_tab_two_layout(df)],
                             ),
                         ]
@@ -223,6 +231,10 @@ def create_tab_two_layout(
                         ],
                         value="listening",
                         className="radio-group",
+                        inputClassName="radio-pill",
+                        labelClassName="radio-pill-label",
+                        persistence=True,
+                        persistence_type="local",
                     ),
                 ],
                 className="card",

@@ -1,8 +1,22 @@
 /* General styles */
+:root {
+    --spotify-green: #1DB954;
+    --bg: #f5f6fa;
+    --text: #222;
+    --muted: #667;
+}
+
+.dark-theme {
+    --spotify-green: #1DB954; /* keep brand color constant */
+    --bg: #121212;
+    --text: #e0e0e0;
+    --muted: #aaaaaa;
+}
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
-    background-color: #f5f6fa;
+    background-color: var(--bg);
+    color: var(--text);
 }
 
 .container {
@@ -23,11 +37,14 @@ body {
 
 /* Header styles */
 .dashboard-header {
-    background-color: #1DB954;  /* Spotify green */
+    background-color: var(--spotify-green);  /* Spotify green */
     color: white;
     padding: 20px 0;
     margin-bottom: 30px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    position: sticky;
+    top: 0;
+    z-index: 1030;
 }
 
 .dashboard-title {
@@ -43,7 +60,15 @@ body {
     padding: 20px;
     margin-bottom: 20px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: box-shadow .15s ease;
 }
+
+.card:hover {
+    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+}
+
+.card-title { margin: 0 0 12px; font-weight: 600; }
+.card-subtitle { margin-top: 6px; color: var(--muted); font-size: 0.95em; }
 
 /* Filter styles */
 .filters-section {
@@ -123,8 +148,8 @@ body {
 
 /* Button styles */
 .global-settings-button {
-    --bs-btn-bg: #1DB954;
-    --bs-btn-border-color: #1DB954;
+    --bs-btn-bg: var(--spotify-green);
+    --bs-btn-border-color: var(--spotify-green);
     --bs-btn-hover-bg: #269a4f;
     --bs-btn-hover-border-color: #269a4f;
 }
@@ -154,21 +179,21 @@ body {
 
 /* Dark theme styles */
 .dark-theme {
-    background-color: #121212;
-    color: #e0e0e0;
+    background-color: var(--bg);
+    color: var(--text);
 }
 
 /* Lightweight skeleton placeholder */
 /* skeleton shimmer removed */
 
 .dark-theme body {
-    background-color: #121212;
-    color: #e0e0e0;
+    background-color: var(--bg);
+    color: var(--text);
 }
 
 .dark-theme .card {
     background-color: #1e1e1e;
-    color: #e0e0e0;
+    color: var(--text);
     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
@@ -177,9 +202,7 @@ body {
     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
-.dark-theme .filter-label {
-    color: #e0e0e0;
-}
+.dark-theme .filter-label { color: var(--text); }
 
 .dark-theme .stats-table th {
     background-color: #2a2a2a;
@@ -188,7 +211,7 @@ body {
 
 .dark-theme .stats-table td {
     border-bottom: 1px solid #333;
-    color: #e0e0e0;
+    color: var(--text);
 }
 
 .dark-theme .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
@@ -225,6 +248,7 @@ body {
 .dark-theme .Select-menu-outer {
     background-color: #2a2a2a !important;
     border-color: #444 !important;
+    z-index: 1051 !important;
 }
 
 .dark-theme .Select-option {
@@ -237,7 +261,7 @@ body {
 }
 
 .dark-theme .Select-option.is-selected {
-    background-color: #1DB954 !important;
+    background-color: var(--spotify-green) !important;
 }
 
 .dark-theme .DateInput_input {
@@ -263,7 +287,7 @@ body {
 }
 
 .dark-theme .rc-slider-track {
-    background-color: #1DB954 !important;
+    background-color: var(--spotify-green) !important;
 }
 
 .dark-theme .rc-slider-rail {
@@ -271,8 +295,8 @@ body {
 }
 
 .dark-theme .rc-slider-handle {
-    border-color: #1DB954 !important;
-    background-color: #1DB954 !important;
+    border-color: var(--spotify-green) !important;
+    background-color: var(--spotify-green) !important;
 }
 
 .dark-theme .tab {
@@ -283,6 +307,68 @@ body {
 
 .dark-theme .tab--selected {
     background-color: #1e1e1e !important;
-    color: #1DB954 !important;
-    border-color: #1DB954 !important;
+    color: var(--spotify-green) !important;
+    border-color: var(--spotify-green) !important;
+}
+
+/* Light theme base for Tabs */
+.tab {
+    background-color: #ffffff !important;
+    color: #333 !important;
+    border: 1px solid #ddd !important;
+}
+
+.tab--selected {
+    background-color: #ffffff !important;
+    color: var(--spotify-green) !important;
+    border-color: var(--spotify-green) !important;
+}
+
+/* Radio pills */
+.radio-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.radio-group input[type="radio"].radio-pill { display: none; }
+.radio-group label { cursor: pointer; }
+.radio-group .radio-pill-label {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 999px;
+    color: #333;
+    background: #fff;
+    transition: all .12s ease;
+}
+.dark-theme .radio-group .radio-pill-label {
+    border-color: #444;
+    color: var(--text);
+    background: #2a2a2a;
+}
+.radio-group .radio-pill-label:hover { border-color: var(--spotify-green); }
+.radio-group .radio-pill-label:has(input[type="radio"].radio-pill:checked) {
+    border-color: var(--spotify-green);
+    color: #fff;
+    background: var(--spotify-green);
+}
+.radio-group .radio-pill-label:has(input[type="radio"].radio-pill:focus-visible) {
+    outline: 2px solid var(--spotify-green);
+    outline-offset: 2px;
+}
+
+/* Dropdown menu layering and size */
+.Select-menu-outer {
+    max-height: 260px !important;
+    overflow-y: auto !important;
+    z-index: 1051 !important;
+}
+
+/* Focus visibility */
+.global-settings-button:focus-visible,
+.tab:focus-visible,
+.card:focus-within,
+.Select-control:focus-visible {
+    outline: 2px solid var(--spotify-green);
+    outline-offset: 2px;
+}
+
+/* Smooth collapse */
+.collapse, .collapsing {
+    transition: height .2s ease, padding .2s ease;
 }

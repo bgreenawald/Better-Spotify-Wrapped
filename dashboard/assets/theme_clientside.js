@@ -62,7 +62,13 @@ window.dash_clientside.theme = (function () {
           trace.colorscale = isDark ? 'Viridis' : 'Greens';
           var cb = isObject(trace.colorbar) ? trace.colorbar : {};
           cb.tickfont = { color: isDark ? '#e0e0e0' : '#000000' };
-          cb.titlefont = { color: isDark ? '#e0e0e0' : '#000000' };
+          var currentTitleText = '';
+          if (isObject(cb.title) && typeof cb.title.text === 'string') {
+            currentTitleText = cb.title.text;
+          } else if (typeof cb.title === 'string') {
+            currentTitleText = cb.title;
+          }
+          cb.title = { text: currentTitleText, font: { color: isDark ? '#e0e0e0' : '#000000' } };
           trace.colorbar = cb;
         }
         return trace;
