@@ -192,16 +192,7 @@ def get_top_albums(
             ]
         )
 
-    # Helper to extract track_id from spotify URI
-    def _extract_track_id(uri: Any) -> str | None:
-        if not isinstance(uri, str):
-            return None
-        if uri.startswith("spotify:track:"):
-            return uri.split(":")[-1]
-        if "open.spotify.com/track/" in uri:
-            part = uri.split("open.spotify.com/track/")[-1]
-            return part.split("?")[0]
-        return None
+    # Use shared extractor from utils to normalize URIs
 
     # Require DuckDB backend
     use_duckdb = (con is not None) or (db_path is not None)

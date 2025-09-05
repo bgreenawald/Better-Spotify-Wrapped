@@ -127,19 +127,6 @@ def get_genre_trends(
             - rank (float): Rank of genre by plays within month
     """
 
-    # Helper to extract track_id from spotify URI
-    def _extract_track_id(uri: Any) -> str | None:
-        if not isinstance(uri, str):
-            return None
-        if uri.startswith("spotify:track:"):
-            return uri.split(":")[-1]
-        if "open.spotify.com/track/" in uri:
-            part = uri.split("open.spotify.com/track/")[-1]
-            return part.split("?")[0]
-        if ":" in uri:
-            return uri.split(":")[-1]
-        return None
-
     use_duckdb = (con is not None) or (db_path is not None)
     if not use_duckdb:
         raise ValueError("get_genre_trends requires a DuckDB connection or db_path.")

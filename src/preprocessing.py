@@ -106,9 +106,11 @@ def filter_songs(
         else:
             mask &= history_df["user_id"].eq(user_id)
 
-    # Exclude episodes (podcasts) and missing track URIs
-    mask &= history_df["episode_name"].isna()
-    mask &= history_df["spotify_track_uri"].notna()
+    # Exclude episodes (podcasts) when column exists and filter to rows with track URI if present
+    if "episode_name" in history_df.columns:
+        mask &= history_df["episode_name"].isna()
+    if "spotify_track_uri" in history_df.columns:
+        mask &= history_df["spotify_track_uri"].notna()
 
     # Apply date range filters
     if start_date is not None:
@@ -120,34 +122,45 @@ def filter_songs(
     if exclude_december:
         mask &= history_df["ts"].dt.month < 12
 
-    # Remove skipped tracks and zero-playtime sessions
-    mask &= ~history_df["skipped"]
-    mask &= history_df["ms_played"] > 0
+    # Remove skipped tracks and zero-playtime sessions (default-safe if columns absent)
+    if "skipped" in history_df.columns:
+        mask &= ~history_df["skipped"].fillna(False)
+    ms_series = history_df.get("ms_played")
+    if ms_series is not None:
+        mask &= ms_series.fillna(0) > 0
 
     # Exclude plays with unknown start or end reasons
-    mask &= history_df["reason_start"].ne("unknown")
-    mask &= history_df["reason_end"].ne("unknown")
+    rs = history_df.get("reason_start")
+    if rs is not None:
+        mask &= rs.ne("unknown").fillna(True)
+    re = history_df.get("reason_end")
+    if re is not None:
+        mask &= re.ne("unknown").fillna(True)
 
     # Optionally remove incognito-mode plays
-    if remove_incognito:
-        mask &= ~history_df["incognito_mode"]
+    if remove_incognito and "incognito_mode" in history_df.columns:
+        mask &= ~history_df["incognito_mode"].fillna(False)
 
     # Optionally exclude specific tracks, artists, albums
-    if excluded_tracks:
+    if excluded_tracks and "master_metadata_track_name" in history_df.columns:
         mask &= ~history_df["master_metadata_track_name"].isin(excluded_tracks)
-    if excluded_artists:
+    if excluded_artists and "master_metadata_album_artist_name" in history_df.columns:
         mask &= ~history_df["master_metadata_album_artist_name"].isin(excluded_artists)
-    if excluded_albums:
+    if excluded_albums and "master_metadata_album_album_name" in history_df.columns:
         mask &= ~history_df["master_metadata_album_album_name"].isin(excluded_albums)
 
     # Optionally exclude plays by genre
-    if excluded_genres:
+    if excluded_genres and "artist_genres" in history_df.columns:
         excluded_genres_set = set(excluded_genres)
         mask &= ~history_df["artist_genres"].apply(
             lambda genres: (
                 False
-                if pd.isna(genres) or not hasattr(genres, "__iter__") or isinstance(genres, str)
-                else any(genre in excluded_genres_set for genre in genres)
+                if pd.isna(genres)
+                else (
+                    any(str(g) in excluded_genres_set for g in genres)
+                    if hasattr(genres, "__iter__") and not isinstance(genres, str)
+                    else str(genres) in excluded_genres_set
+                )
             )
         )
 
