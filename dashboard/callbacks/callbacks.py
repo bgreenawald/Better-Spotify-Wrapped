@@ -298,7 +298,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
@@ -307,7 +308,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
                     "AND ve.artist_name IS NOT NULL "
                     "ORDER BY ve.artist_name "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -330,7 +330,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
@@ -339,7 +340,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "WHERE ve.user_id = ? AND ve.album_name ILIKE '%' || ? || '%' "
                     "AND ve.album_name IS NOT NULL "
                     "ORDER BY ve.album_name "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -362,13 +362,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
                     "SELECT name FROM dim_genres "
                     "WHERE COALESCE(active, TRUE) AND (name ILIKE '%' || ? || '%' OR slug ILIKE '%' || ? || '%') "
-                    "ORDER BY name LIMIT 25"
+                    "ORDER BY name"
                 )
                 df_opt = con.execute(sql, [search, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].astype(str).tolist()]
@@ -391,7 +392,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
@@ -400,7 +402,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "WHERE ve.user_id = ? AND ve.track_name ILIKE '%' || ? || '%' "
                     "AND ve.track_name IS NOT NULL "
                     "ORDER BY ve.track_name "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -423,7 +424,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
@@ -432,7 +434,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
                     "AND ve.artist_name IS NOT NULL "
                     "ORDER BY ve.artist_name "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -455,7 +456,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
@@ -464,7 +466,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "WHERE ve.user_id = ? AND (ve.track_name ILIKE '%' || ? || '%' OR ve.artist_name ILIKE '%' || ? || '%') "
                     "AND ve.track_name IS NOT NULL AND ve.artist_name IS NOT NULL "
                     "ORDER BY track_artist "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search, search]).df()
                 vals = df_opt["track_artist"].tolist()

@@ -355,7 +355,7 @@ def get_top_artist_genres(
             con.register("df_play_counts", play_counts)
 
             # Compute per-genre totals and top artists string in a single SQL pass
-        sql = f"""
+            sql = f"""
             WITH primary_artist AS (
                 SELECT track_id, artist_id
                 FROM v_primary_artist_per_track

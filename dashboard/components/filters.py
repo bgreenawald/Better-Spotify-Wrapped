@@ -65,7 +65,7 @@ def create_global_settings() -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search artists…",
+                                placeholder="Type at least 3 characters to search artists…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -81,7 +81,7 @@ def create_global_settings() -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search genres…",
+                                placeholder="Type at least 3 characters to search genres…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -102,7 +102,7 @@ def create_global_settings() -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search albums…",
+                                placeholder="Type at least 3 characters to search albums…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -118,7 +118,7 @@ def create_global_settings() -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search tracks…",
+                                placeholder="Type at least 3 characters to search tracks…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -370,7 +370,7 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search artists…",
+                                placeholder="Type at least 3 characters to search artists…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -451,7 +451,7 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search tracks…",
+                                placeholder="Type at least 3 characters to search tracks…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
