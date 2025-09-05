@@ -1,6 +1,3 @@
--- ========================
--- Users & Auth (if needed)
--- ========================
 CREATE TABLE dim_users (
   user_id         TEXT PRIMARY KEY,      -- internal UUID
   display_name    TEXT,
@@ -8,9 +5,6 @@ CREATE TABLE dim_users (
   created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ========================
--- Tracks, Albums, Artists
--- ========================
 CREATE TABLE dim_tracks (
   track_id         TEXT PRIMARY KEY, -- Spotify ID
   track_mbid TEXT,
@@ -42,9 +36,6 @@ CREATE TABLE bridge_track_artists (
   PRIMARY KEY (track_id, artist_id, role)
 );
 
--- ========================
--- Facts: Listening history
--- ========================
 CREATE TABLE fact_plays (
   play_id       TEXT PRIMARY KEY,         -- UUID
   user_id       TEXT NOT NULL REFERENCES dim_users(user_id),
@@ -66,15 +57,16 @@ CREATE TABLE fact_plays (
   UNIQUE(user_id, track_id, played_at)    -- dedup key
 );
 
--- ========================
--- Canonical vocabularies
--- ========================
+-- DuckDB: prefer an explicit sequence to auto-increment
+CREATE SEQUENCE IF NOT EXISTS seq_dim_genres START 1;
+
+-- Canonical genres (slug-based external key; hierarchy modeled separately)
 CREATE TABLE dim_genres (
-  genre_id       INTEGER PRIMARY KEY,
-  name           TEXT UNIQUE NOT NULL,
-  parent_genre_id INTEGER,
-  level          INTEGER,
-  active         BOOLEAN DEFAULT TRUE
+  genre_id   INTEGER PRIMARY KEY DEFAULT nextval('seq_dim_genres'),
+  slug       TEXT UNIQUE NOT NULL,   -- stable external key
+  name       TEXT NOT NULL,          -- display name
+  level      INTEGER,                -- 0 = parent, 1 = child, etc.
+  active     BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE dim_moods (
@@ -83,9 +75,6 @@ CREATE TABLE dim_moods (
   active         BOOLEAN DEFAULT TRUE
 );
 
--- ========================
--- Raw evidence & mappings
--- ========================
 CREATE TABLE tag_evidence (
   entity_type    TEXT NOT NULL,    -- 'track' | 'artist' | 'release'
   entity_key     TEXT NOT NULL,    -- track_id / artist_id / album_id
@@ -95,14 +84,6 @@ CREATE TABLE tag_evidence (
   weight_raw     REAL,             -- source-provided weight, or 1.0
   observed_at    TIMESTAMP NOT NULL,
   PRIMARY KEY (entity_type, entity_key, source, tag_raw, tag_kind)
-);
-
-CREATE TABLE dim_genres (
-  genre_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-  slug       TEXT UNIQUE NOT NULL,   -- stable external key
-  name       TEXT NOT NULL,          -- display
-  level      INTEGER,                -- advisory
-  active     BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE map_genre (
@@ -131,9 +112,6 @@ CREATE TABLE map_mood (
   PRIMARY KEY (source, tag_raw)
 );
 
--- ========================
--- Normalized track-level
--- ========================
 CREATE TABLE track_genres (
   track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
   genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
@@ -155,9 +133,6 @@ CREATE TABLE track_moods (
   PRIMARY KEY (track_id, mood_id)
 );
 
--- ========================
--- User rollups
--- ========================
 CREATE TABLE agg_user_genre_daily (
   user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
   date           DATE NOT NULL,
