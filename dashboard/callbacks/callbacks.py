@@ -367,12 +367,18 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT name FROM dim_genres "
+                    "SELECT name, COALESCE(level, 0) AS level "
+                    "FROM dim_genres "
                     "WHERE COALESCE(active, TRUE) AND (name ILIKE '%' || ? || '%' OR slug ILIKE '%' || ? || '%') "
-                    "ORDER BY name"
+                    "ORDER BY level, name"
                 )
                 df_opt = con.execute(sql, [search, search]).df()
-                options = [{"label": n, "value": n} for n in df_opt["name"].astype(str).tolist()]
+                names = df_opt.get("name").astype(str).tolist() if not df_opt.empty else []
+                levels = df_opt.get("level").astype(int).tolist() if not df_opt.empty else []
+                # Show level in the label; keep raw name as the value
+                options = [
+                    {"label": f"{n} (L{lvl})", "value": n} for n, lvl in zip(names, levels)
+                ]
             finally:
                 with contextlib.suppress(Exception):
                     con.close()
