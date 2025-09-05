@@ -71,7 +71,7 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
                 WHERE COALESCE(pg.active, TRUE)
                 GROUP BY gh.child_genre_id
             ), labels AS (
-                SELECT DISTINCT TRIM(ag.artist_id) AS artist_id,
+                SELECT DISTINCT COALESCE(TRIM(REGEXP_REPLACE(ag.artist_id, '.*:', '')), '') AS artist_id,
                        CASE
                            WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
                            ELSE (g.name || ' (' || pm.parent_names || ')')

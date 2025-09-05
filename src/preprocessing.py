@@ -127,7 +127,8 @@ def filter_songs(
         mask &= ~history_df["skipped"].fillna(False)
     ms_series = history_df.get("ms_played")
     if ms_series is not None:
-        mask &= ms_series.fillna(0) > 0
+        ms_series_coerced = pd.to_numeric(ms_series, errors="coerce").fillna(0)
+        mask &= ms_series_coerced > 0
 
     # Exclude plays with unknown start or end reasons
     rs = history_df.get("reason_start")
@@ -151,15 +152,15 @@ def filter_songs(
 
     # Optionally exclude plays by genre
     if excluded_genres and "artist_genres" in history_df.columns:
-        excluded_genres_set = set(excluded_genres)
+        excluded_genres_set = {g.lower() for g in excluded_genres}
         mask &= ~history_df["artist_genres"].apply(
             lambda genres: (
-                False
-                if pd.isna(genres)
+                any(str(g).lower() in excluded_genres_set for g in genres)
+                if hasattr(genres, "__iter__") and not isinstance(genres, str)
                 else (
-                    any(str(g) in excluded_genres_set for g in genres)
-                    if hasattr(genres, "__iter__") and not isinstance(genres, str)
-                    else str(genres) in excluded_genres_set
+                    str(genres).lower() in excluded_genres_set
+                    if genres is not None and not pd.isna(genres)
+                    else False
                 )
             )
         )

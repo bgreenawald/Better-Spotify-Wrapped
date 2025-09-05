@@ -1455,13 +1455,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 .to_dict()
             )
             plot_df["artist_genres"] = plot_df["artist"].map(genre_map)
+        # Build hover_data conditionally
+        hover_data = []
+        if "artist_genres" in plot_df.columns:
+            hover_data.append("artist_genres")
+        if "top_tracks" in plot_df.columns:
+            hover_data.append("top_tracks")
         fig = px.line(
             plot_df,
             x="month",
             y=y_col,
             color="artist",
             labels={"month": "Month", y_col: y_title, "artist": "Artist"},
-            hover_data=["artist_genres", "top_tracks"],
+            hover_data=hover_data if hover_data else None,
             title="Artist Trends Over Time",
         )
         fig.update_layout(
