@@ -369,27 +369,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if search:
             con = get_db_connection()
             try:
-                try:
-                    sql = (
-                        "SELECT DISTINCT g.name AS name "
-                        "FROM fact_plays p "
-                        "JOIN track_genres tg ON tg.track_id = p.track_id "
-                        "JOIN dim_genres g ON g.genre_id = tg.genre_id "
-                        "WHERE p.user_id = ? AND g.name ILIKE '%' || ? || '%' "
-                        "AND g.name IS NOT NULL "
-                        "ORDER BY g.name "
-                        "LIMIT 25"
-                    )
-                    df_opt = con.execute(sql, [user_id, search]).df()
-                except Exception:
-                    # Fallback if normalized genre tables are not present yet
-                    sql_fb = (
-                        "SELECT name FROM dim_genres "
-                        "WHERE name ILIKE '%' || ? || '%' "
-                        "ORDER BY name LIMIT 25"
-                    )
-                    df_opt = con.execute(sql_fb, [search]).df()
-                options = [{"label": n, "value": n} for n in df_opt.iloc[:, 0].astype(str).tolist()]
+                sql = (
+                    "SELECT name FROM dim_genres "
+                    "WHERE COALESCE(active, TRUE) AND (name ILIKE '%' || ? || '%' OR slug ILIKE '%' || ? || '%') "
+                    "ORDER BY name LIMIT 25"
+                )
+                df_opt = con.execute(sql, [search, search]).df()
+                options = [{"label": n, "value": n} for n in df_opt["name"].astype(str).tolist()]
             finally:
                 with contextlib.suppress(Exception):
                     con.close()

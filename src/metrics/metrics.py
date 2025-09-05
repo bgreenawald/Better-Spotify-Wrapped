@@ -333,20 +333,6 @@ def get_top_artist_genres(
             'genre', 'play_count', 'percentage', 'top_artists'.
     """
 
-    # Helper to extract track_id from spotify URI
-    def _extract_track_id(uri: Any) -> str | None:
-        if not isinstance(uri, str):
-            return None
-        if uri.startswith("spotify:track:"):
-            return uri.split(":")[-1]
-        if "open.spotify.com/track/" in uri:
-            part = uri.split("open.spotify.com/track/")[-1]
-            return part.split("?")[0]
-        # Fallback to last colon segment if present
-        if ":" in uri:
-            return uri.split(":")[-1]
-        return None
-
     use_duckdb = (con is not None) or (db_path is not None)
     if use_duckdb:
         try:

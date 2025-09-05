@@ -105,7 +105,7 @@ def create_layout(df: pd.DataFrame) -> Component:
                                     dbc.CardBody(
                                         [
                                             _create_user_selector(df),
-                                            create_global_settings(df),
+                                            create_global_settings(),
                                         ]
                                     )
                                 ),
