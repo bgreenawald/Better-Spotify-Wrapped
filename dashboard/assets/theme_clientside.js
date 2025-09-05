@@ -23,7 +23,18 @@ window.dash_clientside.theme = (function () {
         colorway: [
           '#1DB954', '#1ed760', '#21e065', '#5eb859',
           '#7dd069', '#9be082', '#b5e8a3'
-        ]
+        ],
+        // Ensure sunburst/treemap sectors use Spotify-green palette
+        sunburstcolorway: [
+          '#1DB954', '#1ed760', '#21e065', '#5eb859',
+          '#7dd069', '#9be082', '#b5e8a3'
+        ],
+        extendsunburstcolors: true,
+        treemapcolorway: [
+          '#1DB954', '#1ed760', '#21e065', '#5eb859',
+          '#7dd069', '#9be082', '#b5e8a3'
+        ],
+        extendtreemapcolors: true
       };
     }
     return {
@@ -32,7 +43,22 @@ window.dash_clientside.theme = (function () {
       plot_bgcolor: 'white',
       font: { family: 'Segoe UI, sans-serif' },
       xaxis: { gridcolor: '#eee' },
-      yaxis: { gridcolor: '#eee' }
+      yaxis: { gridcolor: '#eee' },
+      // Keep Spotify-green palette in light theme as well
+      colorway: [
+        '#1DB954', '#1ed760', '#21e065', '#5eb859',
+        '#7dd069', '#9be082', '#b5e8a3'
+      ],
+      sunburstcolorway: [
+        '#1DB954', '#1ed760', '#21e065', '#5eb859',
+        '#7dd069', '#9be082', '#b5e8a3'
+      ],
+      extendsunburstcolors: true,
+      treemapcolorway: [
+        '#1DB954', '#1ed760', '#21e065', '#5eb859',
+        '#7dd069', '#9be082', '#b5e8a3'
+      ],
+      extendtreemapcolors: true
     };
   }
 
@@ -52,6 +78,15 @@ window.dash_clientside.theme = (function () {
     }
     if (theme.yaxis && theme.yaxis.gridcolor) {
       out.layout.yaxis.gridcolor = theme.yaxis.gridcolor;
+    }
+    // Apply sunburst/treemap colorways when present
+    if (Array.isArray(theme.sunburstcolorway)) {
+      out.layout.sunburstcolorway = theme.sunburstcolorway;
+      out.layout.extendsunburstcolors = !!theme.extendsunburstcolors;
+    }
+    if (Array.isArray(theme.treemapcolorway)) {
+      out.layout.treemapcolorway = theme.treemapcolorway;
+      out.layout.extendtreemapcolors = !!theme.extendtreemapcolors;
     }
     // Heatmap specific tweaks
     if (Array.isArray(out.data)) {

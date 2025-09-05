@@ -254,6 +254,9 @@ def create_tab_two_layout(
             dcc.Store(id="tab-2-data"),
             # Store cached genre options to avoid recompute
             dcc.Store(id="genre-options-store"),
+            # Store for genre hide-level0 toggle (to avoid referencing
+            # dynamic controls as Inputs/State in other callbacks)
+            dcc.Store(id="genre-hide-level0-store"),
         ],
         className="container",
     )

@@ -228,7 +228,7 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
         dmc.SegmentedControl(
             id="date-range-preset",
             data=[
-                {"label": "Last 30d", "value": "30d"},
+                {"label": "Last 60d", "value": "60d"},
                 {"label": "YTD", "value": "ytd"},
                 {"label": "All", "value": "all"},
                 {"label": "Custom", "value": "custom"},
