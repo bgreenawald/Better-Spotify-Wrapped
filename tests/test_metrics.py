@@ -63,7 +63,10 @@ def mock_spotify_data():
 
 
 def test_get_most_played_tracks(sample_df):
-    result = metrics.get_most_played_tracks(sample_df)
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    result = metrics.get_most_played_tracks(sample_df, con=con)
     assert not result.empty
     assert "track_name" in result.columns
     assert "artist" in result.columns
@@ -219,7 +222,10 @@ def test_get_top_artist_genres(sample_df):
 
 
 def test_get_most_played_artists(sample_df):
-    result = metrics.get_most_played_artists(sample_df)
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    result = metrics.get_most_played_artists(sample_df, con=con)
     assert isinstance(result, pd.DataFrame)
     assert "artist" in result.columns
     assert "play_count" in result.columns

@@ -45,25 +45,37 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     changing downstream logic before full migration to SQL-backed queries.
     """
     sql = """
-        SELECT
-            p.user_id                         AS user_id,
-            p.played_at                        AS ts,
-            p.duration_ms                      AS ms_played,
-            p.reason_start,
-            p.reason_end,
-            p.skipped,
-            p.incognito_mode,
-            t.track_id,
-            t.track_name                       AS master_metadata_track_name,
-            ar.artist_id                       AS artist_id,
-            ar.artist_name                     AS master_metadata_album_artist_name,
-            al.album_name                      AS master_metadata_album_album_name
-        FROM fact_plays p
-        LEFT JOIN dim_tracks t ON t.track_id = p.track_id
-        LEFT JOIN bridge_track_artists b
-          ON b.track_id = p.track_id AND b.role = 'primary'
-        LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id
-        LEFT JOIN dim_albums  al ON al.album_id = t.album_id
+        WITH plays AS (
+            SELECT
+                p.user_id                         AS user_id,
+                p.played_at                       AS ts,
+                p.duration_ms                     AS ms_played,
+                p.reason_start,
+                p.reason_end,
+                p.skipped,
+                p.incognito_mode,
+                t.track_id,
+                t.track_name                      AS master_metadata_track_name,
+                ar.artist_id                      AS artist_id,
+                ar.artist_name                    AS master_metadata_album_artist_name,
+                al.album_name                     AS master_metadata_album_album_name
+            FROM fact_plays p
+            LEFT JOIN dim_tracks t ON t.track_id = p.track_id
+            LEFT JOIN bridge_track_artists b
+              ON b.track_id = p.track_id AND b.role = 'primary'
+            LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id
+            LEFT JOIN dim_albums  al ON al.album_id = t.album_id
+        ), artist_genres_agg AS (
+            SELECT ag.artist_id,
+                   list(g.name) AS artist_genres
+            FROM artist_genres ag
+            JOIN dim_genres g ON g.genre_id = ag.genre_id
+            WHERE COALESCE(g.active, TRUE)
+            GROUP BY ag.artist_id
+        )
+        SELECT p.*, aga.artist_genres
+        FROM plays p
+        LEFT JOIN artist_genres_agg aga ON aga.artist_id = p.artist_id
     """
     df = conn.execute(sql).df()
     if not df.empty:
@@ -73,8 +85,13 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         )
         # No podcast episodes in DB-backed path; provide NaNs for compatibility
         df["episode_name"] = pd.NA
-        # Placeholder until genre taxonomy is wired in the UI layer
-        df["artist_genres"] = [() for _ in range(len(df))]
+        # Ensure genres column is present and normalize nulls to empty tuples for consistency
+        if "artist_genres" not in df.columns:
+            df["artist_genres"] = [() for _ in range(len(df))]
+        else:
+            df["artist_genres"] = df["artist_genres"].apply(
+                lambda v: tuple(v) if isinstance(v, (list, tuple)) else ()
+            )
         # Ensure ts is datetime
         df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
     return df

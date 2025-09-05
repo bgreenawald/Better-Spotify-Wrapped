@@ -2,6 +2,7 @@
 
 import os
 
+import duckdb
 import pandas as pd
 
 from src.io import load_spotify_history
@@ -20,6 +21,7 @@ def main():
     history_df = load_spotify_history("listening_history")
 
     # Process each year in the specified range
+    con = duckdb.connect(":memory:")
     for year in range(2023, 2025):
         filtered_df = filter_songs(
             history_df,
@@ -28,7 +30,7 @@ def main():
             remove_incognito=False,
             exclude_december=False,
         )
-        top_songs_df = get_most_played_tracks(filtered_df)
+        top_songs_df = get_most_played_tracks(filtered_df, con=con)
         output_file = f"tmp/top_songs_{year}.xlsx"
         os.makedirs("tmp", exist_ok=True)
         top_songs_df.to_excel(output_file)

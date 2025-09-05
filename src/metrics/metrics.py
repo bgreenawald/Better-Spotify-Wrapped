@@ -10,12 +10,11 @@ from src.metrics.utils import extract_track_id
 def get_most_played_tracks(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     limit: int | None = None,
 ) -> pd.DataFrame:
-    """Most played tracks using DuckDB when available.
-
-    Falls back to pandas groupby if no connection provided.
+    """Most played tracks using DuckDB.
 
     Returns columns: 'track_artist', 'track_name', 'artist', 'artist_id',
     'artist_genres', 'play_count', 'percentage' (fraction of total plays).
@@ -33,7 +32,19 @@ def get_most_played_tracks(
             ]
         )
 
-    if con is not None:
+    # Require DuckDB backend (either connection or db_path)
+    if con is None and db_path is None:
+        raise ValueError("get_most_played_tracks requires a DuckDB connection or db_path.")
+
+    # Use DuckDB path
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         # Work on a reduced view; exclude artist_genres here to avoid object dtype issues in DuckDB
         df = filtered_df[
             [
@@ -120,38 +131,9 @@ def get_most_played_tracks(
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
-
-    # Fallback to pandas path
-    df = filtered_df.copy()
-    df["track_artist"] = (
-        df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
-    )
-    grouped = (
-        df.groupby(
-            [
-                "track_artist",
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )
-        .size()
-        .reset_index(name="play_count")
-    )
-    grouped = grouped.sort_values("play_count", ascending=False)
-    total_plays = grouped["play_count"].sum() or 1
-    if limit is not None and limit > 0:
-        grouped = grouped.head(limit)
-    grouped["percentage"] = grouped["play_count"] / total_plays
-    grouped.rename(
-        columns={
-            "master_metadata_track_name": "track_name",
-            "master_metadata_album_artist_name": "artist",
-        },
-        inplace=True,
-    )
-    return grouped
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_top_albums(
@@ -669,10 +651,11 @@ def get_genre_sunburst_rows(
 def get_most_played_artists(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     limit: int | None = None,
 ) -> pd.DataFrame:
-    """Most played artists with unique track counts using DuckDB when available.
+    """Most played artists with unique track counts using DuckDB.
 
     Returns columns: 'artist', 'artist_id', 'artist_genres', 'play_count',
     'unique_tracks', 'percentage' (as percent with 2 decimals to match prior behavior).
@@ -689,7 +672,18 @@ def get_most_played_artists(
             ]
         )
 
-    if con is not None:
+    # Require DuckDB backend
+    if con is None and db_path is None:
+        raise ValueError("get_most_played_artists requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             [
                 "master_metadata_album_artist_name",
@@ -758,60 +752,37 @@ def get_most_played_artists(
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
-
-    # Fallback to pandas
-    df = filtered_df.copy()
-    plays = (
-        df.groupby(
-            [
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )
-        .size()
-        .reset_index(name="play_count")
-    )
-    uniques = (
-        df.groupby(
-            [
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )["master_metadata_track_name"]
-        .nunique()
-        .reset_index(name="unique_tracks")
-    )
-    stats = pd.merge(
-        plays,
-        uniques,
-        on=["master_metadata_album_artist_name", "artist_id", "artist_genres"],
-    )
-    stats = stats.sort_values("play_count", ascending=False)
-    total_plays = stats["play_count"].sum() or 1
-    if limit is not None and limit > 0:
-        stats = stats.head(limit)
-    stats["percentage"] = (stats["play_count"] / total_plays * 100).round(2)
-    stats.rename(columns={"master_metadata_album_artist_name": "artist"}, inplace=True)
-    return stats
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_playcount_by_day(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     top_only: bool = True,
 ) -> pd.DataFrame:
     """Daily play counts (optionally top track per day) using DuckDB.
 
     - When `top_only=True`, returns exactly one row per day: the top track by plays.
-    - Falls back to pandas grouping when no connection is provided.
     """
     if filtered_df.empty:
         return pd.DataFrame(columns=["date", "track", "artist", "play_count"])
 
-    if con is not None:
+    # Require DuckDB backend
+    if con is None and db_path is None:
+        raise ValueError("get_playcount_by_day requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             ["ts", "master_metadata_track_name", "master_metadata_album_artist_name"]
         ].copy()
@@ -853,24 +824,6 @@ def get_playcount_by_day(
                 ORDER BY date ASC, play_count DESC
             """
         return con.execute(sql).df()
-
-    # Fallback to pandas path
-    df = filtered_df.copy()
-    df["date"] = df["ts"].dt.date
-    daily_counts = (
-        df.groupby(["date", "master_metadata_track_name", "master_metadata_album_artist_name"])
-        .size()
-        .reset_index(name="play_count")
-    )
-    daily_counts.rename(
-        columns={
-            "master_metadata_track_name": "track",
-            "master_metadata_album_artist_name": "artist",
-        },
-        inplace=True,
-    )
-    daily_counts = daily_counts.sort_values(["date", "play_count"], ascending=[True, False])
-    if top_only:
-        # pick the first row per date (highest play_count after sorting)
-        daily_counts = daily_counts.groupby("date").head(1)
-    return daily_counts
+    finally:
+        if close_conn:
+            con.close()
