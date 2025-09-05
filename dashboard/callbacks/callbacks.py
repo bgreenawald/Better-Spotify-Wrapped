@@ -430,6 +430,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("date-range-mc", "value", allow_duplicate=True),
+        Output("date-range-source", "data", allow_duplicate=True),
         Input("reset-date-range", "n_clicks"),
         State("user-id-dropdown", "value"),
         prevent_initial_call=True,
@@ -453,11 +454,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         max_ts = df_user["ts"].max()
         start = datetime(min_ts.year, min_ts.month, min_ts.day)
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
-        return [start, end]
+        return [start, end], "reset"
 
     # Preset chips -> update Mantine range value
     @app.callback(
         Output("date-range-mc", "value", allow_duplicate=True),
+        Output("date-range-source", "data", allow_duplicate=True),
         Input("date-range-preset", "value"),
         State("user-id-dropdown", "value"),
         prevent_initial_call=True,
@@ -479,18 +481,25 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             start = datetime(min_ts.year, min_ts.month, min_ts.day)
         else:
             raise PreventUpdate
-        return [start, end]
+        return [start, end], "preset"
 
-    # When user manually picks dates, set preset to "custom"
+    # When date range changes, set preset to custom only for manual changes.
     @app.callback(
         Output("date-range-preset", "value"),
+        Output("date-range-source", "data", allow_duplicate=True),
         Input("date-range-mc", "value"),
+        State("date-range-source", "data"),
         prevent_initial_call=True,
     )
-    def set_preset_custom_on_manual_change(_value):
+    def set_preset_on_date_change(_value, source):
         if not _value or len(_value) != 2:
             raise PreventUpdate
-        return "custom"
+        # If the change originated from a preset or reset, keep the preset selection
+        if source in {"preset", "reset"}:
+            # Clear the source after handling to allow detecting future manual changes
+            return dash.no_update, None
+        # Otherwise, treat as manual change and set preset to custom
+        return "custom", "manual"
 
     # --- Wrapped Tab (Tab 1): Build a single data store, then per-figure callbacks ---
 

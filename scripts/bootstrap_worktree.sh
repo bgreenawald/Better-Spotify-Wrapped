@@ -205,4 +205,3 @@ else
     log "Nothing to do. All links already in place."
   fi
 fi
-
