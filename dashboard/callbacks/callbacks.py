@@ -151,6 +151,7 @@ def get_plotly_theme(is_dark=False):
             "font": {"color": "#e0e0e0", "family": "Segoe UI, sans-serif"},
             "xaxis": {"gridcolor": "#333"},
             "yaxis": {"gridcolor": "#333"},
+            # Trace cycling
             "colorway": [
                 "#1DB954",
                 "#1ed760",
@@ -160,6 +161,27 @@ def get_plotly_theme(is_dark=False):
                 "#9be082",
                 "#b5e8a3",
             ],
+            # Sunburst/treemap sector cycling (restores Spotify-green look)
+            "sunburstcolorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
+            "extendsunburstcolors": True,
+            "treemapcolorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
+            "extendtreemapcolors": True,
         }
     else:
         return {
@@ -169,6 +191,36 @@ def get_plotly_theme(is_dark=False):
             "font": {"family": "Segoe UI, sans-serif"},
             "xaxis": {"gridcolor": "#eee"},
             "yaxis": {"gridcolor": "#eee"},
+            # Keep Spotify-green palette in light theme too
+            "colorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
+            "sunburstcolorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
+            "extendsunburstcolors": True,
+            "treemapcolorway": [
+                "#1DB954",
+                "#1ed760",
+                "#21e065",
+                "#5eb859",
+                "#7dd069",
+                "#9be082",
+                "#b5e8a3",
+            ],
+            "extendtreemapcolors": True,
         }
 
 
@@ -791,11 +843,15 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         import plotly.express as px
 
         # Include top artists in hover for child/direct nodes
+        # Pass template and discrete color sequence at creation time so initial
+        # render uses the intended palette before any clientside restyle occurs.
         fig = px.sunburst(
             sb,
             path=["parent", "child"],
             values="value",
             custom_data=["top_artists"] if "top_artists" in sb.columns else None,
+            template=theme.get("template", None),
+            color_discrete_sequence=theme.get("sunburstcolorway") or theme.get("colorway"),
         )
         fig.update_layout(
             **theme,
@@ -1068,18 +1124,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return data_out
 
     @app.callback(
-        [
-            Output("genre-options-store", "data"),
-            Output("genre-filter-dropdown", "options"),
-        ],
+        Output("genre-options-store", "data"),
         [
             Input("tab-2-data", "data"),
             Input("tab-2-chart-selector", "value"),
-            Input("genre-hide-level0-radio", "value"),
         ],
         prevent_initial_call=True,
     )
-    def populate_genre_options(data, selection, hide_level0):
+    def populate_genre_options(data, selection):
         """Populate genre dropdown options from precomputed Tab 2 data.
 
         Avoids expensive DB work during layout creation by deriving the
@@ -1092,40 +1144,45 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if data and "overall_genres" in data:
             overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
             if overall.empty or "genre" not in overall.columns:
-                return dash.no_update, []
+                return dash.no_update
             genres = sorted(overall["genre"].dropna().unique())
-            # Optionally exclude level-0 genres from options
-            if hide_level0:
-                try:
-                    con = get_db_connection()
-                    lvl0 = con.execute(
-                        "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
-                    ).df()
-                    if not lvl0.empty:
-                        lvl0_set = set(lvl0["name"].astype(str).tolist())
-                        genres = [g for g in genres if g not in lvl0_set]
-                except Exception:
-                    pass
-                finally:
-                    with contextlib.suppress(Exception):
-                        con.close()
             opts = [{"label": g.title(), "value": g} for g in genres]
-            return opts, opts
+            return opts
         # Fallback: load distinct genres from dim_genres (fast query)
         try:
             con = get_db_connection()
             genres_df = con.execute("SELECT name, level FROM dim_genres ORDER BY name").df()
-            if hide_level0 and "level" in genres_df.columns:
-                genres_df = genres_df[genres_df["level"] != 0]
             genres = genres_df["name"].dropna().astype(str).tolist()
             opts = [{"label": g.title(), "value": g} for g in genres]
-            return opts, opts
+            return opts
         except Exception:
             # If DB unavailable, leave empty options
-            return dash.no_update, []
+            return dash.no_update
         finally:
             with contextlib.suppress(Exception):
                 con.close()
+
+    # Mirror the genre hide-level0 radio into a store that always exists
+    @app.callback(
+        Output("genre-hide-level0-store", "data"),
+        Input("genre-hide-level0-radio", "value"),
+        prevent_initial_call=False,
+    )
+    def sync_genre_hide_level0(value):
+        return bool(value)
+
+    @app.callback(
+        Output("genre-filter-dropdown", "options"),
+        [
+            Input("genre-options-store", "data"),
+            Input("tab-2-chart-selector", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def set_genre_dropdown_options(options_data, selection):
+        if selection != "genres" or not options_data:
+            raise PreventUpdate
+        return options_data
 
     @app.callback(
         Output("trends-graph", "figure"),
@@ -1133,14 +1190,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("metric-dropdown", "value"),
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
+            Input("tab-2-chart-selector", "value"),
         ],
+        prevent_initial_call=True,
     )
-    def update_trend_dashboard(selected_metric, data, theme_data):
+    def update_trend_dashboard(selected_metric, data, theme_data, selection):
         """Render monthly line chart for the selected metric.
 
         Uses a default (light) theme; a separate restyle-only callback
         applies the active theme without triggering recomputation.
         """
+        # Only run when the Listening chart is mounted
+        if selection != "listening":
+            raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
         theme = get_plotly_theme(is_dark)
         if not data or "monthly_stats" not in data:
@@ -1177,23 +1239,29 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("genre-filter-dropdown", "value"),
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
-            Input("genre-hide-level0-radio", "value"),
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
+            Input("tab-2-chart-selector", "value"),
+            State("genre-hide-level0-store", "data"),
         ],
+        prevent_initial_call=True,
     )
     def update_genre_trends_graph(
-        selected_genres, top_n, display_type, hide_level0, data, theme_data
+        selected_genres, top_n, display_type, data, theme_data, selection, hide_level0_store
     ):
         """Update genre trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
+        # Only run when the Genres chart is mounted
+        if selection != "genres":
+            raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
         theme = get_plotly_theme(is_dark)
         if not data or "genre_trends" not in data or "overall_genres" not in data:
             raise PreventUpdate
+        hide_level0 = bool(hide_level0_store)
         trends = pd.read_json(StringIO(data["genre_trends"]), orient="split")
         overall = pd.read_json(StringIO(data["overall_genres"]), orient="split")
 
@@ -1279,14 +1347,21 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("artist-display-type-radio", "value"),
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
+            Input("tab-2-chart-selector", "value"),
         ],
+        prevent_initial_call=True,
     )
-    def update_artist_trends_graph(selected_artists, top_n, display_type, data, theme_data):
+    def update_artist_trends_graph(
+        selected_artists, top_n, display_type, data, theme_data, selection
+    ):
         """Update artist trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
+        # Only run when the Artists chart is mounted
+        if selection != "artists":
+            raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
         theme = get_plotly_theme(is_dark)
         if not data or "artist_trends" not in data or "overall_artists" not in data:
@@ -1358,14 +1433,21 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("track-display-type-radio", "value"),
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
+            Input("tab-2-chart-selector", "value"),
         ],
+        prevent_initial_call=True,
     )
-    def update_track_trends_graph(selected_tracks, top_n, display_type, data, theme_data):
+    def update_track_trends_graph(
+        selected_tracks, top_n, display_type, data, theme_data, selection
+    ):
         """Update track trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
         layout colors/templates on theme changes.
         """
+        # Only run when the Tracks chart is mounted
+        if selection != "tracks":
+            raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
         theme = get_plotly_theme(is_dark)
         if not data or "track_trends" not in data or "overall_tracks" not in data:
@@ -1491,20 +1573,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         prevent_initial_call=True,
     )
 
-    # Batch restyle for Trends tab graphs (mounted one at a time)
-    app.clientside_callback(
-        ClientsideFunction(namespace="theme", function_name="restyle_trends_batch"),
-        Output("trends-graph", "figure", allow_duplicate=True),
-        Output("genre-trends-graph", "figure", allow_duplicate=True),
-        Output("artist-trends-graph", "figure", allow_duplicate=True),
-        Output("track-trends-graph", "figure", allow_duplicate=True),
-        Input("theme-store", "data"),
-        State("trends-graph", "figure"),
-        State("genre-trends-graph", "figure"),
-        State("artist-trends-graph", "figure"),
-        State("track-trends-graph", "figure"),
-        prevent_initial_call=True,
-    )
+    # Note: Trends graphs are themed in their server callbacks using theme-store,
+    # so we avoid a clientside batch restyle here to prevent warnings when
+    # outputs are not mounted in the current layout.
 
     # Update Mantine provider theme for dmc components
     @app.callback(
