@@ -25,6 +25,7 @@ from src.metrics.metrics import (
     get_top_albums,
     get_top_artist_genres,
 )
+from src.metrics.social import compute_social_regions
 from src.metrics.trends import (
     get_artist_trends,
     get_genre_trends,
@@ -731,6 +732,173 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             },
         }
+
+    # -------------------------- Social tab callbacks --------------------------
+
+    @app.callback(
+        Output("social-data", "data"),
+        [
+            Input("social-users-dropdown", "value"),
+            Input("social-date-range", "start_date"),
+            Input("social-date-range", "end_date"),
+            Input("social-mode", "value"),
+            # Global filters respected
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-genres-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
+        ],
+    )
+    def compute_social_data(
+        users,
+        start_date,
+        end_date,
+        mode,
+        excluded_artists,
+        excluded_genres,
+        excluded_albums,
+        excluded_tracks,
+        exclude_december,
+        remove_incognito,
+    ):
+        # Validate selection
+        users = users or []
+        if len(users) < 2:
+            return {
+                "error": "Select 2–3 users to compare.",
+                "users": users,
+            }
+        if len(users) > 3:
+            users = users[:3]
+
+        # Compute with DuckDB backend
+        con = get_db_connection()
+        try:
+            out = compute_social_regions(
+                con=con,
+                users=users,
+                start=pd.to_datetime(start_date) if start_date else None,
+                end=pd.to_datetime(end_date) if end_date else None,
+                mode=mode or "tracks",
+                exclude_december=bool(exclude_december),
+                remove_incognito=bool(remove_incognito),
+                excluded_tracks=excluded_tracks,
+                excluded_artists=excluded_artists,
+                excluded_albums=excluded_albums,
+                excluded_genres=excluded_genres,
+                limit_per_region=10,
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                con.close()
+        return out
+
+    @app.callback(
+        Output("social-venn-graph", "figure"),
+        Output("social-region-lists", "children"),
+        Input("social-data", "data"),
+        State("theme-store", "data"),
+    )
+    def render_social(data, theme_data):
+        is_dark = bool(theme_data and theme_data.get("dark"))
+        theme = get_plotly_theme(is_dark)
+        import plotly.graph_objects as go
+        from dash import html
+
+        if not data or data.get("error"):
+            msg = data.get("error") if data else "Select 2–3 users to compare."
+            return {"data": [], "layout": theme}, html.Div(msg)
+
+        users = data.get("users", [])
+        regions = data.get("regions", {})
+        # Build a minimalist Venn with circles and counts in annotations
+        fig = go.Figure()
+        # Merge axis visibility overrides with theme without duplicating kwargs
+        theme_no_axes = {k: v for k, v in theme.items() if k not in ("xaxis", "yaxis")}
+        xaxis_cfg = {**theme.get("xaxis", {}), "visible": False}
+        yaxis_cfg = {**theme.get("yaxis", {}), "visible": False}
+        fig.update_layout(**theme_no_axes, xaxis=xaxis_cfg, yaxis=yaxis_cfg, height=380)
+
+        ann = []
+
+        def _add_circle(x, y, r, color, name):
+            fig.add_shape(
+                type="circle",
+                xref="x",
+                yref="y",
+                x0=x - r,
+                y0=y - r,
+                x1=x + r,
+                y1=y + r,
+                line={"color": color, "width": 2},
+                fillcolor=color,
+                opacity=0.12,
+            )
+            ann.append({"x": x, "y": y + r + 0.1, "text": name, "showarrow": False})
+
+        if len(users) == 2:
+            # Place two circles with overlap
+            _add_circle(0.0, 0.0, 1.2, "#1DB954", str(users[0]))
+            _add_circle(1.2, 0.0, 1.2, "#0f7a35", str(users[1]))
+            # Put intersection count
+            inter_key = f"{users[0]}_{users[1]}"
+            inter_count = len(regions.get(inter_key, []))
+            ann.append({"x": 0.6, "y": 0.0, "text": f"∩: {inter_count}", "showarrow": False})
+            fig.update_xaxes(range=[-1.6, 2.8])
+            fig.update_yaxes(range=[-1.6, 1.8])
+        else:
+            # Three circles positioned in a triangle
+            _add_circle(0.0, 0.6, 1.2, "#1DB954", str(users[0]))
+            _add_circle(1.4, 0.6, 1.2, "#0f7a35", str(users[1]))
+            _add_circle(0.7, -0.6, 1.2, "#169c48", str(users[2]))
+            inter_key = f"{users[0]}_{users[1]}_{users[2]}"
+            inter_count = len(regions.get(inter_key, []))
+            ann.append({"x": 0.7, "y": 0.2, "text": f"∩3: {inter_count}", "showarrow": False})
+            fig.update_xaxes(range=[-1.6, 3.0])
+            fig.update_yaxes(range=[-1.8, 2.0])
+
+        fig.update_layout(annotations=ann, showlegend=False)
+
+        # Region lists
+        def _region_block(title: str, items: list[dict]):
+            rows = []
+            for it in items[:10]:
+                tooltip = " | ".join(
+                    [
+                        f"{u}: r{it['ranks'].get(u, '-')}, {it['counts'].get(u, 0)} plays"
+                        for u in users
+                        if u in it["ranks"]
+                    ]
+                )
+                rows.append(html.Li([html.Span(it["name"]), html.Span(f" ({tooltip})")]))
+            if not rows:
+                rows = [html.Li("No items in this region")]
+            return html.Div(
+                [html.H5(title, className="card-title"), html.Ul(rows)], className="card"
+            )
+
+        blocks = []
+        if len(users) == 2:
+            u1, u2 = users
+            blocks.append(_region_block(f"{u1} only", regions.get(f"{u1}_only", [])))
+            blocks.append(_region_block(f"{u1} ∩ {u2}", regions.get(f"{u1}_{u2}", [])))
+            blocks.append(_region_block(f"{u2} only", regions.get(f"{u2}_only", [])))
+        else:
+            u1, u2, u3 = users
+            for key, title in [
+                (f"{u1}_only", f"{u1} only"),
+                (f"{u2}_only", f"{u2} only"),
+                (f"{u3}_only", f"{u3} only"),
+                (f"{u1}_{u2}", f"{u1} ∩ {u2}"),
+                (f"{u1}_{u3}", f"{u1} ∩ {u3}"),
+                (f"{u2}_{u3}", f"{u2} ∩ {u3}"),
+                (f"{u1}_{u2}_{u3}", f"{u1} ∩ {u2} ∩ {u3}"),
+            ]:
+                blocks.append(_region_block(title, regions.get(key, [])))
+
+        return fig, html.Div(blocks, className="graph-container")
 
     @app.callback(
         Output("top-artists-graph", "figure"),
