@@ -1,4 +1,5 @@
 import dash_bootstrap_components as dbc
+import dash_mantine_components as dmc  # type: ignore
 import pandas as pd
 from dash import dcc, html
 from dash.development.base_component import Component
@@ -63,16 +64,16 @@ def create_layout(df: pd.DataFrame) -> Component:
                                         ),
                                         html.Div(
                                             [
-                                                html.Label(
-                                                    "🌙",
-                                                    className="theme-toggle-label",
-                                                    id="theme-icon",
-                                                    title="Toggle dark mode",
-                                                ),
-                                                dbc.Switch(
+                                                dmc.Switch(
                                                     id="theme-toggle",
-                                                    value=False,
+                                                    checked=False,
+                                                    size="md",
+                                                    color="green",
+                                                    onLabel="☀️",
+                                                    offLabel="🌙",
                                                     className="theme-toggle-switch",
+                                                    persistence=True,
+                                                    persistence_type="local",
                                                 ),
                                             ],
                                             className="theme-toggle-container",
