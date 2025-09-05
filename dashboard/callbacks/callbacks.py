@@ -1437,14 +1437,27 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             avg = overall.groupby("artist")[y_col].mean().sort_values(ascending=False)
             selected_artists = avg.head(top_n).index.tolist()
 
-        plot_df = trends[trends["artist"].isin(selected_artists)]
+        plot_df = trends[trends["artist"].isin(selected_artists)].copy()
+        # Attach formatted artist genres for hover
+        try:
+            if "artist" in overall.columns and "artist_genres" in overall.columns and not plot_df.empty:
+                genre_map = (
+                    overall[["artist", "artist_genres"]]
+                    .drop_duplicates("artist")
+                    .assign(artist_genres=lambda d: d["artist_genres"].apply(_fmt_genres))
+                    .set_index("artist")["artist_genres"]
+                    .to_dict()
+                )
+                plot_df["artist_genres"] = plot_df["artist"].map(genre_map)
+        except Exception:
+            pass
         fig = px.line(
             plot_df,
             x="month",
             y=y_col,
             color="artist",
             labels={"month": "Month", y_col: y_title, "artist": "Artist"},
-            hover_data=["top_tracks"],
+            hover_data=["artist_genres", "top_tracks"],
             title="Artist Trends Over Time",
         )
         fig.update_layout(

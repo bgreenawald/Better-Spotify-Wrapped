@@ -61,11 +61,27 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
                 ve.album_name AS master_metadata_album_album_name
             FROM v_plays_enriched ve
         ), artist_genres_agg AS (
+            -- Build formatted artist genres as "Child (Parent1, Parent2)"
+            -- Only include level-1 (child) genres; respect multi-parent mapping.
+            WITH parent_map AS (
+                SELECT gh.child_genre_id,
+                       STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
+                FROM genre_hierarchy gh
+                JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                WHERE COALESCE(pg.active, TRUE)
+                GROUP BY gh.child_genre_id
+            )
             SELECT ag.artist_id,
-                   list(g.name) AS artist_genres
+                   list(
+                       CASE
+                           WHEN COALESCE(pm.parent_names, '') = '' THEN c.name
+                           ELSE (c.name || ' (' || pm.parent_names || ')')
+                       END
+                   ) AS artist_genres
             FROM artist_genres ag
-            JOIN dim_genres g ON g.genre_id = ag.genre_id
-            WHERE COALESCE(g.active, TRUE)
+            JOIN dim_genres c ON c.genre_id = ag.genre_id AND c.level = 1
+            LEFT JOIN parent_map pm ON pm.child_genre_id = c.genre_id
+            WHERE COALESCE(c.active, TRUE)
             GROUP BY ag.artist_id
         )
         SELECT p.*, aga.artist_genres
