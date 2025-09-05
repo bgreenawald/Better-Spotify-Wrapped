@@ -799,9 +799,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Output("social-venn-graph", "figure"),
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
+        Input("social-selected-region", "data"),
         State("theme-store", "data"),
     )
-    def render_social(data, theme_data):
+    def render_social(data, selected_region, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
         theme = get_plotly_theme(is_dark)
         import plotly.graph_objects as go
@@ -813,6 +814,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         users = data.get("users", [])
         regions = data.get("regions", {})
+        totals = data.get("totals", {})
         # Build a minimalist Venn with circles and counts in annotations
         fig = go.Figure()
         # Merge axis visibility overrides with theme without duplicating kwargs
@@ -838,6 +840,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             )
             ann.append({"x": x, "y": y + r + 0.1, "text": name, "showarrow": False})
 
+        hover_traces = []
         if len(users) == 2:
             # Place two circles with overlap
             _add_circle(0.0, 0.0, 1.2, "#1DB954", str(users[0]))
@@ -848,6 +851,60 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             ann.append({"x": 0.6, "y": 0.0, "text": f"∩: {inter_count}", "showarrow": False})
             fig.update_xaxes(range=[-1.6, 2.8])
             fig.update_yaxes(range=[-1.6, 1.8])
+            # Hover/select points for regions
+            def _tooltip_for(key: str, title: str) -> str:
+                items = regions.get(key, [])
+                lines = [title, f"Total: {totals.get(key, len(items))}"]
+                for it in items[:10]:
+                    lines.append(f"- {it['name']}")
+                if totals.get(key, len(items)) > len(items):
+                    lines.append("+ more not shown")
+                return "<br>".join(lines)
+
+            hover_traces = [
+                {
+                    "type": "scatter",
+                    "x": [-0.6],
+                    "y": [0.0],
+                    "mode": "markers",
+                    "marker": {
+                        "size": 30 if selected_region == f"{users[0]}_only" else 20,
+                        "color": "rgba(0,0,0,0)",
+                        "line": {"width": 2 if selected_region == f"{users[0]}_only" else 1, "color": "#1DB954"},
+                    },
+                    "name": f"{users[0]} only",
+                    "hovertemplate": _tooltip_for(f"{users[0]}_only", f"{users[0]} only") + "<extra></extra>",
+                    "customdata": [f"{users[0]}_only"],
+                },
+                {
+                    "type": "scatter",
+                    "x": [0.6],
+                    "y": [0.0],
+                    "mode": "markers",
+                    "marker": {
+                        "size": 30 if selected_region == f"{users[0]}_{users[1]}" else 20,
+                        "color": "rgba(0,0,0,0)",
+                        "line": {"width": 2 if selected_region == f"{users[0]}_{users[1]}" else 1, "color": "#11803b"},
+                    },
+                    "name": f"{users[0]} ∩ {users[1]}",
+                    "hovertemplate": _tooltip_for(inter_key, f"{users[0]} ∩ {users[1]}") + "<extra></extra>",
+                    "customdata": [inter_key],
+                },
+                {
+                    "type": "scatter",
+                    "x": [1.8],
+                    "y": [0.0],
+                    "mode": "markers",
+                    "marker": {
+                        "size": 30 if selected_region == f"{users[1]}_only" else 20,
+                        "color": "rgba(0,0,0,0)",
+                        "line": {"width": 2 if selected_region == f"{users[1]}_only" else 1, "color": "#0f7a35"},
+                    },
+                    "name": f"{users[1]} only",
+                    "hovertemplate": _tooltip_for(f"{users[1]}_only", f"{users[1]} only") + "<extra></extra>",
+                    "customdata": [f"{users[1]}_only"],
+                },
+            ]
         else:
             # Three circles positioned in a triangle
             _add_circle(0.0, 0.6, 1.2, "#1DB954", str(users[0]))
@@ -858,11 +915,98 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             ann.append({"x": 0.7, "y": 0.2, "text": f"∩3: {inter_count}", "showarrow": False})
             fig.update_xaxes(range=[-1.6, 3.0])
             fig.update_yaxes(range=[-1.8, 2.0])
+            def _tooltip_for(key: str, title: str) -> str:
+                items = regions.get(key, [])
+                lines = [title, f"Total: {totals.get(key, len(items))}"]
+                for it in items[:10]:
+                    lines.append(f"- {it['name']}")
+                if totals.get(key, len(items)) > len(items):
+                    lines.append("+ more not shown")
+                return "<br>".join(lines)
 
+            u1, u2, u3 = users
+            hover_traces = [
+                # only regions
+                {
+                    "type": "scatter",
+                    "x": [-0.6],
+                    "y": [0.8],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u1}_only" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#1DB954"}},
+                    "name": f"{u1} only",
+                    "hovertemplate": _tooltip_for(f"{u1}_only", f"{u1} only") + "<extra></extra>",
+                    "customdata": [f"{u1}_only"],
+                },
+                {
+                    "type": "scatter",
+                    "x": [2.0],
+                    "y": [0.8],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u2}_only" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#0f7a35"}},
+                    "name": f"{u2} only",
+                    "hovertemplate": _tooltip_for(f"{u2}_only", f"{u2} only") + "<extra></extra>",
+                    "customdata": [f"{u2}_only"],
+                },
+                {
+                    "type": "scatter",
+                    "x": [0.7],
+                    "y": [-1.5],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u3}_only" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#169c48"}},
+                    "name": f"{u3} only",
+                    "hovertemplate": _tooltip_for(f"{u3}_only", f"{u3} only") + "<extra></extra>",
+                    "customdata": [f"{u3}_only"],
+                },
+                # pairwise exact intersections
+                {
+                    "type": "scatter",
+                    "x": [0.7],
+                    "y": [1.2],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u1}_{u2}" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#11803b"}},
+                    "name": f"{u1} ∩ {u2}",
+                    "hovertemplate": _tooltip_for(f"{u1}_{u2}", f"{u1} ∩ {u2}") + "<extra></extra>",
+                    "customdata": [f"{u1}_{u2}"],
+                },
+                {
+                    "type": "scatter",
+                    "x": [0.2],
+                    "y": [0.0],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u1}_{u3}" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#11803b"}},
+                    "name": f"{u1} ∩ {u3}",
+                    "hovertemplate": _tooltip_for(f"{u1}_{u3}", f"{u1} ∩ {u3}") + "<extra></extra>",
+                    "customdata": [f"{u1}_{u3}"],
+                },
+                {
+                    "type": "scatter",
+                    "x": [1.2],
+                    "y": [0.0],
+                    "mode": "markers",
+                    "marker": {"size": 28 if selected_region == f"{u2}_{u3}" else 20, "color": "rgba(0,0,0,0)", "line": {"width": 2, "color": "#11803b"}},
+                    "name": f"{u2} ∩ {u3}",
+                    "hovertemplate": _tooltip_for(f"{u2}_{u3}", f"{u2} ∩ {u3}") + "<extra></extra>",
+                    "customdata": [f"{u2}_{u3}"],
+                },
+                # 3-way
+                {
+                    "type": "scatter",
+                    "x": [0.7],
+                    "y": [0.2],
+                    "mode": "markers",
+                    "marker": {"size": 32 if selected_region == inter_key else 22, "color": "rgba(0,0,0,0)", "line": {"width": 3 if selected_region == inter_key else 2, "color": "#0f7a35"}},
+                    "name": f"{u1} ∩ {u2} ∩ {u3}",
+                    "hovertemplate": _tooltip_for(inter_key, f"{u1} ∩ {u2} ∩ {u3}") + "<extra></extra>",
+                    "customdata": [inter_key],
+                },
+            ]
+
+        for tr in hover_traces:
+            fig.add_trace(tr)
         fig.update_layout(annotations=ann, showlegend=False)
 
         # Region lists
-        def _region_block(title: str, items: list[dict]):
+        def _region_block(title: str, items: list[dict], total: int | None = None):
             rows = []
             for it in items[:10]:
                 tooltip = " | ".join(
@@ -875,30 +1019,94 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 rows.append(html.Li([html.Span(it["name"]), html.Span(f" ({tooltip})")]))
             if not rows:
                 rows = [html.Li("No items in this region")]
+            subtitle = None
+            if total is not None and total > len(items):
+                subtitle = html.Div(
+                    f"+ {total - len(items)} more not shown", className="card-subtitle"
+                )
             return html.Div(
-                [html.H5(title, className="card-title"), html.Ul(rows)], className="card"
+                [html.H5(title, className="card-title"), subtitle, html.Ul(rows)], className="card"
             )
 
         blocks = []
         if len(users) == 2:
             u1, u2 = users
-            blocks.append(_region_block(f"{u1} only", regions.get(f"{u1}_only", [])))
-            blocks.append(_region_block(f"{u1} ∩ {u2}", regions.get(f"{u1}_{u2}", [])))
-            blocks.append(_region_block(f"{u2} only", regions.get(f"{u2}_only", [])))
+            if selected_region:
+                key = selected_region
+                title = (
+                    f"{u1} only"
+                    if key == f"{u1}_only"
+                    else (f"{u2} only" if key == f"{u2}_only" else f"{u1} ∩ {u2}")
+                )
+                blocks.append(_region_block(title, regions.get(key, []), totals.get(key)))
+            else:
+                blocks.append(
+                    _region_block(
+                        f"{u1} only", regions.get(f"{u1}_only", []), totals.get(f"{u1}_only")
+                    )
+                )
+                blocks.append(
+                    _region_block(
+                        f"{u1} ∩ {u2}", regions.get(f"{u1}_{u2}", []), totals.get(f"{u1}_{u2}")
+                    )
+                )
+                blocks.append(
+                    _region_block(
+                        f"{u2} only", regions.get(f"{u2}_only", []), totals.get(f"{u2}_only")
+                    )
+                )
         else:
             u1, u2, u3 = users
-            for key, title in [
-                (f"{u1}_only", f"{u1} only"),
-                (f"{u2}_only", f"{u2} only"),
-                (f"{u3}_only", f"{u3} only"),
-                (f"{u1}_{u2}", f"{u1} ∩ {u2}"),
-                (f"{u1}_{u3}", f"{u1} ∩ {u3}"),
-                (f"{u2}_{u3}", f"{u2} ∩ {u3}"),
-                (f"{u1}_{u2}_{u3}", f"{u1} ∩ {u2} ∩ {u3}"),
-            ]:
-                blocks.append(_region_block(title, regions.get(key, [])))
+            if selected_region:
+                key = selected_region
+                if key == f"{u1}_only":
+                    title = f"{u1} only"
+                elif key == f"{u2}_only":
+                    title = f"{u2} only"
+                elif key == f"{u3}_only":
+                    title = f"{u3} only"
+                elif key == f"{u1}_{u2}":
+                    title = f"{u1} ∩ {u2}"
+                elif key == f"{u1}_{u3}":
+                    title = f"{u1} ∩ {u3}"
+                elif key == f"{u2}_{u3}":
+                    title = f"{u2} ∩ {u3}"
+                else:
+                    title = f"{u1} ∩ {u2} ∩ {u3}"
+                blocks.append(_region_block(title, regions.get(key, []), totals.get(key)))
+            else:
+                for key, title in [
+                    (f"{u1}_only", f"{u1} only"),
+                    (f"{u2}_only", f"{u2} only"),
+                    (f"{u3}_only", f"{u3} only"),
+                    (f"{u1}_{u2}", f"{u1} ∩ {u2}"),
+                    (f"{u1}_{u3}", f"{u1} ∩ {u3}"),
+                    (f"{u2}_{u3}", f"{u2} ∩ {u3}"),
+                    (f"{u1}_{u2}_{u3}", f"{u1} ∩ {u2} ∩ {u3}"),
+                ]:
+                    blocks.append(_region_block(title, regions.get(key, []), totals.get(key)))
 
         return fig, html.Div(blocks, className="graph-container")
+
+    @app.callback(
+        Output("social-selected-region", "data"),
+        Input("social-venn-graph", "clickData"),
+        State("social-selected-region", "data"),
+        prevent_initial_call=True,
+    )
+    def set_selected_region(click_data, prev):
+        if not click_data:
+            raise PreventUpdate
+        try:
+            cd = click_data["points"][0].get("customdata")
+        except Exception:
+            cd = None
+        if not cd:
+            raise PreventUpdate
+        key = cd if isinstance(cd, str) else cd[0]
+        if key == prev:
+            return None
+        return key
 
     @app.callback(
         Output("top-artists-graph", "figure"),

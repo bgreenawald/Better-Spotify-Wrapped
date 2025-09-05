@@ -240,6 +240,7 @@ def compute_social_regions(
             "users": users,
             "mode": mode,
             "regions": {},
+            "totals": {},
         }
 
     # Build per-user rankings and sets
@@ -269,12 +270,14 @@ def compute_social_regions(
         return agg
 
     regions: dict[str, list[RegionItem]] = {}
+    totals: dict[str, int] = {}
 
     # Build region keys using actual user ids for clarity
     if len(users) == 2:
         u1, u2 = users
         # Intersection
         inter = _region_entities((u1, u2), tuple())
+        totals[f"{u1}_{u2}"] = int(inter.shape[0])
         top = inter.head(limit_per_region)
         items: list[RegionItem] = []
         for row in top.itertuples(index=False):
@@ -300,6 +303,7 @@ def compute_social_regions(
         # Non-intersections: top per user overall (duplicates with intersection allowed)
         for u in (u1, u2):
             ru = per_user[u]
+            totals[f"{u}_only"] = int(ru["entity_id"].nunique())
             ru_sorted = ru.sort_values(["rnk", "entity_name"]).head(limit_per_region)
             u_items: list[RegionItem] = []
             for rr in ru_sorted.itertuples(index=False):
@@ -317,6 +321,7 @@ def compute_social_regions(
         u1, u2, u3 = users
         # 3-way intersection
         inter3 = _region_entities((u1, u2, u3), tuple())
+        totals[f"{u1}_{u2}_{u3}"] = int(inter3.shape[0])
         items3 = []
         for row in inter3.head(limit_per_region).itertuples(index=False):
             ranks_counts: dict[str, tuple[int, int]] = {}
@@ -343,6 +348,7 @@ def compute_social_regions(
         ]
         for req, exc in pairs:
             dfp = _region_entities(req, exc)
+            totals["_".join(req)] = int(dfp.shape[0])
             items_pair = []
             for row in dfp.head(limit_per_region).itertuples(index=False):
                 ranks_counts: dict[str, tuple[int, int]] = {}
@@ -364,6 +370,7 @@ def compute_social_regions(
         # Non-intersections per user (top overall)
         for u in (u1, u2, u3):
             ru = per_user[u]
+            totals[f"{u}_only"] = int(ru["entity_id"].nunique())
             ru_sorted = ru.sort_values(["rnk", "entity_name"]).head(limit_per_region)
             u_items: list[RegionItem] = []
             for rr in ru_sorted.itertuples(index=False):
@@ -382,4 +389,5 @@ def compute_social_regions(
         "users": users,
         "mode": mode,
         "regions": regions,
+        "totals": totals,
     }

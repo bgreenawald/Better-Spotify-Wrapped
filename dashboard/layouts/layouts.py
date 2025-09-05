@@ -357,6 +357,8 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
             ),
             # Store for computed social data
             dcc.Store(id="social-data"),
+            # Store for selected region (to filter lists)
+            dcc.Store(id="social-selected-region"),
         ],
         className="container",
     )
