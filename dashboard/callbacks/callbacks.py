@@ -232,6 +232,24 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df (pd.DataFrame): DataFrame of listening events.
     """
 
+    # ---- Helpers for figure label handling ----------------------------------
+    def _truncate_label(s: str, max_len: int = 28) -> str:
+        try:
+            s = str(s)
+        except Exception:
+            s = ""
+        return (s[: max_len - 1] + "…") if len(s) > max_len else s
+
+    def _wrap_or_truncate_labels(labels: list[str]) -> list[str]:
+        # Prefer a single-line truncation with a shorter limit to preserve width
+        return [_truncate_label(x, 28) for x in labels]
+
+    def _compute_left_margin(labels: list[str]) -> int:
+        # Approximate character width to pixels with a tighter cap
+        max_len = max((len(str(x)) for x in labels), default=0)
+        px = int(8 + max_len * 6.0)  # 6.0 px per character heuristic
+        return max(110, min(px, 210))
+
     @app.callback(
         Output("collapse", "is_open"),
         [Input("collapse-button", "n_clicks")],
@@ -525,8 +543,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         min_ts = df_user["ts"].min()
         max_ts = df_user["ts"].max()
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
-        if preset == "30d":
-            start = end - timedelta(days=30)
+        if preset == "60d":
+            start = end - timedelta(days=60)
         elif preset == "ytd":
             start = datetime(end.year, 1, 1)
         elif preset == "all":
@@ -686,23 +704,41 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
         if df.empty:
             return {"data": [], "layout": theme}
+        dff = df.head(10)
+        y_vals = dff["track_name"].astype(str).tolist()
+        y_ticktext = _wrap_or_truncate_labels(y_vals)
+        left_margin = _compute_left_margin(y_ticktext)
         return {
             "data": [
                 {
                     "type": "bar",
-                    "x": df["play_count"].head(10),
-                    "y": df["track_name"].head(10),
+                    "x": dff["play_count"],
+                    "y": y_vals,
                     "orientation": "h",
-                    "text": df["play_count"].head(10),
+                    "text": dff["play_count"],
                     "marker": {"color": "#1DB954"},
-                    "customdata": df["track_artist"].head(10),
+                    "customdata": dff["track_artist"],
                     "hovertemplate": ("Track: %{customdata}<br>Plays: %{x}<extra></extra>"),
+                    "textposition": "outside",
+                    "cliponaxis": False,
                 }
             ],
             "layout": {
                 **theme,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count"},
-                "yaxis": {**theme.get("yaxis", {}), "title": ""},
+                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+                "height": 440,
+                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count", "automargin": True},
+                "yaxis": {
+                    **theme.get("yaxis", {}),
+                    "title": "",
+                    "automargin": True,
+                    "tickmode": "array",
+                    "tickvals": y_vals,
+                    "ticktext": y_ticktext,
+                    "categoryorder": "array",
+                    "categoryarray": y_vals,
+                    "tickfont": {"size": 10},
+                },
             },
         }
 
@@ -719,25 +755,43 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
         if df.empty:
             return {"data": [], "layout": theme}
+        dff = df.head(10)
+        y_vals = dff["artist"].astype(str).tolist()
+        y_ticktext = _wrap_or_truncate_labels(y_vals)
+        left_margin = _compute_left_margin(y_ticktext)
         return {
             "data": [
                 {
                     "type": "bar",
-                    "x": df["play_count"].head(10),
-                    "y": df["artist"].head(10),
+                    "x": dff["play_count"],
+                    "y": y_vals,
                     "orientation": "h",
-                    "text": df["play_count"].head(10),
-                    "customdata": df["unique_tracks"].head(10),
+                    "text": dff["play_count"],
+                    "customdata": dff["unique_tracks"],
                     "marker": {"color": "#1DB954"},
                     "hovertemplate": (
                         "Artist: %{y}<br>Plays: %{x}<br>Unique Tracks: %{customdata}<extra></extra>"
                     ),
+                    "textposition": "outside",
+                    "cliponaxis": False,
                 }
             ],
             "layout": {
                 **theme,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count"},
-                "yaxis": {**theme.get("yaxis", {}), "title": ""},
+                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+                "height": 440,
+                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count", "automargin": True},
+                "yaxis": {
+                    **theme.get("yaxis", {}),
+                    "title": "",
+                    "automargin": True,
+                    "tickmode": "array",
+                    "tickvals": y_vals,
+                    "ticktext": y_ticktext,
+                    "categoryorder": "array",
+                    "categoryarray": y_vals,
+                    "tickfont": {"size": 10},
+                },
             },
         }
 
@@ -754,25 +808,43 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
         if df.empty:
             return {"data": [], "layout": theme}
+        dff = df.head(10)
+        y_vals = dff["album_name"].astype(str).tolist()
+        y_ticktext = _wrap_or_truncate_labels(y_vals)
+        left_margin = _compute_left_margin(y_ticktext)
         return {
             "data": [
                 {
                     "type": "bar",
-                    "x": df["median_plays"].head(10),
-                    "y": df["album_name"].head(10),
+                    "x": dff["median_plays"],
+                    "y": y_vals,
                     "orientation": "h",
-                    "text": df["median_plays"].round(1).head(10),
-                    "customdata": df[["artist"]].head(10).values,
+                    "text": dff["median_plays"].round(1),
+                    "customdata": dff[["artist"]].values,
                     "marker": {"color": "#1DB954"},
                     "hovertemplate": (
                         "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<extra></extra>"
                     ),
+                    "textposition": "outside",
+                    "cliponaxis": False,
                 }
             ],
             "layout": {
                 **theme,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Median Plays"},
-                "yaxis": {**theme.get("yaxis", {}), "title": ""},
+                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+                "height": 440,
+                "xaxis": {**theme.get("xaxis", {}), "title": "Median Plays", "automargin": True},
+                "yaxis": {
+                    **theme.get("yaxis", {}),
+                    "title": "",
+                    "automargin": True,
+                    "tickmode": "array",
+                    "tickvals": y_vals,
+                    "ticktext": y_ticktext,
+                    "categoryorder": "array",
+                    "categoryarray": y_vals,
+                    "tickfont": {"size": 10},
+                },
             },
         }
 
