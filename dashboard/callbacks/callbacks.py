@@ -302,13 +302,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT ar.artist_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND ar.artist_name ILIKE '%' || ? || '%' "
-                    "AND ar.artist_name IS NOT NULL "
-                    "ORDER BY ar.artist_name "
+                    "SELECT DISTINCT ve.artist_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
+                    "AND ve.artist_name IS NOT NULL "
+                    "ORDER BY ve.artist_name "
                     "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
@@ -336,13 +334,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT al.album_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "LEFT JOIN dim_albums al ON al.album_id = t.album_id "
-                    "WHERE p.user_id = ? AND al.album_name ILIKE '%' || ? || '%' "
-                    "AND al.album_name IS NOT NULL "
-                    "ORDER BY al.album_name "
+                    "SELECT DISTINCT ve.album_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.album_name ILIKE '%' || ? || '%' "
+                    "AND ve.album_name IS NOT NULL "
+                    "ORDER BY ve.album_name "
                     "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
@@ -399,12 +395,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT t.track_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "WHERE p.user_id = ? AND t.track_name ILIKE '%' || ? || '%' "
-                    "AND t.track_name IS NOT NULL "
-                    "ORDER BY t.track_name "
+                    "SELECT DISTINCT ve.track_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.track_name ILIKE '%' || ? || '%' "
+                    "AND ve.track_name IS NOT NULL "
+                    "ORDER BY ve.track_name "
                     "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
@@ -432,13 +427,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT ar.artist_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND ar.artist_name ILIKE '%' || ? || '%' "
-                    "AND ar.artist_name IS NOT NULL "
-                    "ORDER BY ar.artist_name "
+                    "SELECT DISTINCT ve.artist_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
+                    "AND ve.artist_name IS NOT NULL "
+                    "ORDER BY ve.artist_name "
                     "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
@@ -466,13 +459,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT (t.track_name || ' - ' || ar.artist_name) AS track_artist "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND (t.track_name ILIKE '%' || ? || '%' OR ar.artist_name ILIKE '%' || ? || '%') "
-                    "AND t.track_name IS NOT NULL AND ar.artist_name IS NOT NULL "
+                    "SELECT DISTINCT (ve.track_name || ' - ' || ve.artist_name) AS track_artist "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND (ve.track_name ILIKE '%' || ? || '%' OR ve.artist_name ILIKE '%' || ? || '%') "
+                    "AND ve.track_name IS NOT NULL AND ve.artist_name IS NOT NULL "
                     "ORDER BY track_artist "
                     "LIMIT 25"
                 )

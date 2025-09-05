@@ -200,3 +200,43 @@ CREATE INDEX IF NOT EXISTS idx_track_genres_genre   ON track_genres(genre_id);
 
 -- dim_albums: joins by album_id from dim_tracks
 CREATE INDEX IF NOT EXISTS idx_dim_albums_album_id ON dim_albums(album_id);
+
+-- ========================
+-- Convenience Views
+-- ========================
+-- Primary artist per track (deterministic by artist_name ordering)
+CREATE VIEW IF NOT EXISTS v_primary_artist_per_track AS
+WITH ranked AS (
+  SELECT b.track_id,
+         b.artist_id,
+         a.artist_name,
+         ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
+  FROM bridge_track_artists b
+  JOIN dim_artists a ON a.artist_id = b.artist_id
+  WHERE b.role = 'primary'
+)
+SELECT track_id, artist_id, artist_name
+FROM ranked
+WHERE rn = 1;
+
+-- Enriched plays with track/album and primary artist
+CREATE VIEW IF NOT EXISTS v_plays_enriched AS
+SELECT
+  p.user_id,
+  p.played_at,
+  p.duration_ms,
+  p.reason_start,
+  p.reason_end,
+  p.skipped,
+  p.incognito_mode,
+  p.track_id,
+  t.track_name,
+  t.album_id,
+  al.album_name,
+  pa.artist_id,
+  ar.artist_name
+FROM fact_plays p
+LEFT JOIN dim_tracks t ON t.track_id = p.track_id
+LEFT JOIN v_primary_artist_per_track pa ON pa.track_id = p.track_id
+LEFT JOIN dim_artists ar ON ar.artist_id = pa.artist_id
+LEFT JOIN dim_albums  al ON al.album_id = t.album_id;

@@ -217,17 +217,17 @@ def get_top_albums(
                     con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
-            # SQL plan:
-            # 1) Identify album_ids present in plays via dim_tracks
-            # 2) Expand to all tracks for those albums
+            # SQL plan (uses convenience views where helpful):
+            # 1) Map played tracks to album_ids via v_plays_enriched
+            # 2) Expand to all tracks for those albums (dim_tracks)
             # 3) Left join play counts to include zero-play tracks
             # 4) Compute per-album aggregates + pick a primary artist (mode over primary role)
             sql = """
                 WITH played_tracks AS (
-                    SELECT t.album_id, t.track_id, p.play_count
+                    SELECT ve.album_id, p.track_id, p.play_count
                     FROM df_play_counts p
-                    JOIN dim_tracks t ON t.track_id = p.track_id
-                    WHERE t.album_id IS NOT NULL
+                    JOIN v_plays_enriched ve ON ve.track_id = p.track_id
+                    WHERE ve.album_id IS NOT NULL
                 ),
                 albums_in_scope AS (
                     SELECT DISTINCT album_id FROM played_tracks
@@ -355,41 +355,30 @@ def get_top_artist_genres(
             con.register("df_play_counts", play_counts)
 
             # Compute per-genre totals and top artists string in a single SQL pass
-            sql = f"""
-                WITH primary_artist AS (
-                    SELECT track_id, artist_id
-                    FROM (
-                        SELECT b.track_id,
-                               b.artist_id,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY b.track_id
-                                   ORDER BY a.artist_name
-                               ) AS rn
-                        FROM bridge_track_artists b
-                        JOIN dim_artists a ON a.artist_id = b.artist_id
-                        WHERE b."role" = 'primary'
-                    ) x
-                    WHERE rn = 1
-                ),
-                genre_counts AS (
-                    SELECT g.name AS genre,
-                           SUM(p.play_count) AS play_count
-                    FROM df_play_counts p
-                    JOIN primary_artist pa ON pa.track_id = p.track_id
-                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                    JOIN dim_genres g ON g.genre_id = ag.genre_id
-                    GROUP BY 1
-                ),
-                artist_genre_counts AS (
-                    SELECT g.name AS genre,
-                           a.artist_name AS artist,
-                           SUM(p.play_count) AS play_count
-                    FROM df_play_counts p
-                    JOIN primary_artist pa ON pa.track_id = p.track_id
-                    JOIN dim_artists a ON a.artist_id = pa.artist_id
-                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                    JOIN dim_genres g ON g.genre_id = ag.genre_id
-                    GROUP BY 1, 2
+        sql = f"""
+            WITH primary_artist AS (
+                SELECT track_id, artist_id
+                FROM v_primary_artist_per_track
+            ),
+            genre_counts AS (
+                SELECT g.name AS genre,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1
+            ),
+            artist_genre_counts AS (
+                SELECT g.name AS genre,
+                       a.artist_name AS artist,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1, 2
                 ),
                 ranked AS (
                     SELECT genre, artist, play_count,
@@ -471,18 +460,7 @@ def get_genre_sunburst_rows(
         sql = """
             WITH primary_artist AS (
                 SELECT track_id, artist_id
-                FROM (
-                    SELECT b.track_id,
-                           b.artist_id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY b.track_id
-                               ORDER BY a.artist_name
-                           ) AS rn
-                    FROM bridge_track_artists b
-                    JOIN dim_artists a ON a.artist_id = b.artist_id
-                    WHERE b."role" = 'primary'
-                ) x
-                WHERE rn = 1
+                FROM v_primary_artist_per_track
             ),
             child_totals AS (
                 SELECT cg.name AS child, SUM(p.play_count) AS value

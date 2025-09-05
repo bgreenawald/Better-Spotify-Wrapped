@@ -47,24 +47,19 @@ def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     sql = """
         WITH plays AS (
             SELECT
-                p.user_id                         AS user_id,
-                p.played_at                       AS ts,
-                p.duration_ms                     AS ms_played,
-                p.reason_start,
-                p.reason_end,
-                p.skipped,
-                p.incognito_mode,
-                t.track_id,
-                t.track_name                      AS master_metadata_track_name,
-                ar.artist_id                      AS artist_id,
-                ar.artist_name                    AS master_metadata_album_artist_name,
-                al.album_name                     AS master_metadata_album_album_name
-            FROM fact_plays p
-            LEFT JOIN dim_tracks t ON t.track_id = p.track_id
-            LEFT JOIN bridge_track_artists b
-              ON b.track_id = p.track_id AND b.role = 'primary'
-            LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id
-            LEFT JOIN dim_albums  al ON al.album_id = t.album_id
+                ve.user_id AS user_id,
+                ve.played_at AS ts,
+                ve.duration_ms AS ms_played,
+                ve.reason_start,
+                ve.reason_end,
+                ve.skipped,
+                ve.incognito_mode,
+                ve.track_id,
+                ve.track_name AS master_metadata_track_name,
+                ve.artist_id AS artist_id,
+                ve.artist_name AS master_metadata_album_artist_name,
+                ve.album_name AS master_metadata_album_album_name
+            FROM v_plays_enriched ve
         ), artist_genres_agg AS (
             SELECT ag.artist_id,
                    list(g.name) AS artist_genres

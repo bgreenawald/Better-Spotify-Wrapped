@@ -169,18 +169,7 @@ def get_genre_trends(
         sql = """
             WITH primary_artist AS (
                 SELECT track_id, artist_id
-                FROM (
-                    SELECT b.track_id,
-                           b.artist_id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY b.track_id
-                               ORDER BY a.artist_name
-                           ) AS rn
-                    FROM bridge_track_artists b
-                    JOIN dim_artists a ON a.artist_id = b.artist_id
-                    WHERE b."role" = 'primary'
-                ) x
-                WHERE rn = 1
+                FROM v_primary_artist_per_track
             ),
             genre_artist_month AS (
                 SELECT p.month,
