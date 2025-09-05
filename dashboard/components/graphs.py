@@ -50,12 +50,10 @@ def create_top_tracks_graph(top_tracks=None):
         fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
 
-        # Truncate long track names for readability
-        truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["track_name"]]
-        fig.update_yaxes(
-            ticktext=truncated,
-            tickvals=list(range(len(df))),
-        )
+        # Truncate long track names for readability while keeping categorical tick values
+        names = df["track_name"].astype(str).tolist()
+        truncated = [f"{n[:50]}..." if len(n) > 50 else n for n in names]
+        fig.update_yaxes(tickmode="array", ticktext=truncated, tickvals=names)
 
     return html.Div(
         className="graph-card card",
@@ -211,12 +209,10 @@ def create_top_albums_graph(top_albums=None):
         fig.update_layout(**graph_layout)
         fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
 
-        # Truncate long album names for readability
-        truncated = [f"{name[:50]}..." if len(name) > 50 else name for name in df["album_name"]]
-        fig.update_yaxes(
-            ticktext=truncated,
-            tickvals=list(range(len(df))),
-        )
+        # Truncate long album names for readability while keeping categorical tick values
+        names = df["album_name"].astype(str).tolist()
+        truncated = [f"{n[:50]}..." if len(n) > 50 else n for n in names]
+        fig.update_yaxes(tickmode="array", ticktext=truncated, tickvals=names)
 
     return html.Div(
         className="graph-card card",

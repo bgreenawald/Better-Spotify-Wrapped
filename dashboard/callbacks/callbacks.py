@@ -124,6 +124,12 @@ def _fmt_genres(g):
     """Format a genre value that may be a scalar, list-like, or NaN."""
     if isinstance(g, list | tuple | set):
         return ", ".join(map(str, g))
+    # Handle numpy arrays or other iterables (but not strings/dicts)
+    try:
+        if hasattr(g, "__iter__") and not isinstance(g, str | bytes | dict):
+            return ", ".join(map(str, list(g)))
+    except Exception:
+        pass
     try:
         if pd.isna(g):
             return ""
@@ -298,18 +304,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT ar.artist_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND ar.artist_name ILIKE '%' || ? || '%' "
-                    "AND ar.artist_name IS NOT NULL "
-                    "ORDER BY ar.artist_name "
-                    "LIMIT 25"
+                    "SELECT DISTINCT ve.artist_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
+                    "AND ve.artist_name IS NOT NULL "
+                    "ORDER BY ve.artist_name "
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -332,18 +336,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT al.album_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "LEFT JOIN dim_albums al ON al.album_id = t.album_id "
-                    "WHERE p.user_id = ? AND al.album_name ILIKE '%' || ? || '%' "
-                    "AND al.album_name IS NOT NULL "
-                    "ORDER BY al.album_name "
-                    "LIMIT 25"
+                    "SELECT DISTINCT ve.album_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.album_name ILIKE '%' || ? || '%' "
+                    "AND ve.album_name IS NOT NULL "
+                    "ORDER BY ve.album_name "
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -366,30 +368,24 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
-                try:
-                    sql = (
-                        "SELECT DISTINCT g.name AS name "
-                        "FROM fact_plays p "
-                        "JOIN track_genres tg ON tg.track_id = p.track_id "
-                        "JOIN dim_genres g ON g.genre_id = tg.genre_id "
-                        "WHERE p.user_id = ? AND g.name ILIKE '%' || ? || '%' "
-                        "AND g.name IS NOT NULL "
-                        "ORDER BY g.name "
-                        "LIMIT 25"
-                    )
-                    df_opt = con.execute(sql, [user_id, search]).df()
-                except Exception:
-                    # Fallback if normalized genre tables are not present yet
-                    sql_fb = (
-                        "SELECT name FROM dim_genres "
-                        "WHERE name ILIKE '%' || ? || '%' "
-                        "ORDER BY name LIMIT 25"
-                    )
-                    df_opt = con.execute(sql_fb, [search]).df()
-                options = [{"label": n, "value": n} for n in df_opt.iloc[:, 0].astype(str).tolist()]
+                sql = (
+                    "SELECT name, COALESCE(level, 0) AS level "
+                    "FROM dim_genres "
+                    "WHERE COALESCE(active, TRUE) AND (name ILIKE '%' || ? || '%' OR slug ILIKE '%' || ? || '%') "
+                    "ORDER BY level, name"
+                )
+                df_opt = con.execute(sql, [search, search]).df()
+                names = df_opt.get("name").astype(str).tolist() if not df_opt.empty else []
+                levels = df_opt.get("level").astype(int).tolist() if not df_opt.empty else []
+                # Show level in the label; keep raw name as the value
+                options = [
+                    {"label": f"{n} (L{lvl})", "value": n}
+                    for n, lvl in zip(names, levels, strict=False)
+                ]
             finally:
                 with contextlib.suppress(Exception):
                     con.close()
@@ -409,17 +405,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT t.track_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "WHERE p.user_id = ? AND t.track_name ILIKE '%' || ? || '%' "
-                    "AND t.track_name IS NOT NULL "
-                    "ORDER BY t.track_name "
-                    "LIMIT 25"
+                    "SELECT DISTINCT ve.track_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.track_name ILIKE '%' || ? || '%' "
+                    "AND ve.track_name IS NOT NULL "
+                    "ORDER BY ve.track_name "
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -442,18 +437,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT ar.artist_name AS name "
-                    "FROM fact_plays p "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND ar.artist_name ILIKE '%' || ? || '%' "
-                    "AND ar.artist_name IS NOT NULL "
-                    "ORDER BY ar.artist_name "
-                    "LIMIT 25"
+                    "SELECT DISTINCT ve.artist_name AS name "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND ve.artist_name ILIKE '%' || ? || '%' "
+                    "AND ve.artist_name IS NOT NULL "
+                    "ORDER BY ve.artist_name "
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
@@ -476,19 +469,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             raise PreventUpdate
         search = (search_value or "").strip()
         options: list[dict] = []
-        if search:
+        # Require at least 3 characters to search
+        if len(search) >= 3:
             con = get_db_connection()
             try:
                 sql = (
-                    "SELECT DISTINCT (t.track_name || ' - ' || ar.artist_name) AS track_artist "
-                    "FROM fact_plays p "
-                    "LEFT JOIN dim_tracks t ON t.track_id = p.track_id "
-                    "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary' "
-                    "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id "
-                    "WHERE p.user_id = ? AND (t.track_name ILIKE '%' || ? || '%' OR ar.artist_name ILIKE '%' || ? || '%') "
-                    "AND t.track_name IS NOT NULL AND ar.artist_name IS NOT NULL "
+                    "SELECT DISTINCT (ve.track_name || ' - ' || ve.artist_name) AS track_artist "
+                    "FROM v_plays_enriched ve "
+                    "WHERE ve.user_id = ? AND (ve.track_name ILIKE '%' || ? || '%' OR ve.artist_name ILIKE '%' || ? || '%') "
+                    "AND ve.track_name IS NOT NULL AND ve.artist_name IS NOT NULL "
                     "ORDER BY track_artist "
-                    "LIMIT 25"
                 )
                 df_opt = con.execute(sql, [user_id, search, search]).df()
                 vals = df_opt["track_artist"].tolist()
@@ -1454,14 +1444,30 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             avg = overall.groupby("artist")[y_col].mean().sort_values(ascending=False)
             selected_artists = avg.head(top_n).index.tolist()
 
-        plot_df = trends[trends["artist"].isin(selected_artists)]
+        plot_df = trends[trends["artist"].isin(selected_artists)].copy()
+        # Attach formatted artist genres for hover
+        if "artist" in overall.columns and "artist_genres" in overall.columns and not plot_df.empty:
+            genre_map = (
+                overall[["artist", "artist_genres"]]
+                .drop_duplicates("artist")
+                .assign(artist_genres=lambda d: d["artist_genres"].apply(_fmt_genres))
+                .set_index("artist")["artist_genres"]
+                .to_dict()
+            )
+            plot_df["artist_genres"] = plot_df["artist"].map(genre_map)
+        # Build hover_data conditionally
+        hover_data = []
+        if "artist_genres" in plot_df.columns:
+            hover_data.append("artist_genres")
+        if "top_tracks" in plot_df.columns:
+            hover_data.append("top_tracks")
         fig = px.line(
             plot_df,
             x="month",
             y=y_col,
             color="artist",
             labels={"month": "Month", y_col: y_title, "artist": "Artist"},
-            hover_data=["top_tracks"],
+            hover_data=hover_data if hover_data else None,
             title="Artist Trends Over Time",
         )
         fig.update_layout(

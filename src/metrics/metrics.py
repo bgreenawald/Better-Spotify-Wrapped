@@ -10,12 +10,11 @@ from src.metrics.utils import extract_track_id
 def get_most_played_tracks(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     limit: int | None = None,
 ) -> pd.DataFrame:
-    """Most played tracks using DuckDB when available.
-
-    Falls back to pandas groupby if no connection provided.
+    """Most played tracks using DuckDB.
 
     Returns columns: 'track_artist', 'track_name', 'artist', 'artist_id',
     'artist_genres', 'play_count', 'percentage' (fraction of total plays).
@@ -33,7 +32,19 @@ def get_most_played_tracks(
             ]
         )
 
-    if con is not None:
+    # Require DuckDB backend (either connection or db_path)
+    if con is None and db_path is None:
+        raise ValueError("get_most_played_tracks requires a DuckDB connection or db_path.")
+
+    # Use DuckDB path
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         # Work on a reduced view; exclude artist_genres here to avoid object dtype issues in DuckDB
         df = filtered_df[
             [
@@ -70,6 +81,7 @@ def get_most_played_tracks(
             {lim}
         """
         res = con.execute(sql).df()
+        # end query
         # Bring back artist_genres via a lightweight mapping from the filtered_df
         try:
             if "artist_genres" in filtered_df.columns and not res.empty:
@@ -120,38 +132,9 @@ def get_most_played_tracks(
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
-
-    # Fallback to pandas path
-    df = filtered_df.copy()
-    df["track_artist"] = (
-        df["master_metadata_track_name"] + " - " + df["master_metadata_album_artist_name"]
-    )
-    grouped = (
-        df.groupby(
-            [
-                "track_artist",
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )
-        .size()
-        .reset_index(name="play_count")
-    )
-    grouped = grouped.sort_values("play_count", ascending=False)
-    total_plays = grouped["play_count"].sum() or 1
-    if limit is not None and limit > 0:
-        grouped = grouped.head(limit)
-    grouped["percentage"] = grouped["play_count"] / total_plays
-    grouped.rename(
-        columns={
-            "master_metadata_track_name": "track_name",
-            "master_metadata_album_artist_name": "artist",
-        },
-        inplace=True,
-    )
-    return grouped
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_top_albums(
@@ -192,16 +175,7 @@ def get_top_albums(
             ]
         )
 
-    # Helper to extract track_id from spotify URI
-    def _extract_track_id(uri: Any) -> str | None:
-        if not isinstance(uri, str):
-            return None
-        if uri.startswith("spotify:track:"):
-            return uri.split(":")[-1]
-        if "open.spotify.com/track/" in uri:
-            part = uri.split("open.spotify.com/track/")[-1]
-            return part.split("?")[0]
-        return None
+    # Use shared extractor from utils to normalize URIs
 
     # Require DuckDB backend
     use_duckdb = (con is not None) or (db_path is not None)
@@ -244,17 +218,17 @@ def get_top_albums(
                     con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
-            # SQL plan:
-            # 1) Identify album_ids present in plays via dim_tracks
-            # 2) Expand to all tracks for those albums
+            # SQL plan (uses convenience views where helpful):
+            # 1) Map played tracks to album_ids via v_plays_enriched
+            # 2) Expand to all tracks for those albums (dim_tracks)
             # 3) Left join play counts to include zero-play tracks
             # 4) Compute per-album aggregates + pick a primary artist (mode over primary role)
             sql = """
                 WITH played_tracks AS (
-                    SELECT t.album_id, t.track_id, p.play_count
+                    SELECT ve.album_id, p.track_id, p.play_count
                     FROM df_play_counts p
-                    JOIN dim_tracks t ON t.track_id = p.track_id
-                    WHERE t.album_id IS NOT NULL
+                    JOIN v_plays_enriched ve ON ve.track_id = p.track_id
+                    WHERE ve.album_id IS NOT NULL
                 ),
                 albums_in_scope AS (
                     SELECT DISTINCT album_id FROM played_tracks
@@ -342,20 +316,6 @@ def get_top_artist_genres(
             'genre', 'play_count', 'percentage', 'top_artists'.
     """
 
-    # Helper to extract track_id from spotify URI
-    def _extract_track_id(uri: Any) -> str | None:
-        if not isinstance(uri, str):
-            return None
-        if uri.startswith("spotify:track:"):
-            return uri.split(":")[-1]
-        if "open.spotify.com/track/" in uri:
-            part = uri.split("open.spotify.com/track/")[-1]
-            return part.split("?")[0]
-        # Fallback to last colon segment if present
-        if ":" in uri:
-            return uri.split(":")[-1]
-        return None
-
     use_duckdb = (con is not None) or (db_path is not None)
     if use_duckdb:
         try:
@@ -397,40 +357,29 @@ def get_top_artist_genres(
 
             # Compute per-genre totals and top artists string in a single SQL pass
             sql = f"""
-                WITH primary_artist AS (
-                    SELECT track_id, artist_id
-                    FROM (
-                        SELECT b.track_id,
-                               b.artist_id,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY b.track_id
-                                   ORDER BY a.artist_name
-                               ) AS rn
-                        FROM bridge_track_artists b
-                        JOIN dim_artists a ON a.artist_id = b.artist_id
-                        WHERE b."role" = 'primary'
-                    ) x
-                    WHERE rn = 1
-                ),
-                genre_counts AS (
-                    SELECT g.name AS genre,
-                           SUM(p.play_count) AS play_count
-                    FROM df_play_counts p
-                    JOIN primary_artist pa ON pa.track_id = p.track_id
-                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                    JOIN dim_genres g ON g.genre_id = ag.genre_id
-                    GROUP BY 1
-                ),
-                artist_genre_counts AS (
-                    SELECT g.name AS genre,
-                           a.artist_name AS artist,
-                           SUM(p.play_count) AS play_count
-                    FROM df_play_counts p
-                    JOIN primary_artist pa ON pa.track_id = p.track_id
-                    JOIN dim_artists a ON a.artist_id = pa.artist_id
-                    JOIN artist_genres ag ON ag.artist_id = pa.artist_id
-                    JOIN dim_genres g ON g.genre_id = ag.genre_id
-                    GROUP BY 1, 2
+            WITH primary_artist AS (
+                SELECT track_id, artist_id
+                FROM v_primary_artist_per_track
+            ),
+            genre_counts AS (
+                SELECT g.name AS genre,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1
+            ),
+            artist_genre_counts AS (
+                SELECT g.name AS genre,
+                       a.artist_name AS artist,
+                       SUM(p.play_count) AS play_count
+                FROM df_play_counts p
+                JOIN primary_artist pa ON pa.track_id = p.track_id
+                JOIN dim_artists a ON a.artist_id = pa.artist_id
+                JOIN artist_genres ag ON ag.artist_id = pa.artist_id
+                JOIN dim_genres g ON g.genre_id = ag.genre_id
+                GROUP BY 1, 2
                 ),
                 ranked AS (
                     SELECT genre, artist, play_count,
@@ -512,18 +461,7 @@ def get_genre_sunburst_rows(
         sql = """
             WITH primary_artist AS (
                 SELECT track_id, artist_id
-                FROM (
-                    SELECT b.track_id,
-                           b.artist_id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY b.track_id
-                               ORDER BY a.artist_name
-                           ) AS rn
-                    FROM bridge_track_artists b
-                    JOIN dim_artists a ON a.artist_id = b.artist_id
-                    WHERE b."role" = 'primary'
-                ) x
-                WHERE rn = 1
+                FROM v_primary_artist_per_track
             ),
             child_totals AS (
                 SELECT cg.name AS child, SUM(p.play_count) AS value
@@ -692,10 +630,11 @@ def get_genre_sunburst_rows(
 def get_most_played_artists(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     limit: int | None = None,
 ) -> pd.DataFrame:
-    """Most played artists with unique track counts using DuckDB when available.
+    """Most played artists with unique track counts using DuckDB.
 
     Returns columns: 'artist', 'artist_id', 'artist_genres', 'play_count',
     'unique_tracks', 'percentage' (as percent with 2 decimals to match prior behavior).
@@ -712,7 +651,18 @@ def get_most_played_artists(
             ]
         )
 
-    if con is not None:
+    # Require DuckDB backend
+    if con is None and db_path is None:
+        raise ValueError("get_most_played_artists requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             [
                 "master_metadata_album_artist_name",
@@ -746,95 +696,121 @@ def get_most_played_artists(
             {lim}
         """
         res = con.execute(sql).df()
-        # Reattach artist_genres from filtered_df
+        # Attach artist_genres directly from DB taxonomy to avoid reliance on input frame
         try:
-            if "artist_genres" in filtered_df.columns and not res.empty:
-                # Coerce artist_id to non-null strings for consistent matching
-                res["artist_id"] = res["artist_id"].fillna("").astype(str)
-                m = (
-                    filtered_df[
-                        [
-                            "master_metadata_album_artist_name",
-                            "artist_id",
-                            "artist_genres",
-                        ]
-                    ]
-                    .drop_duplicates(subset=["master_metadata_album_artist_name", "artist_id"])
-                    .rename(columns={"master_metadata_album_artist_name": "artist"})
+            if not res.empty:
+                # Prepare a small relation of artist_ids present
+                aid = res[["artist_id"]].assign(
+                    artist_id=lambda d: d["artist_id"].fillna("").astype(str).str.strip(),
                 )
-                m["artist_id"] = m["artist_id"].fillna("").astype(str)
-                res = res.merge(m, on=["artist", "artist_id"], how="left")
-                # Guarantee artist_genres exists with empty lists where missing
-                if "artist_genres" not in res.columns:
-                    res["artist_genres"] = [[] for _ in range(len(res))]
-                else:
-                    res["artist_genres"] = res["artist_genres"].apply(
-                        lambda v: v if isinstance(v, list | tuple) else []
-                    )
+                aid = aid[aid["artist_id"] != ""].drop_duplicates()
+                if not aid.empty:
+                    rel_ids = "rel_artist_ids"
+                    with contextlib.suppress(Exception):
+                        con.unregister(rel_ids)
+                    con.register(rel_ids, aid)
+                    sql_gen = f"""
+                        WITH parent_map AS (
+                            SELECT gh.child_genre_id,
+                                   STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
+                            FROM genre_hierarchy gh
+                            JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
+                            WHERE COALESCE(pg.active, TRUE)
+                            GROUP BY gh.child_genre_id
+                        ), labels AS (
+                            SELECT DISTINCT REGEXP_REPLACE(TRIM(ag.artist_id), '.*:', '') AS artist_id,
+                                   CASE
+                                       WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
+                                       ELSE (g.name || ' (' || pm.parent_names || ')')
+                                   END AS label
+                            FROM artist_genres ag
+                            JOIN dim_genres g ON g.genre_id = ag.genre_id
+                            LEFT JOIN parent_map pm ON pm.child_genre_id = g.genre_id
+                            JOIN {rel_ids} r ON r.artist_id = REGEXP_REPLACE(TRIM(ag.artist_id), '.*:', '')
+                            WHERE COALESCE(g.active, TRUE)
+                        )
+                        SELECT artist_id, list(label) AS artist_genres
+                        FROM labels
+                        GROUP BY artist_id
+                    """
+                    genres_map = con.execute(sql_gen).df()
+                    if not genres_map.empty:
+                        res = res.merge(genres_map, on="artist_id", how="left")
         except Exception:
-            if "artist_genres" not in res.columns:
-                res["artist_genres"] = [[] for _ in range(len(res))]
-            else:
-                res["artist_genres"] = res["artist_genres"].apply(
-                    lambda v: v if isinstance(v, list | tuple) else []
-                )
+            pass
+        # Fallback to input-mapped genres if still missing
+        if "artist_genres" not in res.columns:
+            try:
+                if "artist_genres" in filtered_df.columns and not res.empty:
+                    res["artist_id"] = res["artist_id"].fillna("").astype(str)
+                    m = (
+                        filtered_df[
+                            [
+                                "master_metadata_album_artist_name",
+                                "artist_id",
+                                "artist_genres",
+                            ]
+                        ]
+                        .drop_duplicates(subset=["master_metadata_album_artist_name", "artist_id"])
+                        .rename(columns={"master_metadata_album_artist_name": "artist"})
+                    )
+                    m["artist_id"] = m["artist_id"].fillna("").astype(str)
+                    res = res.merge(m, on=["artist", "artist_id"], how="left")
+            except Exception:
+                pass
+        # Normalize column to list for downstream formatting
+        if "artist_genres" not in res.columns:
+            res["artist_genres"] = [[] for _ in range(len(res))]
+        else:
+
+            def _to_list(v):
+                try:
+                    if v is None:
+                        return []
+                    if isinstance(v, list | tuple | set):
+                        return list(v)
+                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
+                        return list(v)
+                except Exception:
+                    pass
+                return []
+
+            res["artist_genres"] = res["artist_genres"].apply(_to_list)
+        # end normalization
         if not res.empty:
             res["percentage"] = res["percentage"].fillna(0.0)
         return res
-
-    # Fallback to pandas
-    df = filtered_df.copy()
-    plays = (
-        df.groupby(
-            [
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )
-        .size()
-        .reset_index(name="play_count")
-    )
-    uniques = (
-        df.groupby(
-            [
-                "master_metadata_album_artist_name",
-                "artist_id",
-                "artist_genres",
-            ]
-        )["master_metadata_track_name"]
-        .nunique()
-        .reset_index(name="unique_tracks")
-    )
-    stats = pd.merge(
-        plays,
-        uniques,
-        on=["master_metadata_album_artist_name", "artist_id", "artist_genres"],
-    )
-    stats = stats.sort_values("play_count", ascending=False)
-    total_plays = stats["play_count"].sum() or 1
-    if limit is not None and limit > 0:
-        stats = stats.head(limit)
-    stats["percentage"] = (stats["play_count"] / total_plays * 100).round(2)
-    stats.rename(columns={"master_metadata_album_artist_name": "artist"}, inplace=True)
-    return stats
+    finally:
+        if close_conn:
+            con.close()
 
 
 def get_playcount_by_day(
     filtered_df: pd.DataFrame,
     *,
+    db_path: str | Path | None = None,
     con: Any | None = None,
     top_only: bool = True,
 ) -> pd.DataFrame:
     """Daily play counts (optionally top track per day) using DuckDB.
 
     - When `top_only=True`, returns exactly one row per day: the top track by plays.
-    - Falls back to pandas grouping when no connection is provided.
     """
     if filtered_df.empty:
         return pd.DataFrame(columns=["date", "track", "artist", "play_count"])
 
-    if con is not None:
+    # Require DuckDB backend
+    if con is None and db_path is None:
+        raise ValueError("get_playcount_by_day requires a DuckDB connection or db_path.")
+
+    close_conn = False
+    if con is None:
+        import duckdb  # type: ignore
+
+        con = duckdb.connect(str(db_path))
+        close_conn = True
+
+    try:
         df = filtered_df[
             ["ts", "master_metadata_track_name", "master_metadata_album_artist_name"]
         ].copy()
@@ -876,24 +852,6 @@ def get_playcount_by_day(
                 ORDER BY date ASC, play_count DESC
             """
         return con.execute(sql).df()
-
-    # Fallback to pandas path
-    df = filtered_df.copy()
-    df["date"] = df["ts"].dt.date
-    daily_counts = (
-        df.groupby(["date", "master_metadata_track_name", "master_metadata_album_artist_name"])
-        .size()
-        .reset_index(name="play_count")
-    )
-    daily_counts.rename(
-        columns={
-            "master_metadata_track_name": "track",
-            "master_metadata_album_artist_name": "artist",
-        },
-        inplace=True,
-    )
-    daily_counts = daily_counts.sort_values(["date", "play_count"], ascending=[True, False])
-    if top_only:
-        # pick the first row per date (highest play_count after sorting)
-        daily_counts = daily_counts.groupby("date").head(1)
-    return daily_counts
+    finally:
+        if close_conn:
+            con.close()

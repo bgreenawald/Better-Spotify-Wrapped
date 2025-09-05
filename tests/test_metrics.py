@@ -63,7 +63,10 @@ def mock_spotify_data():
 
 
 def test_get_most_played_tracks(sample_df):
-    result = metrics.get_most_played_tracks(sample_df)
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    result = metrics.get_most_played_tracks(sample_df, con=con)
     assert not result.empty
     assert "track_name" in result.columns
     assert "artist" in result.columns
@@ -107,6 +110,16 @@ def test_get_top_albums(sample_df):
                 artist_id TEXT NOT NULL,
                 role      TEXT NOT NULL
             );
+            """
+        )
+
+        # New implementation expects v_plays_enriched; provide a minimal view
+        # mapping played track_ids to album_ids for our synthetic dataset.
+        con.execute(
+            """
+            CREATE VIEW v_plays_enriched AS
+            SELECT t.track_id, t.album_id
+            FROM dim_tracks t;
             """
         )
 
@@ -191,6 +204,26 @@ def test_get_top_artist_genres(sample_df):
             """
         )
 
+        # Provide v_primary_artist_per_track view expected by the new SQL.
+        # Deterministically pick the first primary artist by artist_name per track.
+        con.execute(
+            """
+            CREATE VIEW v_primary_artist_per_track AS
+            WITH ranked AS (
+              SELECT b.track_id,
+                     b.artist_id,
+                     a.artist_name,
+                     ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
+              FROM bridge_track_artists b
+              JOIN dim_artists a ON a.artist_id = b.artist_id
+              WHERE b.role = 'primary'
+            )
+            SELECT track_id, artist_id
+            FROM ranked
+            WHERE rn = 1;
+            """
+        )
+
         # Seed artists and bridges for tracks 1..3
         con.executemany(
             "INSERT INTO dim_artists(artist_id, artist_name) VALUES (?, ?)",
@@ -218,8 +251,53 @@ def test_get_top_artist_genres(sample_df):
         con.close()
 
 
+def test_get_listening_time_by_month():
+    import duckdb
+
+    # Build a tiny DataFrame across two months
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(
+                [
+                    "2024-01-01 10:00:00",
+                    "2024-01-15 12:00:00",
+                    "2024-02-02 09:00:00",
+                ]
+            ),
+            "ms_played": [60_000, 120_000, 180_000],  # 1, 2, 3 minutes
+            "master_metadata_track_name": ["A", "B", "C"],
+            "master_metadata_album_artist_name": ["X", "Y", "Z"],
+        }
+    )
+
+    con = duckdb.connect(":memory:")
+    try:
+        # Function moved to src.metrics.trends in the new implementation
+        from src.metrics.trends import get_listening_time_by_month
+
+        out = get_listening_time_by_month(df, con=con)
+        assert list(out.columns) == [
+            "month",
+            "unique_tracks",
+            "unique_artists",
+            "total_hours",
+            "avg_hours_per_day",
+        ]
+        # Two months expected
+        assert set(out["month"]) == {"2024-01", "2024-02"}
+        # Totals in hours > 0
+        assert (out["total_hours"] > 0).all()
+    finally:
+        con.close()
+
+
 def test_get_most_played_artists(sample_df):
-    result = metrics.get_most_played_artists(sample_df)
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    result = metrics.get_most_played_artists(sample_df, con=con)
     assert isinstance(result, pd.DataFrame)
     assert "artist" in result.columns
     assert "play_count" in result.columns

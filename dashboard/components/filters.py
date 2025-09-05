@@ -1,5 +1,3 @@
-from itertools import chain
-
 import dash_mantine_components as dmc  # type: ignore
 import pandas as pd
 from dash import dcc, html
@@ -50,18 +48,11 @@ def create_wrapped_filters_section(df: pd.DataFrame) -> html.Div:
     )
 
 
-def create_global_settings(df: pd.DataFrame) -> html.Div:
+def create_global_settings() -> html.Div:
     """Generate global settings filters for exclusions and toggles.
-
-    Args:
-        df (pd.DataFrame): DataFrame containing metadata columns.
-
     Returns:
         html.Div: Div containing exclusion dropdowns and radio items.
     """
-    # Keep genres precomputed (small) but shift large lists to server-side
-    genres = sorted(set(chain.from_iterable(df["artist_genres"].dropna())))
-
     return html.Div(
         [
             html.Div(
@@ -74,7 +65,7 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search artists…",
+                                placeholder="Type at least 3 characters to search artists…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -87,9 +78,10 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                             html.Label("Select Excluded Genres", className="filter-label"),
                             dcc.Dropdown(
                                 id="excluded-genres-filter-dropdown",
-                                options=[{"label": genre, "value": genre} for genre in genres],
+                                # Options populated via server-side search callback
+                                options=[],
                                 multi=True,
-                                placeholder="Filter genres…",
+                                placeholder="Type at least 3 characters to search genres…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -110,7 +102,7 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search albums…",
+                                placeholder="Type at least 3 characters to search albums…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -126,7 +118,7 @@ def create_global_settings(df: pd.DataFrame) -> html.Div:
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search tracks…",
+                                placeholder="Type at least 3 characters to search tracks…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -378,7 +370,7 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search artists…",
+                                placeholder="Type at least 3 characters to search artists…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",
@@ -459,7 +451,7 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                                 # Options populated via server-side search callback
                                 options=[],
                                 multi=True,
-                                placeholder="Type to search tracks…",
+                                placeholder="Type at least 3 characters to search tracks…",
                                 persistence=True,
                                 persistence_type="local",
                                 className="dropdown",

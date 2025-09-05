@@ -1,6 +1,3 @@
--- ========================
--- Users & Auth (if needed)
--- ========================
 CREATE TABLE dim_users (
   user_id         TEXT PRIMARY KEY,      -- internal UUID
   display_name    TEXT,
@@ -8,9 +5,6 @@ CREATE TABLE dim_users (
   created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ========================
--- Tracks, Albums, Artists
--- ========================
 CREATE TABLE dim_tracks (
   track_id         TEXT PRIMARY KEY, -- Spotify ID
   track_mbid TEXT,
@@ -42,9 +36,6 @@ CREATE TABLE bridge_track_artists (
   PRIMARY KEY (track_id, artist_id, role)
 );
 
--- ========================
--- Facts: Listening history
--- ========================
 CREATE TABLE fact_plays (
   play_id       TEXT PRIMARY KEY,         -- UUID
   user_id       TEXT NOT NULL REFERENCES dim_users(user_id),
@@ -66,15 +57,16 @@ CREATE TABLE fact_plays (
   UNIQUE(user_id, track_id, played_at)    -- dedup key
 );
 
--- ========================
--- Canonical vocabularies
--- ========================
+-- DuckDB: prefer an explicit sequence to auto-increment
+CREATE SEQUENCE IF NOT EXISTS seq_dim_genres START 1;
+
+-- Canonical genres (slug-based external key; hierarchy modeled separately)
 CREATE TABLE dim_genres (
-  genre_id       INTEGER PRIMARY KEY,
-  name           TEXT UNIQUE NOT NULL,
-  parent_genre_id INTEGER,
-  level          INTEGER,
-  active         BOOLEAN DEFAULT TRUE
+  genre_id   INTEGER PRIMARY KEY DEFAULT nextval('seq_dim_genres'),
+  slug       TEXT UNIQUE NOT NULL,   -- stable external key
+  name       TEXT NOT NULL,          -- display name
+  level      INTEGER,                -- 0 = parent, 1 = child, etc.
+  active     BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE dim_moods (
@@ -83,9 +75,6 @@ CREATE TABLE dim_moods (
   active         BOOLEAN DEFAULT TRUE
 );
 
--- ========================
--- Raw evidence & mappings
--- ========================
 CREATE TABLE tag_evidence (
   entity_type    TEXT NOT NULL,    -- 'track' | 'artist' | 'release'
   entity_key     TEXT NOT NULL,    -- track_id / artist_id / album_id
@@ -95,14 +84,6 @@ CREATE TABLE tag_evidence (
   weight_raw     REAL,             -- source-provided weight, or 1.0
   observed_at    TIMESTAMP NOT NULL,
   PRIMARY KEY (entity_type, entity_key, source, tag_raw, tag_kind)
-);
-
-CREATE TABLE dim_genres (
-  genre_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-  slug       TEXT UNIQUE NOT NULL,   -- stable external key
-  name       TEXT NOT NULL,          -- display
-  level      INTEGER,                -- advisory
-  active     BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE map_genre (
@@ -131,9 +112,6 @@ CREATE TABLE map_mood (
   PRIMARY KEY (source, tag_raw)
 );
 
--- ========================
--- Normalized track-level
--- ========================
 CREATE TABLE track_genres (
   track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
   genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
@@ -155,9 +133,6 @@ CREATE TABLE track_moods (
   PRIMARY KEY (track_id, mood_id)
 );
 
--- ========================
--- User rollups
--- ========================
 CREATE TABLE agg_user_genre_daily (
   user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
   date           DATE NOT NULL,
@@ -197,3 +172,71 @@ CREATE TABLE agg_user_mood_monthly (
   avg_score_weighted REAL NOT NULL,
   PRIMARY KEY (user_id, month, mood_id)
 );
+
+-- ========================
+-- Indexes (query accelerators)
+-- ========================
+-- Note: DuckDB is columnar and often scans efficiently without indexes.
+-- These indexes target frequent join/filter keys used throughout the app.
+
+-- fact_plays: frequent filters by user_id and played_at, and joins by track_id
+CREATE INDEX IF NOT EXISTS idx_fact_plays_user_time ON fact_plays(user_id, played_at);
+CREATE INDEX IF NOT EXISTS idx_fact_plays_track     ON fact_plays(track_id);
+-- Composite on the dedupe key helps anti-joins and lookups (matches UNIQUE columns)
+CREATE INDEX IF NOT EXISTS idx_fact_plays_user_track_played ON fact_plays(user_id, track_id, played_at);
+
+-- dim_tracks: join by album_id; lookups by track_id occur via fact_plays join
+CREATE INDEX IF NOT EXISTS idx_dim_tracks_album ON dim_tracks(album_id);
+
+-- bridge_track_artists: frequent join by (track_id, role='primary'); sometimes by (artist_id, role)
+CREATE INDEX IF NOT EXISTS idx_bridge_track_role  ON bridge_track_artists(track_id, role);
+CREATE INDEX IF NOT EXISTS idx_bridge_artist_role ON bridge_track_artists(artist_id, role);
+
+-- artist_genres and track_genres: joins by both sides
+CREATE INDEX IF NOT EXISTS idx_artist_genres_artist ON artist_genres(artist_id);
+CREATE INDEX IF NOT EXISTS idx_artist_genres_genre  ON artist_genres(genre_id);
+CREATE INDEX IF NOT EXISTS idx_track_genres_track   ON track_genres(track_id);
+CREATE INDEX IF NOT EXISTS idx_track_genres_genre   ON track_genres(genre_id);
+
+-- dim_albums: joins by album_id from dim_tracks
+CREATE INDEX IF NOT EXISTS idx_dim_albums_album_id ON dim_albums(album_id);
+
+-- ========================
+-- Convenience Views
+-- ========================
+-- Primary artist per track (deterministic by artist_name ordering)
+CREATE VIEW IF NOT EXISTS v_primary_artist_per_track AS
+WITH ranked AS (
+  SELECT b.track_id,
+         b.artist_id,
+         a.artist_name,
+         ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
+  FROM bridge_track_artists b
+  JOIN dim_artists a ON a.artist_id = b.artist_id
+  WHERE b.role = 'primary'
+)
+SELECT track_id, artist_id, artist_name
+FROM ranked
+WHERE rn = 1;
+
+-- Enriched plays with track/album and primary artist
+CREATE VIEW IF NOT EXISTS v_plays_enriched AS
+SELECT
+  p.user_id,
+  p.played_at,
+  p.duration_ms,
+  p.reason_start,
+  p.reason_end,
+  p.skipped,
+  p.incognito_mode,
+  p.track_id,
+  t.track_name,
+  t.album_id,
+  al.album_name,
+  pa.artist_id,
+  ar.artist_name
+FROM fact_plays p
+LEFT JOIN dim_tracks t ON t.track_id = p.track_id
+LEFT JOIN v_primary_artist_per_track pa ON pa.track_id = p.track_id
+LEFT JOIN dim_artists ar ON ar.artist_id = pa.artist_id
+LEFT JOIN dim_albums  al ON al.album_id = t.album_id;
