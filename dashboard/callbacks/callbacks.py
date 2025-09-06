@@ -2039,10 +2039,20 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         table = dash_table.DataTable(
             overall.to_dict("records"),
             [
-                {"name": "Genre", "id": "genre"},
-                {"name": "Plays", "id": "play_count"},
-                {"name": "Percentage", "id": "percentage"},
-                {"name": "Top Artists", "id": "top_artists"},
+                {"name": "Genre", "id": "genre", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Percentage",
+                    "id": "percentage",
+                    "type": "numeric",
+                    "format": {"specifier": ".2f"},
+                },
+                {"name": "Top Artists", "id": "top_artists", "type": "text"},
             ],
             filter_action="native",
             sort_action="native",
@@ -2146,11 +2156,26 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
             [
-                {"name": "Artist", "id": "artist"},
-                {"name": "Genres", "id": "artist_genres"},
-                {"name": "Plays", "id": "play_count"},
-                {"name": "Unique Tracks", "id": "unique_tracks"},
-                {"name": "Percentage", "id": "percentage"},
+                {"name": "Artist", "id": "artist", "type": "text"},
+                {"name": "Genres", "id": "artist_genres", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Unique Tracks",
+                    "id": "unique_tracks",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Percentage",
+                    "id": "percentage",
+                    "type": "numeric",
+                    "format": {"specifier": ".2f"},
+                },
             ],
             filter_action="native",
             sort_action="native",
@@ -2237,11 +2262,21 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
             [
-                {"name": "Track Name", "id": "track_name"},
-                {"name": "Artist", "id": "artist"},
-                {"name": "Genres", "id": "artist_genres"},
-                {"name": "Plays", "id": "play_count"},
-                {"name": "Percentage", "id": "percentage"},
+                {"name": "Track Name", "id": "track_name", "type": "text"},
+                {"name": "Artist", "id": "artist", "type": "text"},
+                {"name": "Genres", "id": "artist_genres", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Percentage",
+                    "id": "percentage",
+                    "type": "numeric",
+                    "format": {"specifier": ".2f"},
+                },
             ],
             filter_action="native",
             sort_action="native",
