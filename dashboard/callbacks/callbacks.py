@@ -983,6 +983,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                             rnk = it["ranks"].get(u)
                             cnt = it["counts"].get(u, 0)
                             parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
+                    # Append top artists for genres mode when available
+                    ta = None
+                    if (data or {}).get("mode") == "genres":
+                        ta = it.get("top_artists")
+                        if isinstance(ta, list) and ta:
+                            parts.append("Top: " + ", ".join([str(x) for x in ta[:2]]))
                     lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
                 if totals.get(key, 0) > len(items):
                     lines.append("+ more not shown")
@@ -1299,7 +1305,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         if u in it["ranks"]
                     ]
                 )
-                rows.append(html.Li([html.Span(it["name"]), html.Span(f" ({tooltip})")]))
+                # Optional top artists (genres mode)
+                ta = None
+                if (data or {}).get("mode") == "genres":
+                    ta = it.get("top_artists")
+                tail = f" — Top: {', '.join([str(x) for x in ta[:2]])}" if ta else ""
+                rows.append(
+                    html.Li(
+                        [
+                            html.Span(it["name"]),
+                            html.Span(f" ({tooltip}){tail}"),
+                        ]
+                    )
+                )
             if not rows:
                 rows = [html.Li("No items in this region")]
             subtitle = None
