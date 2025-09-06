@@ -544,6 +544,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
         if preset == "60d":
             start = end - timedelta(days=60)
+        elif preset == "2y":
+            start = end - timedelta(days=2 * 365)
+        elif preset == "5y":
+            start = end - timedelta(days=5 * 365)
         elif preset == "ytd":
             start = datetime(end.year, 1, 1)
         elif preset == "all":
@@ -613,6 +617,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
         if preset == "60d":
             start = end - timedelta(days=60)
+        elif preset == "2y":
+            start = end - timedelta(days=2 * 365)
+        elif preset == "5y":
+            start = end - timedelta(days=5 * 365)
         elif preset == "ytd":
             start = datetime(end.year, 1, 1)
         elif preset == "all":
