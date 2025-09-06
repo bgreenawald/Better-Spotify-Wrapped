@@ -1,3 +1,5 @@
+from datetime import date
+
 import dash_mantine_components as dmc  # type: ignore
 import pandas as pd
 from dash import dcc, html
@@ -246,6 +248,71 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
 
     # Track how the date range was changed (preset/reset/manual)
     children.append(dcc.Store(id="date-range-source", storage_type="memory"))
+
+    return html.Div(children, className="filter-item")
+
+
+def create_social_date_range_filter(df: pd.DataFrame) -> html.Div:
+    """Create Social tab date range filter (Mantine + presets).
+
+    Uses separate component IDs to avoid collisions with the Trends tab.
+    """
+    coerced_ts = pd.to_datetime(df["ts"], errors="coerce")
+    min_ts = coerced_ts.min()
+    max_ts = coerced_ts.max()
+    start_date = date.today() if pd.isna(min_ts) else min_ts.date()
+    end_date = date.today() if pd.isna(max_ts) else max_ts.date()
+
+    children: list = [html.Label("Select Date Range", className="filter-label")]
+
+    children.append(
+        dmc.DatePickerInput(
+            id="social-date-range-mc",
+            type="range",
+            value=[start_date, end_date],
+            minDate=start_date,
+            maxDate=end_date,
+            allowSingleDateInRange=True,
+            numberOfColumns=2,
+            firstDayOfWeek=1,
+            size="sm",
+            variant="filled",
+            popoverProps={
+                "withinPortal": True,
+                "zIndex": 4000,
+                "position": "bottom-start",
+                "offset": 8,
+            },
+            persistence=True,
+            persistence_type="local",
+        )
+    )
+    children.append(
+        dmc.SegmentedControl(
+            id="social-date-range-preset",
+            data=[
+                {"label": "Last 60d", "value": "60d"},
+                {"label": "YTD", "value": "ytd"},
+                {"label": "All", "value": "all"},
+                {"label": "Custom", "value": "custom"},
+            ],
+            value="custom",
+            size="xs",
+            radius="xl",
+            persistence=True,
+            persistence_type="local",
+            style={"marginTop": "8px"},
+        )
+    )
+    children.append(
+        html.Button(
+            "Reset Date Range",
+            id="social-reset-date-range",
+            className="reset-button",
+            n_clicks=0,
+        )
+    )
+    children.append(dcc.Store(id="social-date-range-source", storage_type="memory"))
 
     return html.Div(children, className="filter-item")
 

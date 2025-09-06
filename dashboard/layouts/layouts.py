@@ -6,6 +6,7 @@ from dash.development.base_component import Component
 
 from dashboard.components.filters import (
     create_global_settings,
+    create_social_date_range_filter,
     create_trend_filters_section,
     create_wrapped_filters_section,
 )
@@ -31,6 +32,26 @@ def _create_user_selector(df: pd.DataFrame) -> Component:
         ],
         className="user-selector",
         style={"minWidth": "240px"},
+    )
+
+
+def _create_social_user_selector(df: pd.DataFrame) -> Component:
+    users = sorted(df.get("user_id", pd.Series(dtype=str)).dropna().unique())
+    return html.Div(
+        [
+            html.Label("Select Users (2–3)", className="filter-label"),
+            dcc.Dropdown(
+                id="social-users-dropdown",
+                options=[{"label": u, "value": u} for u in users],
+                value=[],
+                multi=True,
+                placeholder="Choose users to compare…",
+                persistence=True,
+                persistence_type="local",
+                className="dropdown",
+            ),
+        ],
+        className="filter-item",
     )
 
 
@@ -117,16 +138,25 @@ def create_layout(df: pd.DataFrame) -> Component:
                     ),
                     # Main content tabs
                     dcc.Tabs(
-                        [
+                        id="main-tabs",
+                        value="wrapped",
+                        children=[
                             dcc.Tab(
                                 label="🎁 Wrapped",
+                                value="wrapped",
                                 children=[create_tab_one_layout(df)],
                             ),
                             dcc.Tab(
                                 label="📈 Trends",
+                                value="trends",
                                 children=[create_tab_two_layout(df)],
                             ),
-                        ]
+                            dcc.Tab(
+                                label="👥 Social",
+                                value="social",
+                                children=[create_tab_social_layout(df)],
+                            ),
+                        ],
                     ),
                 ],
                 id="app-container",
@@ -257,6 +287,96 @@ def create_tab_two_layout(
             # Store for genre hide-level0 toggle (to avoid referencing
             # dynamic controls as Inputs/State in other callbacks)
             dcc.Store(id="genre-hide-level0-store"),
+        ],
+        className="container",
+    )
+
+
+def create_tab_social_layout(df: pd.DataFrame) -> Component:
+    """Create layout for the Social tab (multi-user comparison via Venn).
+
+    Contains: local date range, user multiselect, mode radio, venn display, and details.
+    """
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.H3("Filters", className="card-title"),
+                    html.Div(
+                        [
+                            _create_social_user_selector(df),
+                            # Local date range (independent of Trends tab)
+                            create_social_date_range_filter(df),
+                            html.Div(
+                                [
+                                    html.Label("Mode", className="filter-label"),
+                                    dcc.RadioItems(
+                                        id="social-mode",
+                                        options=[
+                                            {"label": "Tracks", "value": "tracks"},
+                                            {"label": "Artists", "value": "artists"},
+                                            {"label": "Genres", "value": "genres"},
+                                        ],
+                                        value="tracks",
+                                        className="radio-group",
+                                        inputClassName="radio-pill",
+                                        labelClassName="radio-pill-label",
+                                        persistence=True,
+                                        persistence_type="local",
+                                    ),
+                                ],
+                                className="filter-item",
+                            ),
+                            html.Div(
+                                [
+                                    html.Label(
+                                        "Exclude Parent Genres (Level 0)",
+                                        className="filter-label",
+                                    ),
+                                    dcc.RadioItems(
+                                        id="social-genre-hide-level0-radio",
+                                        options=[
+                                            {"label": "Yes", "value": True},
+                                            {"label": "No", "value": False},
+                                        ],
+                                        value=False,
+                                        className="radio-group",
+                                        inputClassName="radio-pill",
+                                        labelClassName="radio-pill-label",
+                                        persistence=True,
+                                        persistence_type="local",
+                                    ),
+                                ],
+                                className="filter-item",
+                                id="social-genre-hide-level0-container",
+                            ),
+                        ],
+                        className="filters-section",
+                    ),
+                ],
+                className="card",
+            ),
+            # Content
+            html.Div(
+                [
+                    html.H3("Comparison", className="card-title"),
+                    dcc.Loading(
+                        children=dcc.Graph(id="social-venn-graph", figure={}),
+                        delay_show=0,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
+                    ),
+                    html.Div(id="social-region-lists"),
+                ],
+                className="card",
+            ),
+            # Store for computed social data
+            dcc.Store(id="social-data"),
+            # Store for selected region (to filter lists)
+            dcc.Store(id="social-selected-region"),
         ],
         className="container",
     )
