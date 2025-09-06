@@ -2038,7 +2038,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         table = dash_table.DataTable(
             overall.to_dict("records"),
-            [{"name": c, "id": c} for c in overall.columns],
+            [
+                {"name": "Genre", "id": "genre"},
+                {"name": "Plays", "id": "play_count"},
+                {"name": "Percentage", "id": "percentage"},
+                {"name": "Top Artists", "id": "top_artists"},
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",
@@ -2140,7 +2145,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         cols = ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
-            [{"name": c, "id": c} for c in cols],
+            [
+                {"name": "Artist", "id": "artist"},
+                {"name": "Genres", "id": "artist_genres"},
+                {"name": "Plays", "id": "play_count"},
+                {"name": "Unique Tracks", "id": "unique_tracks"},
+                {"name": "Percentage", "id": "percentage"},
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",
@@ -2225,7 +2236,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         cols = ["track_name", "artist", "artist_genres", "play_count", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
-            [{"name": c, "id": c} for c in cols],
+            [
+                {"name": "Track Name", "id": "track_name"},
+                {"name": "Artist", "id": "artist"},
+                {"name": "Genres", "id": "artist_genres"},
+                {"name": "Plays", "id": "play_count"},
+                {"name": "Percentage", "id": "percentage"},
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",
