@@ -93,10 +93,12 @@ def test_social_tracks_two_users_basic():
         inter = regions.get("u1_u2", [])
         assert any(item["name"] == "Track One" for item in inter)
         assert all(item["name"] != "Track Two" for item in inter)
-        # u1_only should include its top ranks with Track One first
+        # u1_only excludes shared tracks and enforces expected top rank for user1
         u1_only = regions.get("u1_only", [])
         assert len(u1_only) > 0
-        assert u1_only[0]["name"] in {"Track One", "Track Two"}
+        assert "Track One" not in {t["name"] for t in u1_only}
+        # Top exclusive for u1 should be Track Two (shared t1 excluded)
+        assert u1_only[0]["name"] == "Track Two"
     finally:
         con.close()
 

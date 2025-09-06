@@ -9,6 +9,10 @@ import pandas as pd
 
 Mode = Literal["tracks", "artists", "genres"]
 
+# How many ranked items are considered per region when building disjoint
+# selections. These govern which items are excluded from less-specific regions.
+CONSIDER_LIMITS: dict[Mode, int] = {"tracks": 250, "artists": 100, "genres": 50}
+
 
 @dataclass(frozen=True)
 class RegionItem:
@@ -40,6 +44,7 @@ def _base_plays_sql(
     rel_artists: str,
     rel_albums: str,
     rel_genres: str,
+    has_genre_hierarchy: bool,
 ) -> str:
     # Build optional WHERE fragments
     filters = [
@@ -67,19 +72,31 @@ def _base_plays_sql(
         )
     # Genre exclusions (by name) via artist_genres + genre_hierarchy when present
     if rel_genres:
-        extra_exclusions.append(
+        genre_exclusion_sql = (
             "NOT EXISTS (\n"
             "  SELECT 1\n"
             "  FROM bridge_track_artists b\n"
             "  JOIN artist_genres ag ON ag.artist_id = b.artist_id\n"
             "  JOIN dim_genres g ON g.genre_id = ag.genre_id\n"
-            "  LEFT JOIN genre_hierarchy gh ON gh.child_genre_id = g.genre_id\n"
-            "  LEFT JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id\n"
             "  WHERE b.role = 'primary' AND b.track_id = p.track_id\n"
-            f"    AND (lower(g.name) IN (SELECT lower(val) FROM {rel_genres})\n"
-            f"         OR lower(COALESCE(pg.name, '')) IN (SELECT lower(val) FROM {rel_genres}))\n"
+            f"    AND lower(g.name) IN (SELECT lower(val) FROM {rel_genres})\n"
             ")"
         )
+        if has_genre_hierarchy:
+            genre_exclusion_sql = (
+                "NOT EXISTS (\n"
+                "  SELECT 1\n"
+                "  FROM bridge_track_artists b\n"
+                "  JOIN artist_genres ag ON ag.artist_id = b.artist_id\n"
+                "  JOIN dim_genres g ON g.genre_id = ag.genre_id\n"
+                "  LEFT JOIN genre_hierarchy gh ON gh.child_genre_id = g.genre_id\n"
+                "  LEFT JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id\n"
+                "  WHERE b.role = 'primary' AND b.track_id = p.track_id\n"
+                f"    AND (lower(g.name) IN (SELECT lower(val) FROM {rel_genres})\n"
+                f"         OR lower(COALESCE(pg.name, '')) IN (SELECT lower(val) FROM {rel_genres}))\n"
+                ")"
+            )
+        extra_exclusions.append(genre_exclusion_sql)
 
     where_clause = " AND\n          ".join(filters + extra_exclusions)
 
@@ -214,6 +231,8 @@ def compute_social_regions(
     """
     if not users or len(users) < 2 or len(users) > 3:
         raise ValueError("users must contain 2 or 3 user ids")
+    if len(users) != len(set(users)):
+        raise ValueError("users must contain 2 or 3 unique user ids")
 
     # Prepare parameter relations
     users_rel = _build_users_rel(con, users)
@@ -240,6 +259,13 @@ def compute_social_regions(
         date_clause += " AND p.played_at <= ?"
         params.append(pd.to_datetime(end).to_pydatetime())
 
+    has_genre_hierarchy = (
+        con.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='genre_hierarchy'"
+        ).fetchone()[0]
+        > 0
+    )
+
     base = _base_plays_sql(
         users_rel=users_rel,
         exclude_december=exclude_december,
@@ -248,7 +274,8 @@ def compute_social_regions(
         rel_artists=rel_artists,
         rel_albums=rel_albums,
         rel_genres=rel_genres,
-    ).replace("WHERE ", f"WHERE 1=1{date_clause} AND ")
+        has_genre_hierarchy=has_genre_hierarchy,
+    ).replace("WHERE ", f"WHERE 1=1{date_clause} AND ", 1)
 
     ranks = _ranks_sql(mode, hide_parent_genres=hide_parent_genres)
 
@@ -275,6 +302,11 @@ def compute_social_regions(
     for u in users:
         per_user[u].sort_values(["rnk", "entity_name"], inplace=True)
 
+    # Build per-user entity sets for strict Venn totals
+    entity_sets: dict[str, set[str]] = {
+        u: set(per_user[u]["entity_id"].astype(str).unique().tolist()) for u in users
+    }
+
     # Helper to collect items for a set of users
     def _region_entities(required: tuple[str, ...], excluded: tuple[str, ...]) -> pd.DataFrame:
         req_sets = []
@@ -300,14 +332,21 @@ def compute_social_regions(
     totals: dict[str, int] = {}
 
     # Build region keys using actual user ids for clarity
+    consider_k_mode = CONSIDER_LIMITS[mode]
     if len(users) == 2:
         u1, u2 = users
-        # Intersection
+        # Strict Venn totals using sets
+        s1, s2 = entity_sets[u1], entity_sets[u2]
+        totals[f"{u1}_{u2}"] = len(s1 & s2)
+        totals[f"{u1}_only"] = len(s1 - s2)
+        totals[f"{u2}_only"] = len(s2 - s1)
+
+        # Intersection: take top-K considered for exclusion/region population
         inter = _region_entities((u1, u2), ())
-        totals[f"{u1}_{u2}"] = int(inter.shape[0])
-        top = inter.head(limit_per_region)
+        inter_considered = inter.head(consider_k_mode)
+        selected_intersection_ids = set(inter_considered["entity_id"].astype(str))
         items: list[RegionItem] = []
-        for row in top.itertuples(index=False):
+        for row in inter_considered.itertuples(index=False):
             eid = str(row.entity_id)
             nm = str(row.entity_name)
             # gather counts/ranks per user
@@ -327,11 +366,11 @@ def compute_social_regions(
             )
         regions[f"{u1}_{u2}"] = [item.__dict__ for item in items]
 
-        # Non-intersections: top per user overall (duplicates with intersection allowed)
+        # Non-intersections: per-user ranks excluding only the considered intersection picks
         for u in (u1, u2):
             ru = per_user[u]
-            totals[f"{u}_only"] = int(ru["entity_id"].nunique())
-            ru_sorted = ru.sort_values(["rnk", "entity_name"]).head(limit_per_region)
+            ru_exclusive = ru[~ru.entity_id.astype(str).isin(selected_intersection_ids)]
+            ru_sorted = ru_exclusive.sort_values(["rnk", "entity_name"]).head(limit_per_region)
             u_items: list[RegionItem] = []
             for rr in ru_sorted.itertuples(index=False):
                 u_items.append(
@@ -346,11 +385,22 @@ def compute_social_regions(
             regions[f"{u}_only"] = [ri.__dict__ for ri in u_items]
     else:
         u1, u2, u3 = users
-        # 3-way intersection
+        # Strict Venn totals using sets
+        s1, s2, s3 = entity_sets[u1], entity_sets[u2], entity_sets[u3]
+        totals[f"{u1}_{u2}_{u3}"] = len(s1 & s2 & s3)
+        totals[f"{u1}_{u2}"] = len((s1 & s2) - s3)
+        totals[f"{u1}_{u3}"] = len((s1 & s3) - s2)
+        totals[f"{u2}_{u3}"] = len((s2 & s3) - s1)
+        totals[f"{u1}_only"] = len(s1 - s2 - s3)
+        totals[f"{u2}_only"] = len(s2 - s1 - s3)
+        totals[f"{u3}_only"] = len(s3 - s1 - s2)
+
+        # 3-way intersection: take top-K considered for exclusion/region population
         inter3 = _region_entities((u1, u2, u3), ())
-        totals[f"{u1}_{u2}_{u3}"] = int(inter3.shape[0])
+        inter3_considered = inter3.head(consider_k_mode)
+        selected_3way_ids = set(inter3_considered["entity_id"].astype(str))
         items3 = []
-        for row in inter3.head(limit_per_region).itertuples(index=False):
+        for row in inter3_considered.itertuples(index=False):
             ranks_counts: dict[str, tuple[int, int]] = {}
             for u in (u1, u2, u3):
                 r = per_user[u]
@@ -373,11 +423,14 @@ def compute_social_regions(
             ((u1, u3), (u2,)),
             ((u2, u3), (u1,)),
         ]
+        # Track which entity_ids have been selected (considered) for each user via pair/3-way
+        selected_pair_ids_by_user: dict[str, set[str]] = {u1: set(), u2: set(), u3: set()}
         for req, exc in pairs:
             dfp = _region_entities(req, exc)
-            totals["_".join(req)] = int(dfp.shape[0])
+            # Consider top-K for this pair (exact intersection), independent of 3-way list
+            dfp_considered = dfp.head(consider_k_mode)
             items_pair = []
-            for row in dfp.head(limit_per_region).itertuples(index=False):
+            for row in dfp_considered.itertuples(index=False):
                 ranks_counts: dict[str, tuple[int, int]] = {}
                 for u in req:
                     r = per_user[u]
@@ -392,13 +445,18 @@ def compute_social_regions(
                         counts={k: v[1] for k, v in ranks_counts.items()},
                     ).__dict__
                 )
+                # Record selections for users in this pair
+                for u in req:
+                    selected_pair_ids_by_user[u].add(str(row.entity_id))
             regions["_".join(req)] = items_pair
 
-        # Non-intersections per user (top overall)
+        # Non-intersections per user: ranks excluding any entity selected
+        # in the 3-way intersection or in any pair (considered lists) that includes the user.
         for u in (u1, u2, u3):
             ru = per_user[u]
-            totals[f"{u}_only"] = int(ru["entity_id"].nunique())
-            ru_sorted = ru.sort_values(["rnk", "entity_name"]).head(limit_per_region)
+            to_exclude = set(selected_3way_ids) | selected_pair_ids_by_user[u]
+            ru_excl = ru[~ru["entity_id"].astype(str).isin(to_exclude)]
+            ru_sorted = ru_excl.sort_values(["rnk", "entity_name"]).head(limit_per_region)
             u_items: list[RegionItem] = []
             for rr in ru_sorted.itertuples(index=False):
                 u_items.append(
@@ -411,6 +469,15 @@ def compute_social_regions(
                     )
                 )
             regions[f"{u}_only"] = [ri.__dict__ for ri in u_items]
+
+    # Ensure each region list contains at most limit_per_region items for display
+    for k, v in list(regions.items()):
+        if isinstance(v, list) and len(v) > limit_per_region:
+            regions[k] = v[:limit_per_region]
+
+    # Cap totals per region by the mode's consideration limit
+    for k in list(totals.keys()):
+        totals[k] = min(int(totals[k]), consider_k_mode)
 
     return {
         "users": users,

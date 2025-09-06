@@ -1,3 +1,5 @@
+from datetime import date
+
 import dash_mantine_components as dmc  # type: ignore
 import pandas as pd
 from dash import dcc, html
@@ -255,10 +257,11 @@ def create_social_date_range_filter(df: pd.DataFrame) -> html.Div:
 
     Uses separate component IDs to avoid collisions with the Trends tab.
     """
-    min_ts = df["ts"].min()
-    max_ts = df["ts"].max()
-    start_date = min_ts.date() if hasattr(min_ts, "date") else min_ts
-    end_date = max_ts.date() if hasattr(max_ts, "date") else max_ts
+    coerced_ts = pd.to_datetime(df["ts"], errors="coerce")
+    min_ts = coerced_ts.min()
+    max_ts = coerced_ts.max()
+    start_date = date.today() if pd.isna(min_ts) else min_ts.date()
+    end_date = date.today() if pd.isna(max_ts) else max_ts.date()
 
     children: list = [html.Label("Select Date Range", className="filter-label")]
 

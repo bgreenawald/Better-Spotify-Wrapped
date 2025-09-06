@@ -951,7 +951,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             _add_circle(1.2, 0.0, 1.2, "#0f7a35", lbl(users[1]))
             # Put intersection count
             inter_key = f"{users[0]}_{users[1]}"
-            inter_count = len(regions.get(inter_key, []))
+            inter_count = totals.get(inter_key, 0)
             ann.append({"x": 0.6, "y": 0.0, "text": f"∩: {inter_count}", "showarrow": False})
             fig.update_xaxes(range=[-1.6, 2.8])
             fig.update_yaxes(range=[-1.6, 1.8])
@@ -959,7 +959,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             # Hover/select points for regions
             def _tooltip_for(key: str, title: str) -> str:
                 items = regions.get(key, [])
-                lines = [title, f"Total: {totals.get(key, len(items))}"]
+                lines = [title, f"Total: {totals.get(key, 0)}"]
                 # Include per-user ranks and counts and joint rank for each item
                 for it in items[:10]:
                     parts = []
@@ -976,7 +976,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                             cnt = it["counts"].get(u, 0)
                             parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
                     lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
-                if totals.get(key, len(items)) > len(items):
+                if totals.get(key, 0) > len(items):
                     lines.append("+ more not shown")
                 return "<br>".join(lines)
 
@@ -1083,14 +1083,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             _add_circle(1.4, 0.6, 1.2, "#0f7a35", lbl(users[1]))
             _add_circle(0.7, -0.6, 1.2, "#169c48", lbl(users[2]))
             inter_key = f"{users[0]}_{users[1]}_{users[2]}"
-            inter_count = len(regions.get(inter_key, []))
+            inter_count = totals.get(inter_key, 0)
             ann.append({"x": 0.7, "y": 0.2, "text": f"∩3: {inter_count}", "showarrow": False})
             fig.update_xaxes(range=[-1.6, 3.0])
             fig.update_yaxes(range=[-1.8, 2.0])
 
             def _tooltip_for(key: str, title: str) -> str:
                 items = regions.get(key, [])
-                lines = [title, f"Total: {totals.get(key, len(items))}"]
+                lines = [title, f"Total: {totals.get(key, 0)}"]
                 for it in items[:10]:
                     parts = []
                     try:
@@ -1103,9 +1103,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         if u in it.get("ranks", {}):
                             rnk = it["ranks"].get(u)
                             cnt = it["counts"].get(u, 0)
-                            parts.append(f"{u}: r{rnk}/{cnt}")
+                            parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
                     lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
-                if totals.get(key, len(items)) > len(items):
+                if totals.get(key, 0) > len(items):
                     lines.append("+ more not shown")
                 return "<br>".join(lines)
 
@@ -1177,7 +1177,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         "color": "rgba(0,0,0,0)",
                         "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
-                    "name": f"{u1} only",
+                    "name": f"{lbl(u1)} only",
                     "hovertemplate": _tooltip_for(f"{u1}_only", f"{u1} only") + "<extra></extra>",
                     "customdata": [f"{u1}_only"],
                 },
@@ -1191,7 +1191,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         "color": "rgba(0,0,0,0)",
                         "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
-                    "name": f"{u2} only",
+                    "name": f"{lbl(u2)} only",
                     "hovertemplate": _tooltip_for(f"{u2}_only", f"{u2} only") + "<extra></extra>",
                     "customdata": [f"{u2}_only"],
                 },
@@ -1205,7 +1205,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         "color": "rgba(0,0,0,0)",
                         "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
-                    "name": f"{u3} only",
+                    "name": f"{lbl(u3)} only",
                     "hovertemplate": _tooltip_for(f"{u3}_only", f"{u3} only") + "<extra></extra>",
                     "customdata": [f"{u3}_only"],
                 },
@@ -1286,7 +1286,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             for it in items[:10]:
                 tooltip = " | ".join(
                     [
-                        f"{u}: r{it['ranks'].get(u, '-')}, {it['counts'].get(u, 0)} plays"
+                        f"{lbl(u)}: r{it['ranks'].get(u, '-')}, {it['counts'].get(u, 0)} plays"
                         for u in users
                         if u in it["ranks"]
                     ]
@@ -1348,7 +1348,20 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     )
                 )
 
-        return fig, html.Div(blocks, className="graph-container")
+        # Explanatory note about consideration limits and display caps
+        mode = (data or {}).get("mode", "tracks")
+        consider_caps = {"tracks": 250, "artists": 100, "genres": 50}
+        cap = consider_caps.get(mode, 10)
+        note = html.Div(
+            (
+                "Note: Social regions use per‑mode consideration caps "
+                f"(Tracks 250, Artists 100, Genres 50). Totals are capped by the current mode's cap (now {cap}); "
+                "lists show up to 10 items. Less‑specific regions exclude only items already selected in more‑specific regions."
+            ),
+            className="card-subtitle",
+        )
+
+        return fig, html.Div([note, html.Div(blocks, className="graph-container")])
 
     @app.callback(
         Output("social-selected-region", "data"),
