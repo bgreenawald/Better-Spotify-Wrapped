@@ -223,9 +223,9 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
             id="date-range-preset",
             data=[
                 {"label": "Last 60d", "value": "60d"},
+                {"label": "YTD", "value": "ytd"},
                 {"label": "Last 2y", "value": "2y"},
                 {"label": "Last 5y", "value": "5y"},
-                {"label": "YTD", "value": "ytd"},
                 {"label": "All", "value": "all"},
                 {"label": "Custom", "value": "custom"},
             ],
@@ -294,9 +294,9 @@ def create_social_date_range_filter(df: pd.DataFrame) -> html.Div:
             id="social-date-range-preset",
             data=[
                 {"label": "Last 60d", "value": "60d"},
+                {"label": "YTD", "value": "ytd"},
                 {"label": "Last 2y", "value": "2y"},
                 {"label": "Last 5y", "value": "5y"},
-                {"label": "YTD", "value": "ytd"},
                 {"label": "All", "value": "all"},
                 {"label": "Custom", "value": "custom"},
             ],
