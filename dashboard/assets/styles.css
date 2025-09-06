@@ -40,9 +40,8 @@ body {
     background-color: var(--spotify-green);  /* Spotify green */
     color: white;
     padding: 20px 0;
-    margin-bottom: 30px;
+    margin-bottom: 0px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    position: sticky;
     top: 0;
     z-index: 1030;
 }
@@ -229,6 +228,32 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+/* Header hamburger for Global Settings */
+.header-settings-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: transparent;
+    color: #fff;
+    line-height: 1;
+    font-size: 18px;
+}
+
+.header-settings-button:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.dark-theme .header-settings-button {
+    border-color: #fff;
+    color: #fff;
 }
 
 /* Removed legacy Bootstrap toggle label/switch styles */

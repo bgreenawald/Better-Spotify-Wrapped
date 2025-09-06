@@ -544,6 +544,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
         if preset == "60d":
             start = end - timedelta(days=60)
+        elif preset == "2y":
+            start = end - timedelta(days=2 * 365)
+        elif preset == "5y":
+            start = end - timedelta(days=5 * 365)
         elif preset == "ytd":
             start = datetime(end.year, 1, 1)
         elif preset == "all":
@@ -613,6 +617,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         end = datetime(max_ts.year, max_ts.month, max_ts.day)
         if preset == "60d":
             start = end - timedelta(days=60)
+        elif preset == "2y":
+            start = end - timedelta(days=2 * 365)
+        elif preset == "5y":
+            start = end - timedelta(days=5 * 365)
         elif preset == "ytd":
             start = datetime(end.year, 1, 1)
         elif preset == "all":
@@ -893,7 +901,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
         Input("social-selected-region", "data"),
-        State("theme-store", "data"),
+        Input("theme-store", "data"),
     )
     def render_social(data, selected_region, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
@@ -975,6 +983,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                             rnk = it["ranks"].get(u)
                             cnt = it["counts"].get(u, 0)
                             parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
+                    # Append top artists for genres mode when available
+                    ta = None
+                    if (data or {}).get("mode") == "genres":
+                        ta = it.get("top_artists")
+                        if isinstance(ta, list) and ta:
+                            parts.append("Top: " + ", ".join([str(x) for x in ta[:2]]))
                     lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
                 if totals.get(key, 0) > len(items):
                     lines.append("+ more not shown")
@@ -1291,7 +1305,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         if u in it["ranks"]
                     ]
                 )
-                rows.append(html.Li([html.Span(it["name"]), html.Span(f" ({tooltip})")]))
+                # Optional top artists (genres mode)
+                ta = None
+                if (data or {}).get("mode") == "genres":
+                    ta = it.get("top_artists")
+                tail = f" — Top: {', '.join([str(x) for x in ta[:2]])}" if ta else ""
+                rows.append(
+                    html.Li(
+                        [
+                            html.Span(it["name"]),
+                            html.Span(f" ({tooltip}){tail}"),
+                        ]
+                    )
+                )
             if not rows:
                 rows = [html.Li("No items in this region")]
             subtitle = None
@@ -1955,7 +1981,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
-            State("genre-hide-level0-store", "data"),
+            Input("genre-hide-level0-store", "data"),
         ],
         prevent_initial_call=True,
     )
@@ -2030,7 +2056,22 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         table = dash_table.DataTable(
             overall.to_dict("records"),
-            [{"name": c, "id": c} for c in overall.columns],
+            [
+                {"name": "Genre", "id": "genre", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Percentage",
+                    "id": "percentage",
+                    "type": "numeric",
+                    "format": {"specifier": ".2g"},
+                },
+                {"name": "Top Artists", "id": "top_artists", "type": "text"},
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",
@@ -2132,7 +2173,28 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         cols = ["artist", "artist_genres", "play_count", "unique_tracks", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
-            [{"name": c, "id": c} for c in cols],
+            [
+                {"name": "Artist", "id": "artist", "type": "text"},
+                {"name": "Genres", "id": "artist_genres", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Unique Tracks",
+                    "id": "unique_tracks",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+                {
+                    "name": "Percentage",
+                    "id": "percentage",
+                    "type": "numeric",
+                    "format": {"specifier": ".2g"},
+                },
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",
@@ -2217,7 +2279,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         cols = ["track_name", "artist", "artist_genres", "play_count", "percentage"]
         table = dash_table.DataTable(
             overall[cols].to_dict("records"),
-            [{"name": c, "id": c} for c in cols],
+            [
+                {"name": "Track Name", "id": "track_name", "type": "text"},
+                {"name": "Artist", "id": "artist", "type": "text"},
+                {"name": "Genres", "id": "artist_genres", "type": "text"},
+                {
+                    "name": "Plays",
+                    "id": "play_count",
+                    "type": "numeric",
+                    "format": {"specifier": "d"},
+                },
+            ],
             filter_action="native",
             sort_action="native",
             sort_mode="multi",

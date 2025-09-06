@@ -21,6 +21,8 @@ class RegionItem:
     joint_rank: float
     ranks: dict[str, int]
     counts: dict[str, int]
+    # Only for genre mode: top 1–2 artist names relevant to the region
+    top_artists: list[str] | None = None
 
 
 def _register_list_param(con, name: str, values: Iterable[str] | None) -> str:
@@ -336,6 +338,81 @@ def compute_social_regions(
     regions: dict[str, list[RegionItem]] = {}
     totals: dict[str, int] = {}
 
+    # For genres, pre-compute per-user per-genre artist ranks to surface top artists per region
+    genre_artist_ranks: pd.DataFrame | None = None
+    if mode == "genres":
+        gar_sql = (
+            base
+            + """
+            ,
+            track_primary AS (
+              SELECT b.user_id, b.track_id, a.artist_id
+              FROM base b
+              JOIN bridge_track_artists a ON a.track_id = b.track_id AND a.role = 'primary'
+            ),
+            genre_artist AS (
+              SELECT tp.user_id,
+                     g.genre_id,
+                     ar.artist_id,
+                     ar.artist_name,
+                     COUNT(*) AS play_count
+              FROM track_primary tp
+              JOIN artist_genres ag ON ag.artist_id = tp.artist_id
+              JOIN dim_genres g ON g.genre_id = ag.genre_id
+              JOIN dim_artists ar ON ar.artist_id = tp.artist_id
+              GROUP BY 1,2,3,4
+            ),
+            ranked AS (
+              SELECT user_id, genre_id, artist_id, artist_name, play_count,
+                     DENSE_RANK() OVER (PARTITION BY user_id, genre_id ORDER BY play_count DESC, artist_name ASC) AS rnk
+              FROM genre_artist
+            )
+            SELECT user_id, genre_id, artist_id, artist_name, play_count, rnk FROM ranked
+            ;
+            """
+        )
+        with contextlib.suppress(Exception):
+            genre_artist_ranks = con.execute(gar_sql, params).df()
+
+        def _top_artists_for_genre(
+            genre_id: str, req_users: tuple[str, ...], top_n: int = 2
+        ) -> list[str]:
+            if genre_artist_ranks is None or genre_artist_ranks.empty:
+                return []
+            g = genre_artist_ranks
+            sub = g[
+                (g["genre_id"].astype(str) == str(genre_id)) & (g["user_id"].isin(list(req_users)))
+            ].copy()
+            if sub.empty:
+                return []
+            if len(req_users) == 1:
+                u = req_users[0]
+                subu = sub[sub["user_id"] == u].sort_values(["rnk", "artist_name"]).head(top_n)
+                return subu["artist_name"].astype(str).tolist()
+            # Multi-user: prefer artists present for all required users, sorted by average rank
+            present_by_user = {
+                u: set(sub[sub["user_id"] == u]["artist_id"].astype(str)) for u in req_users
+            }
+            common = set.intersection(*present_by_user.values()) if present_by_user else set()
+            if common:
+                cand = sub[sub["artist_id"].astype(str).isin(common)]
+                avg_rank = (
+                    cand.groupby(["artist_id", "artist_name"], as_index=False)["rnk"]
+                    .mean()
+                    .rename(columns={"rnk": "avg_rnk"})
+                )
+                nunique = cand.groupby(["artist_id"]).agg(n=("user_id", "nunique")).reset_index()
+                avg_rank = avg_rank.merge(nunique, on="artist_id")
+                avg_rank = avg_rank[avg_rank["n"] == len(req_users)]
+                out = avg_rank.sort_values(["avg_rnk", "artist_name"]).head(top_n)
+                return out["artist_name"].astype(str).tolist()
+            # Fallback: top by total plays across required users within the genre
+            plays = sub.groupby(["artist_id", "artist_name"], as_index=False)["play_count"].sum()
+            out = plays.sort_values(["play_count", "artist_name"], ascending=[False, True]).head(
+                top_n
+            )
+            return out["artist_name"].astype(str).tolist()
+
     # Build region keys using actual user ids for clarity
     consider_k_mode = CONSIDER_LIMITS[mode]
     if len(users) == 2:
@@ -360,6 +437,10 @@ def compute_social_regions(
                 r = per_user[u]
                 rr = r[r.entity_id == row.entity_id].sort_values(["rnk", "entity_name"]).iloc[0]
                 ranks_counts[u] = (int(rr.rnk), int(rr.play_count))
+            top_art = None
+            if mode == "genres":
+                with contextlib.suppress(Exception):
+                    top_art = _top_artists_for_genre(eid, (u1, u2))
             items.append(
                 RegionItem(
                     id=eid,
@@ -367,6 +448,7 @@ def compute_social_regions(
                     joint_rank=float(row.joint_rank),
                     ranks={k: v[0] for k, v in ranks_counts.items()},
                     counts={k: v[1] for k, v in ranks_counts.items()},
+                    top_artists=top_art,
                 )
             )
         regions[f"{u1}_{u2}"] = [item.__dict__ for item in items]
@@ -385,6 +467,11 @@ def compute_social_regions(
                         joint_rank=float(rr.rnk),
                         ranks={u: int(rr.rnk)},
                         counts={u: int(rr.play_count)},
+                        top_artists=(
+                            _top_artists_for_genre(str(rr.entity_id), (u,))
+                            if mode == "genres"
+                            else None
+                        ),
                     )
                 )
             regions[f"{u}_only"] = [ri.__dict__ for ri in u_items]
@@ -418,6 +505,11 @@ def compute_social_regions(
                     joint_rank=float(row.joint_rank),
                     ranks={k: v[0] for k, v in ranks_counts.items()},
                     counts={k: v[1] for k, v in ranks_counts.items()},
+                    top_artists=(
+                        _top_artists_for_genre(str(row.entity_id), (u1, u2, u3))
+                        if mode == "genres"
+                        else None
+                    ),
                 ).__dict__
             )
         regions[f"{u1}_{u2}_{u3}"] = items3
@@ -448,6 +540,11 @@ def compute_social_regions(
                         joint_rank=float(row.joint_rank),
                         ranks={k: v[0] for k, v in ranks_counts.items()},
                         counts={k: v[1] for k, v in ranks_counts.items()},
+                        top_artists=(
+                            _top_artists_for_genre(str(row.entity_id), tuple(req))
+                            if mode == "genres"
+                            else None
+                        ),
                     ).__dict__
                 )
                 # Record selections for users in this pair
@@ -471,6 +568,11 @@ def compute_social_regions(
                         joint_rank=float(rr.rnk),
                         ranks={u: int(rr.rnk)},
                         counts={u: int(rr.play_count)},
+                        top_artists=(
+                            _top_artists_for_genre(str(rr.entity_id), (u,))
+                            if mode == "genres"
+                            else None
+                        ),
                     )
                 )
             regions[f"{u}_only"] = [ri.__dict__ for ri in u_items]

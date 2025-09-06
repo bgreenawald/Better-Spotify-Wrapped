@@ -31,7 +31,7 @@ def _create_user_selector(df: pd.DataFrame) -> Component:
             ),
         ],
         className="user-selector",
-        style={"minWidth": "240px"},
+        style={"minWidth": "240px", "marginBottom": "30px"},
     )
 
 
@@ -85,6 +85,7 @@ def create_layout(df: pd.DataFrame) -> Component:
                                         ),
                                         html.Div(
                                             [
+                                                # Theme toggle
                                                 dmc.Switch(
                                                     id="theme-toggle",
                                                     checked=False,
@@ -95,6 +96,16 @@ def create_layout(df: pd.DataFrame) -> Component:
                                                     className="theme-toggle-switch",
                                                     persistence=True,
                                                     persistence_type="local",
+                                                ),
+                                                # Global settings hamburger toggle (moved into header)
+                                                dbc.Button(
+                                                    html.Span("☰"),
+                                                    id="collapse-button",
+                                                    title="Global settings",
+                                                    className="header-settings-button",
+                                                    color="light",
+                                                    size="sm",
+                                                    n_clicks=0,
                                                 ),
                                             ],
                                             className="theme-toggle-container",
@@ -110,17 +121,6 @@ def create_layout(df: pd.DataFrame) -> Component:
                     # Global settings collapsible panel
                     html.Div(
                         [
-                            dbc.Button(
-                                [
-                                    "Global Settings",
-                                    html.Span(" ▼"),
-                                ],
-                                id="collapse-button",
-                                className="mb-3 global-settings-button",
-                                color="primary",
-                                size="sm",
-                                n_clicks=0,
-                            ),
                             dbc.Collapse(
                                 dbc.Card(
                                     dbc.CardBody(
