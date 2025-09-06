@@ -61,14 +61,16 @@ def _base_plays_sql(
 
     extra_exclusions: list[str] = []
     if rel_tracks:
-        extra_exclusions.append(f"COALESCE(t.track_name, '') NOT IN (SELECT val FROM {rel_tracks})")
+        extra_exclusions.append(
+            f"LOWER(COALESCE(t.track_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_tracks})"
+        )
     if rel_artists:
         extra_exclusions.append(
-            f"COALESCE(ar.artist_name, '') NOT IN (SELECT val FROM {rel_artists})"
+            f"LOWER(COALESCE(ar.artist_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_artists})"
         )
     if rel_albums:
         extra_exclusions.append(
-            f"COALESCE(al.album_name, '') NOT IN (SELECT val FROM {rel_albums})"
+            f"LOWER(COALESCE(al.album_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_albums})"
         )
     # Genre exclusions (by name) via artist_genres + genre_hierarchy when present
     if rel_genres:
@@ -259,12 +261,15 @@ def compute_social_regions(
         date_clause += " AND p.played_at <= ?"
         params.append(pd.to_datetime(end).to_pydatetime())
 
-    has_genre_hierarchy = (
-        con.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='genre_hierarchy'"
-        ).fetchone()[0]
-        > 0
-    )
+    has_genre_hierarchy = False
+    if rel_genres:
+        with contextlib.suppress(Exception):
+            has_genre_hierarchy = (
+                con.execute(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'genre_hierarchy'"
+                ).fetchone()[0]
+                > 0
+            )
 
     base = _base_plays_sql(
         users_rel=users_rel,
