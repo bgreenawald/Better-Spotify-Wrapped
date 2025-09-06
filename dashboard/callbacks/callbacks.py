@@ -893,7 +893,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
         Input("social-selected-region", "data"),
-        State("theme-store", "data"),
+        Input("theme-store", "data"),
     )
     def render_social(data, selected_region, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
