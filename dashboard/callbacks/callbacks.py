@@ -1963,7 +1963,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
-            State("genre-hide-level0-store", "data"),
+            Input("genre-hide-level0-store", "data"),
         ],
         prevent_initial_call=True,
     )
