@@ -96,7 +96,7 @@ def _base_plays_sql(
     )
 
 
-def _ranks_sql(mode: Mode) -> str:
+def _ranks_sql(mode: Mode, *, hide_parent_genres: bool = False) -> str:
     """Return the CTEs for per-user counts and ranks, prefixed with a comma.
 
     Must follow immediately after "WITH base AS (...)".
@@ -141,6 +141,7 @@ def _ranks_sql(mode: Mode) -> str:
             ]
         )
     # genres
+    cond = " AND COALESCE(dg.level, 1) <> 0" if hide_parent_genres else ""
     return "".join(
         [
             ",\n",
@@ -153,7 +154,9 @@ def _ranks_sql(mode: Mode) -> str:
             "  SELECT tp.user_id, g.genre_id AS entity_id, dg.name AS entity_name\n",
             "  FROM track_primary tp\n",
             "  JOIN artist_genres g ON g.artist_id = tp.artist_id\n",
-            "  JOIN dim_genres dg ON dg.genre_id = g.genre_id\n",
+            "  JOIN dim_genres dg ON dg.genre_id = g.genre_id",
+            cond,
+            "\n",
             "),\n",
             "counts AS (\n",
             "  SELECT user_id, entity_id, entity_name, COUNT(*) AS play_count\n",
@@ -191,6 +194,7 @@ def compute_social_regions(
     excluded_artists: Iterable[str] | None = None,
     excluded_albums: Iterable[str] | None = None,
     excluded_genres: Iterable[str] | None = None,
+    hide_parent_genres: bool = False,
     limit_per_region: int = 10,
 ) -> dict:
     """Compute Venn regions for 2–3 users with per-user ranks and joint ranks.
@@ -209,6 +213,14 @@ def compute_social_regions(
     rel_artists = _register_list_param(con, "excluded_artists", excluded_artists)
     rel_albums = _register_list_param(con, "excluded_albums", excluded_albums)
     rel_genres = _register_list_param(con, "excluded_genres", excluded_genres)
+
+    # Resolve display names for selected users
+    try:
+        labels_sql = f"SELECT val as user_id, COALESCE(d.display_name, val) AS label FROM {users_rel} u LEFT JOIN dim_users d ON d.user_id = u.val"
+        labels_df = con.execute(labels_sql).df()
+        user_labels = {str(r.user_id): str(r.label) for r in labels_df.itertuples(index=False)}
+    except Exception:
+        user_labels = {str(u): str(u) for u in users}
 
     # Register date bounds if provided
     params: list[Any] = []
@@ -230,7 +242,12 @@ def compute_social_regions(
         rel_genres=rel_genres,
     ).replace("WHERE ", f"WHERE 1=1{date_clause} AND ")
 
-    ranks = _ranks_sql(mode)
+    ranks = _ranks_sql(mode, hide_parent_genres=hide_parent_genres)
+
+    # Per-user play counts in the filtered base
+    counts_sql = base + "SELECT user_id, COUNT(*) AS plays FROM base GROUP BY 1;"
+    user_counts_df = con.execute(counts_sql, params).df()
+    user_counts = {str(r.user_id): int(r.plays) for r in user_counts_df.itertuples(index=False)}
 
     sql = base + ranks + "SELECT user_id, entity_id, entity_name, play_count, rnk FROM ranks;"
 
@@ -241,6 +258,8 @@ def compute_social_regions(
             "mode": mode,
             "regions": {},
             "totals": {},
+            "user_counts": user_counts,
+            "user_labels": user_labels,
         }
 
     # Build per-user rankings and sets
@@ -390,4 +409,6 @@ def compute_social_regions(
         "mode": mode,
         "regions": regions,
         "totals": totals,
+        "user_counts": user_counts,
+        "user_labels": user_labels,
     }

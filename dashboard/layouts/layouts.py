@@ -6,6 +6,7 @@ from dash.development.base_component import Component
 
 from dashboard.components.filters import (
     create_global_settings,
+    create_social_date_range_filter,
     create_trend_filters_section,
     create_wrapped_filters_section,
 )
@@ -137,20 +138,25 @@ def create_layout(df: pd.DataFrame) -> Component:
                     ),
                     # Main content tabs
                     dcc.Tabs(
-                        [
+                        id="main-tabs",
+                        value="wrapped",
+                        children=[
                             dcc.Tab(
                                 label="🎁 Wrapped",
+                                value="wrapped",
                                 children=[create_tab_one_layout(df)],
                             ),
                             dcc.Tab(
                                 label="📈 Trends",
+                                value="trends",
                                 children=[create_tab_two_layout(df)],
                             ),
                             dcc.Tab(
                                 label="👥 Social",
+                                value="social",
                                 children=[create_tab_social_layout(df)],
                             ),
-                        ]
+                        ],
                     ),
                 ],
                 id="app-container",
@@ -300,18 +306,7 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
                         [
                             _create_social_user_selector(df),
                             # Local date range (independent of Trends tab)
-                            html.Div(
-                                [
-                                    html.Label("Select Date Range", className="filter-label"),
-                                    dcc.DatePickerRange(
-                                        id="social-date-range",
-                                        start_date=df["ts"].min().date() if not df.empty else None,
-                                        end_date=df["ts"].max().date() if not df.empty else None,
-                                        minimum_nights=0,
-                                    ),
-                                ],
-                                className="filter-item",
-                            ),
+                            create_social_date_range_filter(df),
                             html.Div(
                                 [
                                     html.Label("Mode", className="filter-label"),
@@ -331,6 +326,29 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
                                     ),
                                 ],
                                 className="filter-item",
+                            ),
+                            html.Div(
+                                [
+                                    html.Label(
+                                        "Exclude Parent Genres (Level 0)",
+                                        className="filter-label",
+                                    ),
+                                    dcc.RadioItems(
+                                        id="social-genre-hide-level0-radio",
+                                        options=[
+                                            {"label": "Yes", "value": True},
+                                            {"label": "No", "value": False},
+                                        ],
+                                        value=False,
+                                        className="radio-group",
+                                        inputClassName="radio-pill",
+                                        labelClassName="radio-pill-label",
+                                        persistence=True,
+                                        persistence_type="local",
+                                    ),
+                                ],
+                                className="filter-item",
+                                id="social-genre-hide-level0-container",
                             ),
                         ],
                         className="filters-section",

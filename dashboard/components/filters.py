@@ -250,6 +250,70 @@ def create_year_range_filter(df: pd.DataFrame) -> html.Div:
     return html.Div(children, className="filter-item")
 
 
+def create_social_date_range_filter(df: pd.DataFrame) -> html.Div:
+    """Create Social tab date range filter (Mantine + presets).
+
+    Uses separate component IDs to avoid collisions with the Trends tab.
+    """
+    min_ts = df["ts"].min()
+    max_ts = df["ts"].max()
+    start_date = min_ts.date() if hasattr(min_ts, "date") else min_ts
+    end_date = max_ts.date() if hasattr(max_ts, "date") else max_ts
+
+    children: list = [html.Label("Select Date Range", className="filter-label")]
+
+    children.append(
+        dmc.DatePickerInput(
+            id="social-date-range-mc",
+            type="range",
+            value=[start_date, end_date],
+            minDate=start_date,
+            maxDate=end_date,
+            allowSingleDateInRange=True,
+            numberOfColumns=2,
+            firstDayOfWeek=1,
+            size="sm",
+            variant="filled",
+            popoverProps={
+                "withinPortal": True,
+                "zIndex": 4000,
+                "position": "bottom-start",
+                "offset": 8,
+            },
+            persistence=True,
+            persistence_type="local",
+        )
+    )
+    children.append(
+        dmc.SegmentedControl(
+            id="social-date-range-preset",
+            data=[
+                {"label": "Last 60d", "value": "60d"},
+                {"label": "YTD", "value": "ytd"},
+                {"label": "All", "value": "all"},
+                {"label": "Custom", "value": "custom"},
+            ],
+            value="custom",
+            size="xs",
+            radius="xl",
+            persistence=True,
+            persistence_type="local",
+            style={"marginTop": "8px"},
+        )
+    )
+    children.append(
+        html.Button(
+            "Reset Date Range",
+            id="social-reset-date-range",
+            className="reset-button",
+            n_clicks=0,
+        )
+    )
+    children.append(dcc.Store(id="social-date-range-source", storage_type="memory"))
+
+    return html.Div(children, className="filter-item")
+
+
 def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
     """Create the layout for the genre trends analysis section.
 
