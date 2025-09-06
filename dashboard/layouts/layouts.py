@@ -31,7 +31,7 @@ def _create_user_selector(df: pd.DataFrame) -> Component:
             ),
         ],
         className="user-selector",
-        style={"minWidth": "240px"},
+        style={"minWidth": "240px", "margin-bottom": "30px"},
     )
 
 
