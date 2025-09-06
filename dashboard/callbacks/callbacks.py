@@ -856,20 +856,20 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Compute with DuckDB backend
         con = get_db_connection()
         try:
-            kwargs = dict(
-                con=con,
-                users=users,
-                start=pd.to_datetime(start_date) if start_date else None,
-                end=pd.to_datetime(end_date) if end_date else None,
-                mode=mode or "tracks",
-                exclude_december=bool(exclude_december),
-                remove_incognito=bool(remove_incognito),
-                excluded_tracks=excluded_tracks,
-                excluded_artists=excluded_artists,
-                excluded_albums=excluded_albums,
-                excluded_genres=excluded_genres,
-                limit_per_region=10,
-            )
+            kwargs = {
+                "con": con,
+                "users": users,
+                "start": pd.to_datetime(start_date) if start_date else None,
+                "end": pd.to_datetime(end_date) if end_date else None,
+                "mode": mode or "tracks",
+                "exclude_december": bool(exclude_december),
+                "remove_incognito": bool(remove_incognito),
+                "excluded_tracks": excluded_tracks,
+                "excluded_artists": excluded_artists,
+                "excluded_albums": excluded_albums,
+                "excluded_genres": excluded_genres,
+                "limit_per_region": 10,
+            }
             if (mode or "tracks") == "genres":
                 kwargs["hide_parent_genres"] = bool(hide_parent_genres)
             out = compute_social_regions(**kwargs)
@@ -997,13 +997,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 if d == 0 or d > 2 * r:
                     return ([], [])
                 # angles for circle1
-                ax = dx / 2
-                ay = dy / 2
                 # intersection points angles relative to circle1
                 # vector to intersection points from midpoint perpendicular
                 # For equal radii and our layout dy=0
                 # general case formula
-                angle_mid = _m.atan2(ay, ax)
                 h = _m.sqrt(max(r * r - (d / 2) * (d / 2), 0.0))
                 # unit perpendicular vector
                 ux = -dy / d if d != 0 else 0
@@ -1078,60 +1075,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     + "<extra></extra>",
                     "customdata": [inter_key] * len(xl),
                     "name": f"{lbl(u1)} ∩ {lbl(u2)}",
-                },
-                {
-                    "type": "scatter",
-                    "x": [-0.6],
-                    "y": [0.0],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 30 if selected_region == f"{users[0]}_only" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {
-                            "width": 2 if selected_region == f"{users[0]}_only" else 1,
-                            "color": "#1DB954",
-                        },
-                    },
-                    "name": f"{lbl(users[0])} only",
-                    "hovertemplate": _tooltip_for(f"{users[0]}_only", f"{lbl(users[0])} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{users[0]}_only"],
-                },
-                {
-                    "type": "scatter",
-                    "x": [0.6],
-                    "y": [0.0],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 30 if selected_region == f"{users[0]}_{users[1]}" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {
-                            "width": 2 if selected_region == f"{users[0]}_{users[1]}" else 1,
-                            "color": "#11803b",
-                        },
-                    },
-                    "name": f"{lbl(users[0])} ∩ {lbl(users[1])}",
-                    "hovertemplate": _tooltip_for(inter_key, f"{lbl(users[0])} ∩ {lbl(users[1])}")
-                    + "<extra></extra>",
-                    "customdata": [inter_key],
-                },
-                {
-                    "type": "scatter",
-                    "x": [1.8],
-                    "y": [0.0],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 30 if selected_region == f"{users[1]}_only" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {
-                            "width": 2 if selected_region == f"{users[1]}_only" else 1,
-                            "color": "#0f7a35",
-                        },
-                    },
-                    "name": f"{lbl(users[1])} only",
-                    "hovertemplate": _tooltip_for(f"{users[1]}_only", f"{lbl(users[1])} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{users[1]}_only"],
                 },
             ]
         else:
@@ -1232,7 +1175,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u1}_only" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#1DB954"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{u1} only",
                     "hovertemplate": _tooltip_for(f"{u1}_only", f"{u1} only") + "<extra></extra>",
@@ -1246,7 +1189,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u2}_only" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#0f7a35"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{u2} only",
                     "hovertemplate": _tooltip_for(f"{u2}_only", f"{u2} only") + "<extra></extra>",
@@ -1260,7 +1203,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u3}_only" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#169c48"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{u3} only",
                     "hovertemplate": _tooltip_for(f"{u3}_only", f"{u3} only") + "<extra></extra>",
@@ -1275,7 +1218,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u1}_{u2}" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#11803b"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{lbl(u1)} ∩ {lbl(u2)}",
                     "hovertemplate": _tooltip_for(f"{u1}_{u2}", f"{lbl(u1)} ∩ {lbl(u2)}")
@@ -1290,7 +1233,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u1}_{u3}" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#11803b"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{lbl(u1)} ∩ {lbl(u3)}",
                     "hovertemplate": _tooltip_for(f"{u1}_{u3}", f"{lbl(u1)} ∩ {lbl(u3)}")
@@ -1305,7 +1248,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     "marker": {
                         "size": 28 if selected_region == f"{u2}_{u3}" else 20,
                         "color": "rgba(0,0,0,0)",
-                        "line": {"width": 2, "color": "#11803b"},
+                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
                     },
                     "name": f"{lbl(u2)} ∩ {lbl(u3)}",
                     "hovertemplate": _tooltip_for(f"{u2}_{u3}", f"{lbl(u2)} ∩ {lbl(u3)}")
@@ -1322,8 +1265,8 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         "size": 32 if selected_region == inter_key else 22,
                         "color": "rgba(0,0,0,0)",
                         "line": {
-                            "width": 3 if selected_region == inter_key else 2,
-                            "color": "#0f7a35",
+                            "width": 0,
+                            "color": "rgba(0,0,0,0)",
                         },
                     },
                     "name": f"{lbl(u1)} ∩ {lbl(u2)} ∩ {lbl(u3)}",

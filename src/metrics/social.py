@@ -83,14 +83,22 @@ def _base_plays_sql(
 
     where_clause = " AND\n          ".join(filters + extra_exclusions)
 
+    # Build JOINs, including albums only if album exclusions are provided
+    joins = [
+        "LEFT JOIN dim_tracks t ON t.track_id = p.track_id",
+        "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary'",
+        "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id",
+    ]
+    if rel_albums:
+        joins.append("LEFT JOIN dim_albums al ON al.album_id = t.album_id")
+
+    joins_sql = "\n        ".join(joins)
+
     return (
         "WITH base AS (\n"
         "  SELECT p.user_id, p.track_id, p.played_at\n"
         "  FROM fact_plays p\n"
-        "  LEFT JOIN dim_tracks t ON t.track_id = p.track_id\n"
-        "  LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary'\n"
-        "  LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id\n"
-        "  LEFT JOIN dim_albums al ON al.album_id = t.album_id\n"
+        f"  {joins_sql}\n"
         f"  WHERE {where_clause}\n"
         ")\n"
     )
@@ -295,7 +303,7 @@ def compute_social_regions(
     if len(users) == 2:
         u1, u2 = users
         # Intersection
-        inter = _region_entities((u1, u2), tuple())
+        inter = _region_entities((u1, u2), ())
         totals[f"{u1}_{u2}"] = int(inter.shape[0])
         top = inter.head(limit_per_region)
         items: list[RegionItem] = []
@@ -339,7 +347,7 @@ def compute_social_regions(
     else:
         u1, u2, u3 = users
         # 3-way intersection
-        inter3 = _region_entities((u1, u2, u3), tuple())
+        inter3 = _region_entities((u1, u2, u3), ())
         totals[f"{u1}_{u2}_{u3}"] = int(inter3.shape[0])
         items3 = []
         for row in inter3.head(limit_per_region).itertuples(index=False):
