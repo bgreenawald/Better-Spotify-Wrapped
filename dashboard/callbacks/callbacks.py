@@ -764,55 +764,91 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     # Per-figure callbacks (Wrapped)
 
     @app.callback(
-        Output("top-tracks-graph", "figure"),
+        Output("top-tracks-options", "data"),
         Input("tab-1-data", "data"),
         State("theme-store", "data"),
     )
     def render_top_tracks_figure(data, theme_data):
+        """Build Highcharts options for Most Played Tracks and store them.
+
+        The actual rendering happens clientside into the 'top-tracks-container'.
+        """
+        # Still leverage theme to choose minor axes/grid defaults when needed
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "top_tracks" not in data:
-            return {"data": [], "layout": theme}
+            return None
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
         if df.empty:
-            return {"data": [], "layout": theme}
+            return None
         dff = df.head(10)
         y_vals = dff["track_name"].astype(str).tolist()
         y_ticktext = _wrap_or_truncate_labels(y_vals)
         left_margin = _compute_left_margin(y_ticktext)
-        return {
-            "data": [
+
+        artists = (
+            dff.get("track_artist")
+            if "track_artist" in dff.columns
+            else (dff.get("artist") if "artist" in dff.columns else pd.Series([""] * len(dff)))
+        )
+
+        series_data = [
+            {
+                "y": int(plays) if pd.notna(plays) else 0,
+                "custom": {"track": str(track), "artist": str(artist)},
+            }
+            for track, artist, plays in zip(
+                y_vals, artists.fillna(""), dff["play_count"].fillna(0), strict=False
+            )
+        ]
+
+        # Highcharts options
+        options = {
+            "chart": {
+                "type": "bar",
+                "height": 440,
+                "marginLeft": left_margin,
+                # Subtle background differences based on theme
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
+                "style": {"fontFamily": "Segoe UI, sans-serif"},
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "legend": {"enabled": False},
+            "colors": ["#1DB954"],
+            "xAxis": {
+                "categories": y_ticktext,
+                "title": {"text": None},
+                "gridLineWidth": 0,
+                "labels": {"style": {"fontSize": "10px"}},
+            },
+            "yAxis": {
+                "title": {"text": "Play Count"},
+                "gridLineWidth": 1,
+                "gridLineColor": "#333" if is_dark else "#eee",
+            },
+            "plotOptions": {
+                "series": {
+                    "dataLabels": {
+                        "enabled": True,
+                        "style": {"textOutline": "none"},
+                        "crop": False,
+                        "overflow": "allow",
+                    }
+                }
+            },
+            "tooltip": {
+                "useHTML": True,
+                "pointFormat": "Track: {point.custom.track}<br/>Artist: {point.custom.artist}<br/>Plays: {point.y}",
+            },
+            "series": [
                 {
-                    "type": "bar",
-                    "x": dff["play_count"],
-                    "y": y_vals,
-                    "orientation": "h",
-                    "text": dff["play_count"],
-                    "marker": {"color": "#1DB954"},
-                    "customdata": dff["track_artist"],
-                    "hovertemplate": ("Track: %{customdata}<br>Plays: %{x}<extra></extra>"),
-                    "textposition": "outside",
-                    "cliponaxis": False,
+                    "name": "Plays",
+                    "data": series_data,
                 }
             ],
-            "layout": {
-                **theme,
-                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
-                "height": 440,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count", "automargin": True},
-                "yaxis": {
-                    **theme.get("yaxis", {}),
-                    "title": "",
-                    "automargin": True,
-                    "tickmode": "array",
-                    "tickvals": y_vals,
-                    "ticktext": y_ticktext,
-                    "categoryorder": "array",
-                    "categoryarray": y_vals,
-                    "tickfont": {"size": 10},
-                },
-            },
         }
+        return options
 
     # -------------------------- Social tab callbacks --------------------------
 
@@ -2358,20 +2394,29 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return is_dark, theme_class, theme_store_data
 
     # Clientside restyle-only callbacks to avoid server roundtrips
+    # Plotly theming restyle for remaining Wrapped figures (tracks moved to Highcharts)
     app.clientside_callback(
         ClientsideFunction(namespace="theme", function_name="restyle_wrapped"),
-        Output("top-tracks-graph", "figure", allow_duplicate=True),
         Output("top-artists-graph", "figure", allow_duplicate=True),
         Output("top-albums-graph", "figure", allow_duplicate=True),
         Output("top-genres-graph", "figure", allow_duplicate=True),
         Output("daily-song-heatmap", "figure", allow_duplicate=True),
         Input("theme-store", "data"),
-        State("top-tracks-graph", "figure"),
         State("top-artists-graph", "figure"),
         State("top-albums-graph", "figure"),
         State("top-genres-graph", "figure"),
         State("daily-song-heatmap", "figure"),
         prevent_initial_call=True,
+    )
+
+    # Highcharts clientside renderer for Most Played Tracks
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("top-tracks-container", "children"),
+        Input("theme-store", "data"),
+        Input("top-tracks-options", "data"),
+        State("top-tracks-container", "id"),
+        prevent_initial_call=False,
     )
 
     # Note: Trends graphs are themed in their server callbacks using theme-store,

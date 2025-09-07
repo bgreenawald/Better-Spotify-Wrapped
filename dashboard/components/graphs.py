@@ -25,46 +25,22 @@ def create_graph_style():
 
 
 def create_top_tracks_graph(top_tracks=None):
-    """Create a horizontal bar chart of the most played tracks.
+    """Create the container and store for 'Most Played Tracks' (Highcharts).
 
-    Args:
-        top_tracks (pd.DataFrame, optional): DataFrame with columns
-            'track_name', 'play_count', and 'artist'. Defaults to None.
-
-    Returns:
-        html.Div: Dash container with the bar chart.
+    This replaces the previous Plotly Graph with a simple container div that
+    will be rendered clientside via Highcharts, and a Store that carries the
+    Highcharts options produced by the server callback.
     """
-    graph_layout = create_graph_style()
-
-    if top_tracks is not None:
-        df = top_tracks.head(10)
-        fig = px.bar(
-            df,
-            x="play_count",
-            y="track_name",
-            text="play_count",
-            orientation="h",
-            labels={"track_name": "Track", "play_count": "Play Count"},
-            hover_data=["artist"],
-        )
-        fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
-
-        # Truncate long track names for readability while keeping categorical tick values
-        names = df["track_name"].astype(str).tolist()
-        truncated = [f"{n[:50]}..." if len(n) > 50 else n for n in names]
-        fig.update_yaxes(tickmode="array", ticktext=truncated, tickvals=names)
-
+    # For initial load, we no longer create a Plotly figure. The Highcharts
+    # options will be populated into the Store by a callback and rendered
+    # clientside into the container below.
     return html.Div(
         className="graph-card card",
         children=[
             html.H3("Most Played Tracks", className="card-title"),
+            dcc.Store(id="top-tracks-options"),
             dcc.Loading(
-                children=dcc.Graph(
-                    id="top-tracks-graph",
-                    figure=fig if top_tracks is not None else {},
-                    config={"displayModeBar": False},
-                ),
+                children=html.Div(id="top-tracks-container", style={"minHeight": "440px"}),
                 delay_show=0,
                 overlay_style={
                     "visibility": "visible",

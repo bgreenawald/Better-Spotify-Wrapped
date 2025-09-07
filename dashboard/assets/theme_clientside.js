@@ -114,9 +114,10 @@ window.dash_clientside.theme = (function () {
 
   function noUpd(v) { return window.dash_clientside.no_update; }
 
-  function restyle_wrapped(themeData, t1, t2, t3, t4, hm) {
+  // Wrapped restyle excluding Top Tracks (migrated to Highcharts)
+  function restyle_wrapped(themeData, artistsFig, albumsFig, genresFig, heatmapFig) {
     var isDark = !!(themeData && themeData.dark === true);
-    return [t1, t2, t3, t4, hm].map(function (f) {
+    return [artistsFig, albumsFig, genresFig, heatmapFig].map(function (f) {
       return isObject(f) ? applyThemeToFigure(f, isDark) : noUpd();
     });
   }
