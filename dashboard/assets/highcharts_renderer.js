@@ -33,18 +33,51 @@ window.dash_clientside.highcharts = (function () {
   function applyTheme(themeData) {
     if (!window.Highcharts) return;
     var isDark = !!(themeData && themeData.dark === true);
+    var text = isDark ? '#e0e0e0' : '#000000';
+    var grid = isDark ? '#333333' : '#eeeeee';
+    var bg = isDark ? '#1e1e1e' : 'white';
+    var tooltipBg = isDark ? '#2a2a2a' : 'rgba(255,255,255,0.95)';
+    var tooltipBorder = isDark ? '#444444' : '#cccccc';
     var opts = {
       chart: {
-        backgroundColor: isDark ? '#1e1e1e' : 'white',
-        plotBackgroundColor: isDark ? '#1e1e1e' : 'white',
+        backgroundColor: bg,
+        plotBackgroundColor: bg,
         style: { fontFamily: 'Segoe UI, sans-serif' }
       },
       colors: ['#1DB954', '#1ed760', '#21e065', '#5eb859', '#7dd069', '#9be082', '#b5e8a3'],
-      xAxis: { gridLineColor: isDark ? '#333' : '#eee', labels: { style: { color: isDark ? '#e0e0e0' : '#000' } } },
-      yAxis: { gridLineColor: isDark ? '#333' : '#eee', labels: { style: { color: isDark ? '#e0e0e0' : '#000' } } },
-      title: { style: { color: isDark ? '#e0e0e0' : '#000' } },
-      subtitle: { style: { color: isDark ? '#e0e0e0' : '#000' } },
-      legend: { itemStyle: { color: isDark ? '#e0e0e0' : '#000' } },
+      title: { style: { color: text } },
+      subtitle: { style: { color: text } },
+      legend: {
+        itemStyle: { color: text },
+        itemHoverStyle: { color: text },
+        itemHiddenStyle: { color: isDark ? '#9a9a9a' : '#666666' }
+      },
+      xAxis: {
+        gridLineColor: grid,
+        lineColor: grid,
+        tickColor: grid,
+        labels: { style: { color: text } },
+        title: { style: { color: text } }
+      },
+      yAxis: {
+        gridLineColor: grid,
+        lineColor: grid,
+        tickColor: grid,
+        labels: { style: { color: text } },
+        title: { style: { color: text } }
+      },
+      tooltip: {
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        style: { color: text }
+      },
+      plotOptions: {
+        series: {
+          dataLabels: {
+            style: { color: text, textOutline: 'none' }
+          }
+        }
+      },
       credits: { enabled: false }
     };
     try { window.Highcharts.setOptions(opts); } catch (e) {}
@@ -84,4 +117,3 @@ window.dash_clientside.highcharts = (function () {
     render_single: render_single
   };
 })();
-

@@ -765,8 +765,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("top-tracks-options", "data"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_top_tracks_figure(data, theme_data):
         """Build Highcharts options for Most Played Tracks and store them.
@@ -820,18 +819,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "categories": y_ticktext,
                 "title": {"text": None},
                 "gridLineWidth": 0,
-                "labels": {"style": {"fontSize": "10px"}},
+                "labels": {"style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "yAxis": {
                 "title": {"text": "Play Count"},
                 "gridLineWidth": 1,
                 "gridLineColor": "#333" if is_dark else "#eee",
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "plotOptions": {
                 "series": {
                     "dataLabels": {
                         "enabled": True,
-                        "style": {"textOutline": "none"},
+                        "style": {"textOutline": "none", "color": "#e0e0e0" if is_dark else "#000000"},
                         "crop": False,
                         "overflow": "allow",
                     }
@@ -839,6 +839,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             },
             "tooltip": {
                 "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 "pointFormat": "Track: {point.custom.track}<br/>Artist: {point.custom.artist}<br/>Plays: {point.y}",
             },
             "series": [
