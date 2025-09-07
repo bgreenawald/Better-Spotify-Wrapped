@@ -185,6 +185,12 @@ def create_app() -> Dash:
                         # Controls
                         create_genre_trends_layout(history_df),
                         # Targets
+                        dcc.Store(id="genre-trends-options"),
+                        html.Div(
+                            id="genre-trends-container",
+                            children=html.Div(id="genre-trends-container-root"),
+                        ),
+                        # Keep legacy Graph for validation of existing callbacks
                         dcc.Graph(id="genre-trends-graph"),
                         html.Div(id="genre-trends-table"),
                     ]
@@ -194,6 +200,11 @@ def create_app() -> Dash:
                     [
                         html.H3("Artists Over Time", className="card-title"),
                         create_artist_trends_layout(history_df),
+                        dcc.Store(id="artist-trends-options"),
+                        html.Div(
+                            id="artist-trends-container",
+                            children=html.Div(id="artist-trends-container-root"),
+                        ),
                         dcc.Graph(id="artist-trends-graph"),
                         html.Div(id="artist-trends-table"),
                     ]
@@ -203,6 +214,11 @@ def create_app() -> Dash:
                     [
                         html.H3("Tracks Over Time", className="card-title"),
                         create_track_trends_layout(history_df),
+                        dcc.Store(id="track-trends-options"),
+                        html.Div(
+                            id="track-trends-container",
+                            children=html.Div(id="track-trends-container-root"),
+                        ),
                         dcc.Graph(id="track-trends-graph"),
                         html.Div(id="track-trends-table"),
                     ]
@@ -211,6 +227,10 @@ def create_app() -> Dash:
                 html.Div(
                     [
                         html.H3("Listening Over Time", className="card-title"),
+                        dcc.Store(id="trends-options"),
+                        html.Div(
+                            id="trends-container", children=html.Div(id="trends-container-root")
+                        ),
                         dcc.Graph(id="trends-graph"),
                     ]
                 ),

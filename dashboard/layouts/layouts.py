@@ -197,7 +197,7 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 ],
                 className="card",
             ),
-            # Daily song heatmap (local loading)
+            # Daily song heatmap (Highcharts)
             dcc.Loading(
                 children=html.Div(
                     [
@@ -205,10 +205,12 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                             "Daily Song Heatmap",
                             className="card-title",
                         ),
-                        dcc.Graph(
-                            id="daily-song-heatmap",
-                            figure={},
-                            config={"displayModeBar": False},
+                        dcc.Store(id="daily-song-heatmap-options"),
+                        html.Div(
+                            id="daily-song-heatmap-container",
+                            className="card",
+                            children=html.Div(id="daily-song-heatmap-container-root"),
+                            style={"minHeight": "420px"},
                         ),
                     ],
                     className="card",

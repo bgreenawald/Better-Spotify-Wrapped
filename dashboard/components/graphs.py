@@ -40,7 +40,11 @@ def create_top_tracks_graph(top_tracks=None):
             html.H3("Most Played Tracks", className="card-title"),
             dcc.Store(id="top-tracks-options"),
             dcc.Loading(
-                children=html.Div(id="top-tracks-container", style={"minHeight": "440px"}),
+                children=html.Div(
+                    id="top-tracks-container",
+                    children=html.Div(id="top-tracks-container-root"),
+                    style={"minHeight": "440px"},
+                ),
                 delay_show=0,
                 overlay_style={
                     "visibility": "visible",
@@ -53,40 +57,17 @@ def create_top_tracks_graph(top_tracks=None):
 
 
 def create_top_artists_graph(top_artists=None):
-    """Create a horizontal bar chart of the top artists by play count.
-
-    Args:
-        top_artists (pd.DataFrame, optional): DataFrame with columns
-            'artist', 'play_count', and 'unique_tracks'. Defaults to None.
-
-    Returns:
-        html.Div: Dash container with the bar chart.
-    """
-    graph_layout = create_graph_style()
-
-    if top_artists is not None:
-        df = top_artists.head(10)
-        fig = px.bar(
-            df,
-            x="play_count",
-            y="artist",
-            text="play_count",
-            orientation="h",
-            labels={"artist": "Artist", "play_count": "Play Count"},
-            hover_data=["unique_tracks"],
-        )
-        fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
-
+    """Create container + store for Top Artists (Highcharts)."""
     return html.Div(
         className="graph-card card",
         children=[
             html.H3("Top Artists", className="card-title"),
+            dcc.Store(id="top-artists-options"),
             dcc.Loading(
-                children=dcc.Graph(
-                    id="top-artists-graph",
-                    figure=fig if top_artists is not None else {},
-                    config={"displayModeBar": False},
+                children=html.Div(
+                    id="top-artists-container",
+                    children=html.Div(id="top-artists-container-root"),
+                    style={"minHeight": "440px"},
                 ),
                 delay_show=0,
                 overlay_style={
@@ -115,37 +96,17 @@ def create_top_genres_graph(top_genres=None):
     Returns:
         html.Div: Dash container with the sunburst chart.
     """
-    graph_layout = create_graph_style()
-
-    fig = {}
-    if top_genres is not None and not getattr(top_genres, "empty", True):
-        # Build a simple fallback sunburst directly from flat counts in case this
-        # helper is used outside of callbacks. This does not resolve DB taxonomy.
-        df = top_genres.copy()
-        # Normalize column name
-        if "track_count" in df.columns and "play_count" not in df.columns:
-            df = df.rename(columns={"track_count": "play_count"})
-        # Use a flat ring by treating each genre as its own parent; callbacks will
-        # provide the full two-level taxonomy-aware figure.
-        sb_df = pd.DataFrame(
-            {
-                "parent": df["genre"],
-                "child": df["genre"],
-                "value": df["play_count"],
-            }
-        )
-        fig = px.sunburst(sb_df, path=["parent", "child"], values="value")
-        fig.update_layout(**graph_layout)
-
+    # Highcharts sunburst will be rendered clientside; provide store + container
     return html.Div(
         className="graph-card card",
         children=[
             html.H3("Top Genres", className="card-title"),
+            dcc.Store(id="top-genres-options"),
             dcc.Loading(
-                children=dcc.Graph(
-                    id="top-genres-graph",
-                    figure=fig,
-                    config={"displayModeBar": False},
+                children=html.Div(
+                    id="top-genres-container",
+                    children=html.Div(id="top-genres-container-root"),
+                    style={"minHeight": "450px"},
                 ),
                 delay_show=0,
                 overlay_style={
@@ -159,46 +120,17 @@ def create_top_genres_graph(top_genres=None):
 
 
 def create_top_albums_graph(top_albums=None):
-    """Create a horizontal bar chart of the top albums by median plays.
-
-    Args:
-        top_albums (pd.DataFrame, optional): DataFrame with columns
-            'album_name', 'median_plays', 'artist', 'tracks_played',
-            and 'total_tracks'. Defaults to None.
-
-    Returns:
-        html.Div: Dash container with the bar chart.
-    """
-    graph_layout = create_graph_style()
-
-    if top_albums is not None:
-        df = top_albums.head(10)
-        fig = px.bar(
-            df,
-            x="median_plays",
-            y="album_name",
-            text="median_plays",
-            orientation="h",
-            labels={"album_name": "Album", "median_plays": "Median Plays"},
-            hover_data=["artist", "tracks_played", "total_tracks"],
-        )
-        fig.update_layout(**graph_layout)
-        fig.update_traces(marker_color="#1DB954", textposition="outside", cliponaxis=False)
-
-        # Truncate long album names for readability while keeping categorical tick values
-        names = df["album_name"].astype(str).tolist()
-        truncated = [f"{n[:50]}..." if len(n) > 50 else n for n in names]
-        fig.update_yaxes(tickmode="array", ticktext=truncated, tickvals=names)
-
+    """Create container + store for Top Albums (Highcharts)."""
     return html.Div(
         className="graph-card card",
         children=[
             html.H3("Top Albums", className="card-title"),
+            dcc.Store(id="top-albums-options"),
             dcc.Loading(
-                children=dcc.Graph(
-                    id="top-albums-graph",
-                    figure=fig if top_albums is not None else {},
-                    config={"displayModeBar": False},
+                children=html.Div(
+                    id="top-albums-container",
+                    children=html.Div(id="top-albums-container-root"),
+                    style={"minHeight": "440px"},
                 ),
                 delay_show=0,
                 overlay_style={

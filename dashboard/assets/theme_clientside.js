@@ -142,3 +142,15 @@ window.dash_clientside.theme = (function () {
     }
   };
 })();
+
+// Provide a defensive stub for Highcharts clientside namespace so early
+// clientside callbacks don't error before highcharts_renderer.js loads.
+window.dash_clientside = window.dash_clientside || {};
+window.dash_clientside.highcharts = window.dash_clientside.highcharts || {
+  render_single: function(themeData, options, containerId) {
+    return window.dash_clientside.no_update;
+  },
+  render_venn: function(themeData, options, containerId) {
+    return window.dash_clientside.no_update;
+  }
+};

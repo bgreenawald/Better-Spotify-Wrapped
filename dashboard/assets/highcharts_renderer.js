@@ -3,6 +3,11 @@
 window.dash_clientside = window.dash_clientside || {};
 window.dash_clientside.highcharts = (function () {
   var HC_URL = 'https://code.highcharts.com/highcharts.js';
+  var MODULE_URLS = [
+    'https://code.highcharts.com/modules/heatmap.js',
+    'https://code.highcharts.com/modules/sunburst.js',
+    'https://code.highcharts.com/modules/venn.js'
+  ];
   var loading = false;
   var loaded = false;
   var queue = [];
@@ -18,15 +23,21 @@ window.dash_clientside.highcharts = (function () {
   }
 
   function ensureHighchartsLoaded(cb) {
-    if (window.Highcharts) { loaded = true; cb(); return; }
+    if (window.Highcharts && loaded) { cb(); return; }
     queue.push(cb);
     if (loading) return;
     loading = true;
     loadScript(HC_URL, function () {
-      loaded = !!window.Highcharts;
-      var q = queue.slice();
-      queue.length = 0;
-      q.forEach(function (f) { try { f(); } catch (e) {} });
+      function loadNext(i) {
+        if (i >= MODULE_URLS.length) {
+          loaded = true;
+          var q = queue.slice(); queue.length = 0;
+          q.forEach(function (f) { try { f(); } catch (e) {} });
+          return;
+        }
+        loadScript(MODULE_URLS[i], function(){ loadNext(i+1); });
+      }
+      loadNext(0);
     });
   }
 
@@ -93,11 +104,13 @@ window.dash_clientside.highcharts = (function () {
 
   function renderChart(containerId, options) {
     if (!window.Highcharts || !options || !containerId) return;
-    var el = document.getElementById(containerId);
+    var rootId = containerId + '-root';
+    var el = document.getElementById(rootId) || document.getElementById(containerId);
     if (!el) return;
-    destroyChart(containerId);
+    destroyChart(rootId);
     try {
-      chartRegistry[containerId] = Highcharts.chart(containerId, options);
+      var targetId = el.id;
+      chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
       // no-op
     }
@@ -105,15 +118,50 @@ window.dash_clientside.highcharts = (function () {
 
   // Dash clientside callback target: returns a dummy to satisfy Output,
   // performs rendering as a side effect.
-  function render_single(themeData, options, containerId) {
+  function noUpd() { return window.dash_clientside && window.dash_clientside.no_update; }
+
+  function render_single(/* themeData, options, ...rest, containerId */) {
+    var args = Array.prototype.slice.call(arguments);
+    var themeData = args[0];
+    var options = args[1];
+    var containerId = args[args.length - 1];
     ensureHighchartsLoaded(function () {
       applyTheme(themeData);
       renderChart(containerId || 'top-tracks-container', options);
     });
-    return '';
+    return noUpd();
+  }
+
+  function render_venn(/* themeData, options, ...rest, containerId */) {
+    var args = Array.prototype.slice.call(arguments);
+    var themeData = args[0];
+    var options = args[1];
+    var containerId = args[args.length - 1];
+    ensureHighchartsLoaded(function () {
+      applyTheme(themeData);
+      if (!options) return;
+      var rootId = containerId + '-root';
+      var el = document.getElementById(rootId) || document.getElementById(containerId);
+      if (!el) return;
+      destroyChart(el.id);
+      try {
+        options = JSON.parse(JSON.stringify(options));
+        options.chart = options.chart || {}; options.chart.type = 'venn';
+        options.plotOptions = options.plotOptions || {};
+        options.plotOptions.series = options.plotOptions.series || {};
+        options.plotOptions.series.point = options.plotOptions.series.point || {};
+        options.plotOptions.series.point.events = options.plotOptions.series.point.events || {};
+        options.plotOptions.series.point.events.click = function () {
+          try { window.__SOCIAL_SELECTED_REGION = (this && this.name_key) ? this.name_key : (this && this.name ? this.name : null); } catch (ex) {}
+        };
+        chartRegistry[el.id] = Highcharts.chart(el.id, options);
+      } catch (e) {}
+    });
+    return noUpd();
   }
 
   return {
-    render_single: render_single
+    render_single: render_single,
+    render_venn: render_venn
   };
 })();
