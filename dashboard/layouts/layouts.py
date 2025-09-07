@@ -362,8 +362,13 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
             html.Div(
                 [
                     html.H3("Comparison", className="card-title"),
+                    dcc.Store(id="social-venn-options"),
                     dcc.Loading(
-                        children=dcc.Graph(id="social-venn-graph", figure={}),
+                        children=html.Div(
+                            id="social-venn-container",
+                            children=html.Div(id="social-venn-container-root"),
+                            style={"minHeight": "360px"},
+                        ),
                         delay_show=0,
                         overlay_style={
                             "visibility": "visible",
@@ -371,6 +376,7 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
                         },
                         type="default",
                     ),
+                    dcc.Interval(id="social-venn-poll", interval=600, n_intervals=0),
                     html.Div(id="social-region-lists"),
                 ],
                 className="card",

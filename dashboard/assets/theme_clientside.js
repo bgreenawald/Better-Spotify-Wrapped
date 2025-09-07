@@ -154,3 +154,17 @@ window.dash_clientside.highcharts = window.dash_clientside.highcharts || {
     return window.dash_clientside.no_update;
   }
 };
+
+// Social helpers
+window.dash_clientside.social = (function(){
+  function get_selected_region(n) {
+    var v = window.__SOCIAL_SELECTED_REGION;
+    if (typeof v === 'string' && v.length) {
+      // consume once
+      window.__SOCIAL_SELECTED_REGION = undefined;
+      return v;
+    }
+    return window.dash_clientside.no_update;
+  }
+  return { get_selected_region: get_selected_region };
+})();

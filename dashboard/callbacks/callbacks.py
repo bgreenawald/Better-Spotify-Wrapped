@@ -941,25 +941,23 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return {"display": "none"}
 
     @app.callback(
-        Output("social-venn-graph", "figure"),
+        Output("social-venn-options", "data"),
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
         Input("social-selected-region", "data"),
         Input("theme-store", "data"),
     )
     def render_social(data, selected_region, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
-        import plotly.graph_objects as go
         from dash import html
 
+        is_dark = bool(theme_data and theme_data.get("dark"))
         if not data or data.get("error"):
             msg = data.get("error") if data else "Select 2–3 users to compare."
-            return {"data": [], "layout": theme}, html.Div(msg)
+            return None, html.Div(msg)
         # Warn and block when any selected user has zero plays within filters
         user_counts = data.get("user_counts", {})
         if any(user_counts.get(str(u), 0) == 0 for u in data.get("users", [])):
-            return {"data": [], "layout": theme}, html.Div(
+            return None, html.Div(
                 "One or more selected users have no plays in range; adjust filters or deselect."
             )
 
@@ -971,32 +969,186 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         def lbl(u):
             return user_labels.get(str(u), str(u))
 
-        # Build a minimalist Venn with circles and counts in annotations
-        fig = go.Figure()
-        # Merge axis visibility overrides with theme without duplicating kwargs
-        theme_no_axes = {k: v for k, v in theme.items() if k not in ("xaxis", "yaxis")}
-        xaxis_cfg = {**theme.get("xaxis", {}), "visible": False}
-        yaxis_cfg = {**theme.get("yaxis", {}), "visible": False}
-        fig.update_layout(**theme_no_axes, xaxis=xaxis_cfg, yaxis=yaxis_cfg, height=380)
+        # Build Highcharts Venn series data (HC migration; totals must be set sizes)
+        # Highcharts expects single-set values to be full set cardinalities, and
+        # pair entries to be intersection sizes (including any triple overlap).
+        series_data: list[dict] = []
+        if len(users) == 2:
+            u1, u2 = users
+            inter_12 = int(totals.get(f"{u1}_{u2}", 0) or 0)
+            u1_only = int(totals.get(f"{u1}_only", 0) or 0)
+            u2_only = int(totals.get(f"{u2}_only", 0) or 0)
+            u1_total = u1_only + inter_12
+            u2_total = u2_only + inter_12
+            series_data = [
+                {"sets": [lbl(u1)], "value": u1_total, "name": lbl(u1), "name_key": f"{u1}_only"},
+                {"sets": [lbl(u2)], "value": u2_total, "name": lbl(u2), "name_key": f"{u2}_only"},
+                {
+                    "sets": [lbl(u1), lbl(u2)],
+                    "value": inter_12,
+                    "name": f"{lbl(u1)} ∩ {lbl(u2)}",
+                    "name_key": f"{u1}_{u2}",
+                },
+            ]
+        else:
+            u1, u2, u3 = users
+            inter_12 = int(totals.get(f"{u1}_{u2}", 0) or 0)
+            inter_13 = int(totals.get(f"{u1}_{u3}", 0) or 0)
+            inter_23 = int(totals.get(f"{u2}_{u3}", 0) or 0)
+            inter_123 = int(totals.get(f"{u1}_{u2}_{u3}", 0) or 0)
+            u1_only = int(totals.get(f"{u1}_only", 0) or 0)
+            u2_only = int(totals.get(f"{u2}_only", 0) or 0)
+            u3_only = int(totals.get(f"{u3}_only", 0) or 0)
+            # Single set sizes include pair + triple intersections
+            u1_total = u1_only + inter_12 + inter_13 + inter_123
+            u2_total = u2_only + inter_12 + inter_23 + inter_123
+            u3_total = u3_only + inter_13 + inter_23 + inter_123
+            series_data = [
+                {"sets": [lbl(u1)], "value": u1_total, "name": lbl(u1), "name_key": f"{u1}_only"},
+                {"sets": [lbl(u2)], "value": u2_total, "name": lbl(u2), "name_key": f"{u2}_only"},
+                {"sets": [lbl(u3)], "value": u3_total, "name": lbl(u3), "name_key": f"{u3}_only"},
+                # Pairwise intersections include the triple overlap (standard Venn semantics)
+                {
+                    "sets": [lbl(u1), lbl(u2)],
+                    "value": inter_12 + inter_123,
+                    "name": f"{lbl(u1)} ∩ {lbl(u2)}",
+                    "name_key": f"{u1}_{u2}",
+                },
+                {
+                    "sets": [lbl(u1), lbl(u3)],
+                    "value": inter_13 + inter_123,
+                    "name": f"{lbl(u1)} ∩ {lbl(u3)}",
+                    "name_key": f"{u1}_{u3}",
+                },
+                {
+                    "sets": [lbl(u2), lbl(u3)],
+                    "value": inter_23 + inter_123,
+                    "name": f"{lbl(u2)} ∩ {lbl(u3)}",
+                    "name_key": f"{u2}_{u3}",
+                },
+                {
+                    "sets": [lbl(u1), lbl(u2), lbl(u3)],
+                    "value": inter_123,
+                    "name": f"{lbl(u1)} ∩ {lbl(u2)} ∩ {lbl(u3)}",
+                    "name_key": f"{u1}_{u2}_{u3}",
+                },
+            ]
 
-        ann = []
+        options = {
+            "chart": {
+                "type": "venn",
+                "height": 380,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "tooltip": {"useHTML": True},
+            "plotOptions": {
+                "series": {"states": {"inactive": {"opacity": 0.25}}, "cursor": "pointer"}
+            },
+            "series": [
+                {
+                    "type": "venn",
+                    "data": series_data,
+                    "dataLabels": {"enabled": True, "style": {"textOutline": "none"}},
+                }
+            ],
+        }
 
-        def _add_circle(x, y, r, color, name):
-            fig.add_shape(
-                type="circle",
-                xref="x",
-                yref="y",
-                x0=x - r,
-                y0=y - r,
-                x1=x + r,
-                y1=y + r,
-                line={"color": color, "width": 2},
-                fillcolor=color,
-                opacity=0.12,
+        # Build region lists (kept from existing logic)
+        def _region_block(title: str, items: list[dict], total: int | None = None):
+            rows = []
+            for it in items[:10]:
+                tooltip = " | ".join(
+                    [
+                        f"{lbl(u)}: r{it['ranks'].get(u, '-')}, {it['counts'].get(u, 0)} plays"
+                        for u in users
+                        if u in it["ranks"]
+                    ]
+                )
+                # Optional top artists (genres mode)
+                ta = None
+                if (data or {}).get("mode") == "genres":
+                    ta = it.get("top_artists")
+                tail = f" — Top: {', '.join([str(x) for x in ta[:2]])}" if ta else ""
+                rows.append(
+                    html.Li(
+                        [
+                            html.Span(it["name"]),
+                            html.Span(f" ({tooltip}){tail}"),
+                        ]
+                    )
+                )
+            if not rows:
+                rows = [html.Li("No items in this region")]
+            subtitle = None
+            if total is not None and total > len(items):
+                subtitle = html.Div(
+                    f"+ {total - len(items)} more not shown", className="card-subtitle"
+                )
+            return html.Div(
+                [html.H5(title, className="card-title"), subtitle, html.Ul(rows)], className="card"
             )
-            ann.append({"x": x, "y": y + r + 0.1, "text": name, "showarrow": False})
 
-        hover_traces = []
+        blocks = []
+        if len(users) == 2:
+            u1, u2 = users
+            if selected_region:
+                key = selected_region
+                title = (
+                    f"{u1} only"
+                    if key == f"{u1}_only"
+                    else (f"{u2} only" if key == f"{u2}_only" else f"{u1} ∩ {u2}")
+                )
+                blocks.append(_region_block(title, regions.get(key, []), totals.get(key)))
+            else:
+                blocks.append(
+                    html.Div(
+                        [html.Div("Click a region to show details", className="card-subtitle")],
+                        className="card",
+                    )
+                )
+        else:
+            u1, u2, u3 = users
+            if selected_region:
+                key = selected_region
+                if key == f"{u1}_only":
+                    title = f"{u1} only"
+                elif key == f"{u2}_only":
+                    title = f"{u2} only"
+                elif key == f"{u3}_only":
+                    title = f"{u3} only"
+                elif key == f"{u1}_{u2}":
+                    title = f"{u1} ∩ {u2}"
+                elif key == f"{u1}_{u3}":
+                    title = f"{u1} ∩ {u3}"
+                elif key == f"{u2}_{u3}":
+                    title = f"{u2} ∩ {u3}"
+                else:
+                    title = f"{u1} ∩ {u2} ∩ {u3}"
+                blocks.append(_region_block(title, regions.get(key, []), totals.get(key)))
+            else:
+                blocks.append(
+                    html.Div(
+                        [html.Div("Click a region to show details", className="card-subtitle")],
+                        className="card",
+                    )
+                )
+
+        # Explanatory note
+        mode = (data or {}).get("mode", "tracks")
+        consider_caps = {"tracks": 250, "artists": 100, "genres": 50}
+        cap = consider_caps.get(mode, 10)
+        note = html.Div(
+            (
+                "Note: Social regions use per‑mode consideration caps "
+                f"(Tracks 250, Artists 100, Genres 50). Totals are capped by the current mode's cap (now {cap}); "
+                "lists show up to 10 items. Less‑specific regions exclude only items already selected in more‑specific regions."
+            ),
+            className="card-subtitle",
+        )
+
+        return options, html.Div([note, html.Div(blocks, className="graph-container")])
         if len(users) == 2:
             # Place two circles with overlap
             _add_circle(0.0, 0.0, 1.2, "#1DB954", lbl(users[0]))
@@ -1334,9 +1486,20 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             ]
 
-        for tr in hover_traces:
-            fig.add_trace(tr)
-        fig.update_layout(annotations=ann, showlegend=False)
+        options = {
+            "chart": {
+                "type": "venn",
+                "height": 380,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "tooltip": {"useHTML": True},
+            "plotOptions": {
+                "series": {"states": {"inactive": {"opacity": 0.25}}, "cursor": "pointer"}
+            },
+            "series": [{"type": "venn", "data": series_data}],
+        }
 
         # Region lists
         def _region_block(title: str, items: list[dict], total: int | None = None):
@@ -1431,27 +1594,24 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             className="card-subtitle",
         )
 
-        return fig, html.Div([note, html.Div(blocks, className="graph-container")])
+        return options, html.Div([note, html.Div(blocks, className="graph-container")])
 
-    @app.callback(
-        Output("social-selected-region", "data"),
-        Input("social-venn-graph", "clickData"),
-        State("social-selected-region", "data"),
-        prevent_initial_call=True,
+    # Highcharts Social render + selection
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_venn"),
+        Output("social-venn-container", "children"),
+        Input("theme-store", "data"),
+        Input("social-venn-options", "data"),
+        Input("main-tabs", "value"),
+        State("social-venn-container", "id"),
+        prevent_initial_call=False,
     )
-    def set_selected_region(click_data, prev):
-        if not click_data:
-            raise PreventUpdate
-        try:
-            cd = click_data["points"][0].get("customdata")
-        except Exception:
-            cd = None
-        if not cd:
-            raise PreventUpdate
-        key = cd if isinstance(cd, str) else cd[0]
-        if key == prev:
-            return None
-        return key
+    app.clientside_callback(
+        ClientsideFunction(namespace="social", function_name="get_selected_region"),
+        Output("social-selected-region", "data"),
+        Input("social-venn-poll", "n_intervals"),
+        prevent_initial_call=False,
+    )
 
     @app.callback(
         Output("top-artists-options", "data"),
