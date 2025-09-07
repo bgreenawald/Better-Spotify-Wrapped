@@ -1,30 +1,9 @@
-import copy
-
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from dash import dcc, html
 
 
-def create_graph_style():
-    """Return a standardized Plotly layout dictionary."""
-    return {
-        "paper_bgcolor": "white",
-        "plot_bgcolor": "white",
-        "font": {"family": "Segoe UI, sans-serif"},
-        "margin": {"t": 30, "b": 30, "l": 120, "r": 30},
-        "height": 440,
-        "yaxis": {
-            "gridcolor": "#eee",
-            "automargin": True,
-            "tickfont": {"size": 11},
-        },
-        "xaxis": {"gridcolor": "#eee", "automargin": True},
-    }
-
-
-def create_top_tracks_graph(top_tracks=None):
+def create_top_tracks_graph(_top_tracks=None):
     """Create the container and store for 'Most Played Tracks' (Highcharts).
 
     This replaces the previous Plotly Graph with a simple container div that
@@ -56,7 +35,7 @@ def create_top_tracks_graph(top_tracks=None):
     )
 
 
-def create_top_artists_graph(top_artists=None):
+def create_top_artists_graph(_top_artists=None):
     """Create container + store for Top Artists (Highcharts)."""
     return html.Div(
         className="graph-card card",
@@ -80,7 +59,7 @@ def create_top_artists_graph(top_artists=None):
     )
 
 
-def create_top_genres_graph(top_genres=None):
+def create_top_genres_graph(_top_genres=None):
     """Create a two-level sunburst of genres using parent hierarchy.
 
     Notes:
@@ -119,7 +98,7 @@ def create_top_genres_graph(top_genres=None):
     )
 
 
-def create_top_albums_graph(top_albums=None):
+def create_top_albums_graph(_top_albums=None):
     """Create container + store for Top Albums (Highcharts)."""
     return html.Div(
         className="graph-card card",
@@ -219,86 +198,3 @@ def create_daily_top_playcount_grid(daily_playcounts):
     output["col"] = output["position"] % columns
 
     return output[["row", "col", "date", "track", "play_count"]]
-
-
-def create_daily_top_heatmap(
-    daily_playcounts=None,
-    theme=None,
-    title="Daily Top-Track Play Count Heatmap",  # noqa: ARG001
-):
-    """Create a heatmap figure of daily top track play counts.
-
-    Args:
-        daily_playcounts (pd.DataFrame, optional): DataFrame with daily
-            play count data. Defaults to None.
-        theme (dict, optional): Theme configuration for the graph. Defaults to None.
-        title (str, optional): Title of the heatmap (unused). Defaults to
-            "Daily Top-Track Play Count Heatmap".
-
-    Returns:
-        go.Figure or html.Div: Plotly Figure or a Div with a message if no
-            data is available.
-    """
-    if daily_playcounts is None or daily_playcounts.empty:
-        return html.Div(children="No data available", className="graph-card card")
-
-    # Prepare data grid
-    grid_df = create_daily_top_playcount_grid(daily_playcounts)
-
-    # Pivot data into matrices
-    z_matrix = grid_df.pivot(index="row", columns="col", values="play_count").values
-    date_matrix = grid_df.pivot(index="row", columns="col", values="date").astype(str).values
-    track_matrix = grid_df.pivot(index="row", columns="col", values="track").values
-
-    # Build customdata for hover information
-    customdata = np.dstack([date_matrix, track_matrix])
-
-    # Determine colorscale based on theme
-    is_dark = theme and theme.get("template") == "plotly_dark"
-    colorscale = "Viridis" if is_dark else "Greens"
-
-    heatmap = go.Heatmap(
-        z=z_matrix,
-        x=list(range(z_matrix.shape[1])),
-        y=list(range(z_matrix.shape[0])),
-        colorscale=colorscale,
-        customdata=customdata,
-        hovertemplate=(
-            "Date: %{customdata[0]}<br>Track: %{customdata[1]}<br>Plays: %{z}<extra></extra>"
-        ),
-        colorbar={
-            "title": {
-                "text": "Plays",
-                "font": {"color": "#e0e0e0" if is_dark else "#000000"},
-            },
-            "tickfont": {"color": "#e0e0e0" if is_dark else "#000000"},
-        },
-    )
-
-    fig = go.Figure(heatmap)
-
-    # Apply theme or default style
-    if theme:
-        # Create a deep copy of theme to avoid modifying the original
-        layout_update = copy.deepcopy(theme)
-        # Override specific axis settings for heatmap
-        layout_update["xaxis"] = {
-            "showticklabels": False,
-            "showgrid": False,
-            "zeroline": False,
-            "gridcolor": theme.get("xaxis", {}).get("gridcolor", "#333"),
-        }
-        layout_update["yaxis"] = {
-            "showticklabels": False,
-            "showgrid": False,
-            "zeroline": False,
-            "gridcolor": theme.get("yaxis", {}).get("gridcolor", "#333"),
-        }
-        layout_update["height"] = 400
-        layout_update["margin"] = {"t": 30, "b": 30, "l": 30, "r": 80}
-        fig.update_layout(**layout_update)
-    else:
-        layout_style = create_graph_style()
-        fig.update_layout(**layout_style)
-
-    return fig

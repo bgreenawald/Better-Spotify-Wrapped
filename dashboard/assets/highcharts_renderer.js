@@ -109,6 +109,8 @@ window.dash_clientside.highcharts = (function () {
     if (!el) return;
     destroyChart(rootId);
     try {
+      // Revive any function-like strings in options (e.g., tooltip.formatter)
+      options = reviveFunctions(options);
       var targetId = el.id;
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
@@ -146,6 +148,8 @@ window.dash_clientside.highcharts = (function () {
       destroyChart(el.id);
       try {
         options = JSON.parse(JSON.stringify(options));
+        // Ensure any function-like strings are revived before rendering
+        options = reviveFunctions(options);
         options.chart = options.chart || {}; options.chart.type = 'venn';
         options.plotOptions = options.plotOptions || {};
         options.plotOptions.series = options.plotOptions.series || {};
@@ -165,3 +169,43 @@ window.dash_clientside.highcharts = (function () {
     render_venn: render_venn
   };
 })();
+
+// --- Utility: revive function-like strings in an options object -------------
+// Converts values like "function(){...}" or "() => {...}" into actual functions.
+function reviveFunctions(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  function revive(value) {
+    if (typeof value === 'string') {
+      var s = value.trim();
+      var looksLikeFn = s.indexOf('function') === 0 || s.indexOf('() =>') === 0 || s.indexOf('(function') === 0;
+      if (looksLikeFn) {
+        try {
+          /* eslint no-new-func: 0 */
+          // Wrap in parentheses to allow function expression parsing
+          // Example: new Function('return ' + s)()
+          return (0, eval)('(' + s + ')');
+        } catch (e) {
+          return value;
+        }
+      }
+    } else if (value && typeof value === 'object') {
+      return reviveFunctions(value);
+    }
+    return value;
+  }
+
+  if (Array.isArray(obj)) {
+    for (var i = 0; i < obj.length; i++) {
+      obj[i] = revive(obj[i]);
+    }
+    return obj;
+  }
+
+  var out = obj;
+  for (var k in out) {
+    if (!Object.prototype.hasOwnProperty.call(out, k)) continue;
+    out[k] = revive(out[k]);
+  }
+  return out;
+}
