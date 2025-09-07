@@ -197,7 +197,7 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 ],
                 className="card",
             ),
-            # Daily song heatmap (local loading)
+            # Daily song heatmap (Highcharts)
             dcc.Loading(
                 children=html.Div(
                     [
@@ -205,10 +205,12 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                             "Daily Song Heatmap",
                             className="card-title",
                         ),
-                        dcc.Graph(
-                            id="daily-song-heatmap",
-                            figure={},
-                            config={"displayModeBar": False},
+                        dcc.Store(id="daily-song-heatmap-options"),
+                        html.Div(
+                            id="daily-song-heatmap-container",
+                            className="card",
+                            children=html.Div(id="daily-song-heatmap-container-root"),
+                            style={"minHeight": "420px"},
                         ),
                     ],
                     className="card",
@@ -360,8 +362,13 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
             html.Div(
                 [
                     html.H3("Comparison", className="card-title"),
+                    dcc.Store(id="social-venn-options"),
                     dcc.Loading(
-                        children=dcc.Graph(id="social-venn-graph", figure={}),
+                        children=html.Div(
+                            id="social-venn-container",
+                            children=html.Div(id="social-venn-container-root"),
+                            style={"minHeight": "360px"},
+                        ),
                         delay_show=0,
                         overlay_style={
                             "visibility": "visible",
@@ -369,6 +376,7 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
                         },
                         type="default",
                     ),
+                    dcc.Interval(id="social-venn-poll", interval=600, n_intervals=0),
                     html.Div(id="social-region-lists"),
                 ],
                 className="card",

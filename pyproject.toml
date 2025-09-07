@@ -34,4 +34,6 @@ dev = [
     "pre-commit>=4.3.0",
     "pytest>=8.3.5",
     "ruff>=0.12.10",
+# Highcharts-core is used only for client-side JS bundle; complies with Highcharts' free license (non-commercial use)
+    "highcharts-core>=1.10.3,<1.11",
 ]

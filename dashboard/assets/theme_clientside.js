@@ -114,9 +114,10 @@ window.dash_clientside.theme = (function () {
 
   function noUpd(v) { return window.dash_clientside.no_update; }
 
-  function restyle_wrapped(themeData, t1, t2, t3, t4, hm) {
+  // Wrapped restyle excluding Top Tracks (migrated to Highcharts)
+  function restyle_wrapped(themeData, artistsFig, albumsFig, genresFig, heatmapFig) {
     var isDark = !!(themeData && themeData.dark === true);
-    return [t1, t2, t3, t4, hm].map(function (f) {
+    return [artistsFig, albumsFig, genresFig, heatmapFig].map(function (f) {
       return isObject(f) ? applyThemeToFigure(f, isDark) : noUpd();
     });
   }
@@ -140,4 +141,30 @@ window.dash_clientside.theme = (function () {
       });
     }
   };
+})();
+
+// Provide a defensive stub for Highcharts clientside namespace so early
+// clientside callbacks don't error before highcharts_renderer.js loads.
+window.dash_clientside = window.dash_clientside || {};
+window.dash_clientside.highcharts = window.dash_clientside.highcharts || {
+  render_single: function(themeData, options, containerId) {
+    return window.dash_clientside.no_update;
+  },
+  render_venn: function(themeData, options, containerId) {
+    return window.dash_clientside.no_update;
+  }
+};
+
+// Social helpers
+window.dash_clientside.social = (function(){
+  function get_selected_region(n) {
+    var v = window.__SOCIAL_SELECTED_REGION;
+    if (typeof v === 'string' && v.length) {
+      // consume once
+      window.__SOCIAL_SELECTED_REGION = undefined;
+      return v;
+    }
+    return window.dash_clientside.no_update;
+  }
+  return { get_selected_region: get_selected_region };
 })();

@@ -5,7 +5,6 @@ from io import StringIO
 
 import dash
 import pandas as pd
-import plotly.express as px
 from dash import Dash, Input, Output, State, dash_table, dcc, html
 from dash.dependencies import ClientsideFunction
 from dash.exceptions import PreventUpdate
@@ -16,7 +15,7 @@ from dashboard.components.filters import (
     create_monthly_trend_filter,
     create_track_trends_layout,
 )
-from dashboard.components.graphs import create_daily_top_heatmap
+from dashboard.components.graphs import create_daily_top_playcount_grid
 from dashboard.conn import get_db_connection
 from src.metrics.metrics import (
     get_most_played_artists,
@@ -139,96 +138,6 @@ def _fmt_genres(g):
     if isinstance(g, str):
         return g
     return str(g) if g is not None else ""
-
-
-def get_plotly_theme(is_dark=False):
-    """Get Plotly theme configuration based on dark mode setting.
-
-    Args:
-        is_dark (bool): Whether dark mode is enabled.
-
-    Returns:
-        dict: Plotly layout configuration for the theme.
-    """
-    if is_dark:
-        return {
-            "template": "plotly_dark",
-            "paper_bgcolor": "#1e1e1e",
-            "plot_bgcolor": "#1e1e1e",
-            "font": {"color": "#e0e0e0", "family": "Segoe UI, sans-serif"},
-            "xaxis": {"gridcolor": "#333"},
-            "yaxis": {"gridcolor": "#333"},
-            # Trace cycling
-            "colorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            # Sunburst/treemap sector cycling (restores Spotify-green look)
-            "sunburstcolorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            "extendsunburstcolors": True,
-            "treemapcolorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            "extendtreemapcolors": True,
-        }
-    else:
-        return {
-            "template": "plotly",
-            "paper_bgcolor": "white",
-            "plot_bgcolor": "white",
-            "font": {"family": "Segoe UI, sans-serif"},
-            "xaxis": {"gridcolor": "#eee"},
-            "yaxis": {"gridcolor": "#eee"},
-            # Keep Spotify-green palette in light theme too
-            "colorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            "sunburstcolorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            "extendsunburstcolors": True,
-            "treemapcolorway": [
-                "#1DB954",
-                "#1ed760",
-                "#21e065",
-                "#5eb859",
-                "#7dd069",
-                "#9be082",
-                "#b5e8a3",
-            ],
-            "extendtreemapcolors": True,
-        }
 
 
 def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
@@ -764,55 +673,99 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     # Per-figure callbacks (Wrapped)
 
     @app.callback(
-        Output("top-tracks-graph", "figure"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        Output("top-tracks-options", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_top_tracks_figure(data, theme_data):
+        """Build Highcharts options for Most Played Tracks and store them.
+
+        The actual rendering happens clientside into the 'top-tracks-container'.
+        """
+        # Still leverage theme to choose minor axes/grid defaults when needed
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "top_tracks" not in data:
-            return {"data": [], "layout": theme}
+            return None
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
         if df.empty:
-            return {"data": [], "layout": theme}
+            return None
         dff = df.head(10)
         y_vals = dff["track_name"].astype(str).tolist()
         y_ticktext = _wrap_or_truncate_labels(y_vals)
         left_margin = _compute_left_margin(y_ticktext)
-        return {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": dff["play_count"],
-                    "y": y_vals,
-                    "orientation": "h",
-                    "text": dff["play_count"],
-                    "marker": {"color": "#1DB954"},
-                    "customdata": dff["track_artist"],
-                    "hovertemplate": ("Track: %{customdata}<br>Plays: %{x}<extra></extra>"),
-                    "textposition": "outside",
-                    "cliponaxis": False,
-                }
-            ],
-            "layout": {
-                **theme,
-                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+
+        artists = (
+            dff.get("track_artist")
+            if "track_artist" in dff.columns
+            else (dff.get("artist") if "artist" in dff.columns else pd.Series([""] * len(dff)))
+        )
+
+        series_data = [
+            {
+                "y": int(plays) if pd.notna(plays) else 0,
+                "custom": {"track": str(track), "artist": str(artist)},
+            }
+            for track, artist, plays in zip(
+                y_vals, artists.fillna(""), dff["play_count"].fillna(0), strict=False
+            )
+        ]
+
+        # Highcharts options
+        options = {
+            "chart": {
+                "type": "bar",
                 "height": 440,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count", "automargin": True},
-                "yaxis": {
-                    **theme.get("yaxis", {}),
-                    "title": "",
-                    "automargin": True,
-                    "tickmode": "array",
-                    "tickvals": y_vals,
-                    "ticktext": y_ticktext,
-                    "categoryorder": "array",
-                    "categoryarray": y_vals,
-                    "tickfont": {"size": 10},
+                "marginLeft": left_margin,
+                # Subtle background differences based on theme
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
+                "style": {"fontFamily": "Segoe UI, sans-serif"},
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "legend": {"enabled": False},
+            "colors": ["#1DB954"],
+            "xAxis": {
+                "categories": y_ticktext,
+                "title": {"text": None},
+                "gridLineWidth": 0,
+                "labels": {
+                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
                 },
             },
+            "yAxis": {
+                "title": {"text": "Play Count"},
+                "gridLineWidth": 1,
+                "gridLineColor": "#333" if is_dark else "#eee",
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            },
+            "plotOptions": {
+                "series": {
+                    "dataLabels": {
+                        "enabled": True,
+                        "style": {
+                            "textOutline": "none",
+                            "color": "#e0e0e0" if is_dark else "#000000",
+                        },
+                        "crop": False,
+                        "overflow": "allow",
+                    }
+                }
+            },
+            "tooltip": {
+                "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+                "pointFormat": "Track: {point.custom.track}<br/>Artist: {point.custom.artist}<br/>Plays: {point.y}",
+            },
+            "series": [
+                {
+                    "name": "Plays",
+                    "data": series_data,
+                }
+            ],
         }
+        return options
 
     # -------------------------- Social tab callbacks --------------------------
 
@@ -897,25 +850,22 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return {"display": "none"}
 
     @app.callback(
-        Output("social-venn-graph", "figure"),
+        Output("social-venn-options", "data"),
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
         Input("social-selected-region", "data"),
         Input("theme-store", "data"),
     )
     def render_social(data, selected_region, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
-        import plotly.graph_objects as go
         from dash import html
 
+        is_dark = bool(theme_data and theme_data.get("dark"))
         if not data or data.get("error"):
             msg = data.get("error") if data else "Select 2–3 users to compare."
-            return {"data": [], "layout": theme}, html.Div(msg)
-        # Warn and block when any selected user has zero plays within filters
+            return None, html.Div(msg)
         user_counts = data.get("user_counts", {})
         if any(user_counts.get(str(u), 0) == 0 for u in data.get("users", [])):
-            return {"data": [], "layout": theme}, html.Div(
+            return None, html.Div(
                 "One or more selected users have no plays in range; adjust filters or deselect."
             )
 
@@ -927,374 +877,75 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         def lbl(u):
             return user_labels.get(str(u), str(u))
 
-        # Build a minimalist Venn with circles and counts in annotations
-        fig = go.Figure()
-        # Merge axis visibility overrides with theme without duplicating kwargs
-        theme_no_axes = {k: v for k, v in theme.items() if k not in ("xaxis", "yaxis")}
-        xaxis_cfg = {**theme.get("xaxis", {}), "visible": False}
-        yaxis_cfg = {**theme.get("yaxis", {}), "visible": False}
-        fig.update_layout(**theme_no_axes, xaxis=xaxis_cfg, yaxis=yaxis_cfg, height=380)
-
-        ann = []
-
-        def _add_circle(x, y, r, color, name):
-            fig.add_shape(
-                type="circle",
-                xref="x",
-                yref="y",
-                x0=x - r,
-                y0=y - r,
-                x1=x + r,
-                y1=y + r,
-                line={"color": color, "width": 2},
-                fillcolor=color,
-                opacity=0.12,
-            )
-            ann.append({"x": x, "y": y + r + 0.1, "text": name, "showarrow": False})
-
-        hover_traces = []
+        series_data: list[dict] = []
         if len(users) == 2:
-            # Place two circles with overlap
-            _add_circle(0.0, 0.0, 1.2, "#1DB954", lbl(users[0]))
-            _add_circle(1.2, 0.0, 1.2, "#0f7a35", lbl(users[1]))
-            # Put intersection count
-            inter_key = f"{users[0]}_{users[1]}"
-            inter_count = totals.get(inter_key, 0)
-            ann.append({"x": 0.6, "y": 0.0, "text": f"∩: {inter_count}", "showarrow": False})
-            fig.update_xaxes(range=[-1.6, 2.8])
-            fig.update_yaxes(range=[-1.6, 1.8])
-
-            # Hover/select points for regions
-            def _tooltip_for(key: str, title: str) -> str:
-                items = regions.get(key, [])
-                lines = [title, f"Total: {totals.get(key, 0)}"]
-                # Include per-user ranks and counts and joint rank for each item
-                for it in items[:10]:
-                    parts = []
-                    # joint rank rounded
-                    try:
-                        jr = it.get("joint_rank")
-                        if jr is not None:
-                            parts.append(f"JR {round(float(jr), 2)}")
-                    except Exception:
-                        pass
-                    for u in users:
-                        if u in it.get("ranks", {}):
-                            rnk = it["ranks"].get(u)
-                            cnt = it["counts"].get(u, 0)
-                            parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
-                    # Append top artists for genres mode when available
-                    ta = None
-                    if (data or {}).get("mode") == "genres":
-                        ta = it.get("top_artists")
-                        if isinstance(ta, list) and ta:
-                            parts.append("Top: " + ", ".join([str(x) for x in ta[:2]]))
-                    lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
-                if totals.get(key, 0) > len(items):
-                    lines.append("+ more not shown")
-                return "<br>".join(lines)
-
-            # Filled circle polygons for larger hover/click target areas
-            import numpy as _np
-
-            def circle_poly(xc, yc, r, steps=100):
-                t = _np.linspace(0, 2 * _np.pi, steps)
-                return (xc + r * _np.cos(t), yc + r * _np.sin(t))
-
-            # Lens polygon for intersection
-            def lens_poly(xc1, yc1, xc2, yc2, r, steps=60):
-                import math as _m
-
-                dx = xc2 - xc1
-                dy = yc2 - yc1
-                d = _m.hypot(dx, dy)
-                if d == 0 or d > 2 * r:
-                    return ([], [])
-                # angles for circle1
-                # intersection points angles relative to circle1
-                # vector to intersection points from midpoint perpendicular
-                # For equal radii and our layout dy=0
-                # general case formula
-                h = _m.sqrt(max(r * r - (d / 2) * (d / 2), 0.0))
-                # unit perpendicular vector
-                ux = -dy / d if d != 0 else 0
-                uy = dx / d if d != 0 else 0
-                # intersection points
-                x1 = (xc1 + xc2) / 2 + ux * h
-                y1 = (yc1 + yc2) / 2 + uy * h
-                x2 = (xc1 + xc2) / 2 - ux * h
-                y2 = (yc1 + yc2) / 2 - uy * h
-                # angles on each circle
-                a1 = _m.atan2(y1 - yc1, x1 - xc1)
-                a2 = _m.atan2(y2 - yc1, x2 - xc1)
-                b1 = _m.atan2(y1 - yc2, x1 - xc2)
-                b2 = _m.atan2(y2 - yc2, x2 - xc2)
-
-                # sample arcs: circle1 from a1 to a2 (short way), circle2 from b2 to b1 (short way)
-                def arc(xc, yc, r, ang_start, ang_end, n):
-                    # go the shorter direction
-                    da = ang_end - ang_start
-                    while da <= -_m.pi:
-                        da += 2 * _m.pi
-                    while da > _m.pi:
-                        da -= 2 * _m.pi
-                    ts = [ang_start + da * i / (n - 1) for i in range(n)]
-                    return [xc + r * _m.cos(t) for t in ts], [yc + r * _m.sin(t) for t in ts]
-
-                xA, yA = arc(xc1, yc1, r, a1, a2, steps)
-                xB, yB = arc(xc2, yc2, r, b2, b1, steps)
-                return (xA + xB, yA + yB)
-
             u1, u2 = users
-            x1, y1 = circle_poly(0.0, 0.0, 1.2)
-            x2, y2 = circle_poly(1.2, 0.0, 1.2)
-            xl, yl = lens_poly(0.0, 0.0, 1.2, 0.0, 1.2)
-
-            hover_traces = [
+            inter_12 = int(totals.get(f"{u1}_{u2}", 0) or 0)
+            u1_only = int(totals.get(f"{u1}_only", 0) or 0)
+            u2_only = int(totals.get(f"{u2}_only", 0) or 0)
+            u1_total = u1_only + inter_12
+            u2_total = u2_only + inter_12
+            series_data = [
+                {"sets": [lbl(u1)], "value": u1_total, "name": lbl(u1), "name_key": f"{u1}_only"},
+                {"sets": [lbl(u2)], "value": u2_total, "name": lbl(u2), "name_key": f"{u2}_only"},
                 {
-                    "type": "scatter",
-                    "x": x1,
-                    "y": y1,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.08,
-                    "line": {"color": "#1DB954"},
-                    "hovertemplate": _tooltip_for(f"{u1}_only", f"{lbl(u1)} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{u1}_only"] * len(x1),
-                    "name": f"{lbl(u1)} only",
-                },
-                {
-                    "type": "scatter",
-                    "x": x2,
-                    "y": y2,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.08,
-                    "line": {"color": "#0f7a35"},
-                    "hovertemplate": _tooltip_for(f"{u2}_only", f"{lbl(u2)} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{u2}_only"] * len(x2),
-                    "name": f"{lbl(u2)} only",
-                },
-                {
-                    "type": "scatter",
-                    "x": xl,
-                    "y": yl,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.14,
-                    "line": {"color": "#11803b"},
-                    "hovertemplate": _tooltip_for(inter_key, f"{lbl(u1)} ∩ {lbl(u2)}")
-                    + "<extra></extra>",
-                    "customdata": [inter_key] * len(xl),
+                    "sets": [lbl(u1), lbl(u2)],
+                    "value": inter_12,
                     "name": f"{lbl(u1)} ∩ {lbl(u2)}",
+                    "name_key": f"{u1}_{u2}",
                 },
             ]
         else:
-            # Three circles positioned in a triangle
-            _add_circle(0.0, 0.6, 1.2, "#1DB954", lbl(users[0]))
-            _add_circle(1.4, 0.6, 1.2, "#0f7a35", lbl(users[1]))
-            _add_circle(0.7, -0.6, 1.2, "#169c48", lbl(users[2]))
-            inter_key = f"{users[0]}_{users[1]}_{users[2]}"
-            inter_count = totals.get(inter_key, 0)
-            ann.append({"x": 0.7, "y": 0.2, "text": f"∩3: {inter_count}", "showarrow": False})
-            fig.update_xaxes(range=[-1.6, 3.0])
-            fig.update_yaxes(range=[-1.8, 2.0])
-
-            def _tooltip_for(key: str, title: str) -> str:
-                items = regions.get(key, [])
-                lines = [title, f"Total: {totals.get(key, 0)}"]
-                for it in items[:10]:
-                    parts = []
-                    try:
-                        jr = it.get("joint_rank")
-                        if jr is not None:
-                            parts.append(f"JR {round(float(jr), 2)}")
-                    except Exception:
-                        pass
-                    for u in users:
-                        if u in it.get("ranks", {}):
-                            rnk = it["ranks"].get(u)
-                            cnt = it["counts"].get(u, 0)
-                            parts.append(f"{lbl(u)}: r{rnk}/{cnt}")
-                    lines.append("- " + it["name"] + (" — " + "; ".join(parts) if parts else ""))
-                if totals.get(key, 0) > len(items):
-                    lines.append("+ more not shown")
-                return "<br>".join(lines)
-
             u1, u2, u3 = users
-            # Fill each user's circle to enlarge hover/click area for only-regions
-            import numpy as _np
-
-            def circle_poly(xc, yc, r, steps=100):
-                t = _np.linspace(0, 2 * _np.pi, steps)
-                return (xc + r * _np.cos(t), yc + r * _np.sin(t))
-
-            x1, y1 = circle_poly(0.0, 0.6, 1.2)
-            x2, y2 = circle_poly(1.4, 0.6, 1.2)
-            x3, y3 = circle_poly(0.7, -0.6, 1.2)
-            fig.add_trace(
+            inter_12 = int(totals.get(f"{u1}_{u2}", 0) or 0)
+            inter_13 = int(totals.get(f"{u1}_{u3}", 0) or 0)
+            inter_23 = int(totals.get(f"{u2}_{u3}", 0) or 0)
+            inter_123 = int(totals.get(f"{u1}_{u2}_{u3}", 0) or 0)
+            u1_only = int(totals.get(f"{u1}_only", 0) or 0)
+            u2_only = int(totals.get(f"{u2}_only", 0) or 0)
+            u3_only = int(totals.get(f"{u3}_only", 0) or 0)
+            u1_total = u1_only + inter_12 + inter_13 + inter_123
+            u2_total = u2_only + inter_12 + inter_23 + inter_123
+            u3_total = u3_only + inter_13 + inter_23 + inter_123
+            series_data = [
+                {"sets": [lbl(u1)], "value": u1_total, "name": lbl(u1), "name_key": f"{u1}_only"},
+                {"sets": [lbl(u2)], "value": u2_total, "name": lbl(u2), "name_key": f"{u2}_only"},
+                {"sets": [lbl(u3)], "value": u3_total, "name": lbl(u3), "name_key": f"{u3}_only"},
                 {
-                    "type": "scatter",
-                    "x": x1,
-                    "y": y1,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.08,
-                    "line": {"color": "#1DB954"},
-                    "hovertemplate": _tooltip_for(f"{u1}_only", f"{lbl(u1)} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{u1}_only"] * len(x1),
-                    "name": f"{lbl(u1)} only",
-                }
-            )
-            fig.add_trace(
-                {
-                    "type": "scatter",
-                    "x": x2,
-                    "y": y2,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.08,
-                    "line": {"color": "#0f7a35"},
-                    "hovertemplate": _tooltip_for(f"{u2}_only", f"{lbl(u2)} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{u2}_only"] * len(x2),
-                    "name": f"{lbl(u2)} only",
-                }
-            )
-            fig.add_trace(
-                {
-                    "type": "scatter",
-                    "x": x3,
-                    "y": y3,
-                    "mode": "lines",
-                    "fill": "toself",
-                    "opacity": 0.08,
-                    "line": {"color": "#169c48"},
-                    "hovertemplate": _tooltip_for(f"{u3}_only", f"{lbl(u3)} only")
-                    + "<extra></extra>",
-                    "customdata": [f"{u3}_only"] * len(x3),
-                    "name": f"{lbl(u3)} only",
-                }
-            )
-            hover_traces = [
-                # only regions
-                {
-                    "type": "scatter",
-                    "x": [-0.6],
-                    "y": [0.8],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u1}_only" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
-                    "name": f"{lbl(u1)} only",
-                    "hovertemplate": _tooltip_for(f"{u1}_only", f"{u1} only") + "<extra></extra>",
-                    "customdata": [f"{u1}_only"],
-                },
-                {
-                    "type": "scatter",
-                    "x": [2.0],
-                    "y": [0.8],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u2}_only" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
-                    "name": f"{lbl(u2)} only",
-                    "hovertemplate": _tooltip_for(f"{u2}_only", f"{u2} only") + "<extra></extra>",
-                    "customdata": [f"{u2}_only"],
-                },
-                {
-                    "type": "scatter",
-                    "x": [0.7],
-                    "y": [-1.5],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u3}_only" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
-                    "name": f"{lbl(u3)} only",
-                    "hovertemplate": _tooltip_for(f"{u3}_only", f"{u3} only") + "<extra></extra>",
-                    "customdata": [f"{u3}_only"],
-                },
-                # pairwise exact intersections
-                {
-                    "type": "scatter",
-                    "x": [0.7],
-                    "y": [1.2],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u1}_{u2}" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
+                    "sets": [lbl(u1), lbl(u2)],
+                    "value": inter_12 + inter_123,
                     "name": f"{lbl(u1)} ∩ {lbl(u2)}",
-                    "hovertemplate": _tooltip_for(f"{u1}_{u2}", f"{lbl(u1)} ∩ {lbl(u2)}")
-                    + "<extra></extra>",
-                    "customdata": [f"{u1}_{u2}"],
+                    "name_key": f"{u1}_{u2}",
                 },
                 {
-                    "type": "scatter",
-                    "x": [0.2],
-                    "y": [0.0],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u1}_{u3}" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
+                    "sets": [lbl(u1), lbl(u3)],
+                    "value": inter_13 + inter_123,
                     "name": f"{lbl(u1)} ∩ {lbl(u3)}",
-                    "hovertemplate": _tooltip_for(f"{u1}_{u3}", f"{lbl(u1)} ∩ {lbl(u3)}")
-                    + "<extra></extra>",
-                    "customdata": [f"{u1}_{u3}"],
+                    "name_key": f"{u1}_{u3}",
                 },
                 {
-                    "type": "scatter",
-                    "x": [1.2],
-                    "y": [0.0],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 28 if selected_region == f"{u2}_{u3}" else 20,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {"width": 0, "color": "rgba(0,0,0,0)"},
-                    },
+                    "sets": [lbl(u2), lbl(u3)],
+                    "value": inter_23 + inter_123,
                     "name": f"{lbl(u2)} ∩ {lbl(u3)}",
-                    "hovertemplate": _tooltip_for(f"{u2}_{u3}", f"{lbl(u2)} ∩ {lbl(u3)}")
-                    + "<extra></extra>",
-                    "customdata": [f"{u2}_{u3}"],
-                },
-                # 3-way
-                {
-                    "type": "scatter",
-                    "x": [0.7],
-                    "y": [0.2],
-                    "mode": "markers",
-                    "marker": {
-                        "size": 32 if selected_region == inter_key else 22,
-                        "color": "rgba(0,0,0,0)",
-                        "line": {
-                            "width": 0,
-                            "color": "rgba(0,0,0,0)",
-                        },
-                    },
-                    "name": f"{lbl(u1)} ∩ {lbl(u2)} ∩ {lbl(u3)}",
-                    "hovertemplate": _tooltip_for(inter_key, f"{lbl(u1)} ∩ {lbl(u2)} ∩ {lbl(u3)}")
-                    + "<extra></extra>",
-                    "customdata": [inter_key],
+                    "name_key": f"{u2}_{u3}",
                 },
             ]
 
-        for tr in hover_traces:
-            fig.add_trace(tr)
-        fig.update_layout(annotations=ann, showlegend=False)
+        options = {
+            "chart": {
+                "type": "venn",
+                "height": 380,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "tooltip": {"useHTML": True},
+            "plotOptions": {
+                "series": {"states": {"inactive": {"opacity": 0.25}}, "cursor": "pointer"}
+            },
+            "series": [{"type": "venn", "data": series_data}],
+        }
 
-        # Region lists
         def _region_block(title: str, items: list[dict], total: int | None = None):
             rows = []
             for it in items[:10]:
@@ -1302,21 +953,15 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     [
                         f"{lbl(u)}: r{it['ranks'].get(u, '-')}, {it['counts'].get(u, 0)} plays"
                         for u in users
-                        if u in it["ranks"]
+                        if u in it.get("ranks", {})
                     ]
                 )
-                # Optional top artists (genres mode)
                 ta = None
                 if (data or {}).get("mode") == "genres":
                     ta = it.get("top_artists")
                 tail = f" — Top: {', '.join([str(x) for x in ta[:2]])}" if ta else ""
                 rows.append(
-                    html.Li(
-                        [
-                            html.Span(it["name"]),
-                            html.Span(f" ({tooltip}){tail}"),
-                        ]
-                    )
+                    html.Li([html.Span(it.get("name", "")), html.Span(f" ({tooltip}){tail}")])
                 )
             if not rows:
                 rows = [html.Li("No items in this region")]
@@ -1374,7 +1019,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     )
                 )
 
-        # Explanatory note about consideration limits and display caps
         mode = (data or {}).get("mode", "tracks")
         consider_caps = {"tracks": 250, "artists": 100, "genres": 50}
         cap = consider_caps.get(mode, 10)
@@ -1387,144 +1031,184 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             className="card-subtitle",
         )
 
-        return fig, html.Div([note, html.Div(blocks, className="graph-container")])
+        return options, html.Div([note, html.Div(blocks, className="graph-container")])
 
-    @app.callback(
-        Output("social-selected-region", "data"),
-        Input("social-venn-graph", "clickData"),
-        State("social-selected-region", "data"),
-        prevent_initial_call=True,
+    # Highcharts Social render + selection
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_venn"),
+        Output("social-venn-container", "children"),
+        Input("theme-store", "data"),
+        Input("social-venn-options", "data"),
+        Input("main-tabs", "value"),
+        State("social-venn-container", "id"),
+        prevent_initial_call=False,
     )
-    def set_selected_region(click_data, prev):
-        if not click_data:
-            raise PreventUpdate
-        try:
-            cd = click_data["points"][0].get("customdata")
-        except Exception:
-            cd = None
-        if not cd:
-            raise PreventUpdate
-        key = cd if isinstance(cd, str) else cd[0]
-        if key == prev:
-            return None
-        return key
+    app.clientside_callback(
+        ClientsideFunction(namespace="social", function_name="get_selected_region"),
+        Output("social-selected-region", "data"),
+        Input("social-venn-poll", "n_intervals"),
+        prevent_initial_call=False,
+    )
 
     @app.callback(
-        Output("top-artists-graph", "figure"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        Output("top-artists-options", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_top_artists_figure(data, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "top_artists" not in data:
-            return {"data": [], "layout": theme}
+            return None
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
         if df.empty:
-            return {"data": [], "layout": theme}
+            return None
         dff = df.head(10)
-        y_vals = dff["artist"].astype(str).tolist()
-        y_ticktext = _wrap_or_truncate_labels(y_vals)
-        left_margin = _compute_left_margin(y_ticktext)
+        labels = dff["artist"].astype(str).tolist()
+        ticktext = _wrap_or_truncate_labels(labels)
+        left_margin = _compute_left_margin(ticktext)
+        series_data = [
+            {
+                "y": int(pc) if pd.notna(pc) else 0,
+                "custom": {"artist": str(a), "unique": int(ut) if pd.notna(ut) else 0},
+            }
+            for a, pc, ut in zip(
+                labels,
+                dff["play_count"].fillna(0),
+                dff.get("unique_tracks", pd.Series([0] * len(dff))).fillna(0),
+                strict=False,
+            )
+        ]
         return {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": dff["play_count"],
-                    "y": y_vals,
-                    "orientation": "h",
-                    "text": dff["play_count"],
-                    "customdata": dff["unique_tracks"],
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": (
-                        "Artist: %{y}<br>Plays: %{x}<br>Unique Tracks: %{customdata}<extra></extra>"
-                    ),
-                    "textposition": "outside",
-                    "cliponaxis": False,
-                }
-            ],
-            "layout": {
-                **theme,
-                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+            "chart": {
+                "type": "bar",
                 "height": 440,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Play Count", "automargin": True},
-                "yaxis": {
-                    **theme.get("yaxis", {}),
-                    "title": "",
-                    "automargin": True,
-                    "tickmode": "array",
-                    "tickvals": y_vals,
-                    "ticktext": y_ticktext,
-                    "categoryorder": "array",
-                    "categoryarray": y_vals,
-                    "tickfont": {"size": 10},
+                "marginLeft": left_margin,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
+                "style": {"fontFamily": "Segoe UI, sans-serif"},
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "legend": {"enabled": False},
+            "colors": ["#1DB954"],
+            "xAxis": {
+                "categories": ticktext,
+                "labels": {
+                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
                 },
             },
+            "yAxis": {
+                "title": {"text": "Play Count"},
+                "gridLineWidth": 1,
+                "gridLineColor": "#333" if is_dark else "#eee",
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            },
+            "plotOptions": {
+                "series": {
+                    "dataLabels": {
+                        "enabled": True,
+                        "style": {
+                            "textOutline": "none",
+                            "color": "#e0e0e0" if is_dark else "#000000",
+                        },
+                        "crop": False,
+                        "overflow": "allow",
+                    }
+                }
+            },
+            "tooltip": {
+                "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+                "pointFormat": "Artist: {point.custom.artist}<br/>Unique Tracks: {point.custom.unique}<br/>Plays: {point.y}",
+            },
+            "series": [{"name": "Plays", "data": series_data}],
         }
 
     @app.callback(
-        Output("top-albums-graph", "figure"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        Output("top-albums-options", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_top_albums_figure(data, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "top_albums" not in data:
-            return {"data": [], "layout": theme}
+            return None
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
         if df.empty:
-            return {"data": [], "layout": theme}
+            return None
         dff = df.head(10)
-        y_vals = dff["album_name"].astype(str).tolist()
-        y_ticktext = _wrap_or_truncate_labels(y_vals)
-        left_margin = _compute_left_margin(y_ticktext)
+        labels = dff["album_name"].astype(str).tolist()
+        ticktext = _wrap_or_truncate_labels(labels)
+        left_margin = _compute_left_margin(ticktext)
+        series_data = [
+            {
+                "y": float(mp) if pd.notna(mp) else 0.0,
+                "custom": {"album": str(al), "artist": str(ar)},
+            }
+            for al, ar, mp in zip(
+                labels,
+                dff.get("artist", pd.Series([""] * len(dff))).fillna(""),
+                dff["median_plays"].fillna(0.0),
+                strict=False,
+            )
+        ]
         return {
-            "data": [
-                {
-                    "type": "bar",
-                    "x": dff["median_plays"],
-                    "y": y_vals,
-                    "orientation": "h",
-                    "text": dff["median_plays"].round(1),
-                    "customdata": dff[["artist"]].values,
-                    "marker": {"color": "#1DB954"},
-                    "hovertemplate": (
-                        "Album: %{y}<br>Median Plays: %{x}<br>Artist: %{customdata[0]}<extra></extra>"
-                    ),
-                    "textposition": "outside",
-                    "cliponaxis": False,
-                }
-            ],
-            "layout": {
-                **theme,
-                "margin": {"t": 30, "b": 30, "l": left_margin, "r": 30},
+            "chart": {
+                "type": "bar",
                 "height": 440,
-                "xaxis": {**theme.get("xaxis", {}), "title": "Median Plays", "automargin": True},
-                "yaxis": {
-                    **theme.get("yaxis", {}),
-                    "title": "",
-                    "automargin": True,
-                    "tickmode": "array",
-                    "tickvals": y_vals,
-                    "ticktext": y_ticktext,
-                    "categoryorder": "array",
-                    "categoryarray": y_vals,
-                    "tickfont": {"size": 10},
+                "marginLeft": left_margin,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
+                "style": {"fontFamily": "Segoe UI, sans-serif"},
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "legend": {"enabled": False},
+            "colors": ["#1DB954"],
+            "xAxis": {
+                "categories": ticktext,
+                "labels": {
+                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
                 },
             },
+            "yAxis": {
+                "title": {"text": "Median Plays"},
+                "gridLineWidth": 1,
+                "gridLineColor": "#333" if is_dark else "#eee",
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            },
+            "plotOptions": {
+                "series": {
+                    "dataLabels": {
+                        "enabled": True,
+                        "style": {
+                            "textOutline": "none",
+                            "color": "#e0e0e0" if is_dark else "#000000",
+                        },
+                        "crop": False,
+                        "overflow": "allow",
+                        "format": "{y:.1f}",
+                    }
+                }
+            },
+            "tooltip": {
+                "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+                "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Median Plays: {point.y}",
+            },
+            "series": [{"name": "Median Plays", "data": series_data}],
         }
 
     @app.callback(
-        Output("top-genres-graph", "figure"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        Output("top-genres-options", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_top_genres_figure(data, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
-            return {"data": [], "layout": theme}
+            return None
         # Prefer precomputed hierarchical rows when available
         if "top_genres_sunburst" in data:
             sb = pd.read_json(StringIO(data["top_genres_sunburst"]), orient="split")
@@ -1532,7 +1216,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             # Fallback: derive rows from flat top_genres + taxonomy
             df = pd.read_json(StringIO(data["top_genres"]), orient="split")
             if df.empty:
-                return {"data": [], "layout": theme}
+                return None
             try:
                 con = get_db_connection()
                 edges = con.execute(
@@ -1577,31 +1261,77 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             sb = pd.DataFrame(rows)
 
         if sb.empty:
-            return {"data": [], "layout": theme}
+            return None
 
-        import plotly.express as px
+        def slug(s: str) -> str:
+            return (s or "").lower().replace(" ", "-")
 
-        # Include top artists in hover for child/direct nodes
-        # Pass template and discrete color sequence at creation time so initial
-        # render uses the intended palette before any clientside restyle occurs.
-        fig = px.sunburst(
-            sb,
-            path=["parent", "child"],
-            values="value",
-            custom_data=["top_artists"] if "top_artists" in sb.columns else None,
-            template=theme.get("template", None),
-            color_discrete_sequence=theme.get("sunburstcolorway") or theme.get("colorway"),
-        )
-        fig.update_layout(
-            **theme,
-            margin={"t": 30, "b": 30, "l": 30, "r": 30},
-            height=450,
-        )
-        # Parent nodes may not carry customdata; child nodes will include top artists when available
-        base_hover = "%{label}<br>Plays: %{value}"
-        artists_hover = "<br>Top Artists: %{customdata[0]}" if "top_artists" in sb.columns else ""
-        fig.update_traces(hovertemplate=base_hover + artists_hover + "<extra></extra>")
-        return fig
+        data_points: list[dict] = []
+        data_points.append({"id": "root", "name": "Genres"})
+        for p in sorted({str(x) for x in sb["parent"].unique()}):
+            if not p:
+                continue
+            data_points.append({"id": f"p::{slug(p)}", "parent": "root", "name": p})
+        for _, r in sb.iterrows():
+            p = str(r.get("parent", ""))
+            c = str(r.get("child", ""))
+            v = int(r.get("value", 0) or 0)
+            if not p or not c or v <= 0:
+                continue
+            point = {
+                "id": f"c::{slug(p)}::{slug(c)}",
+                "parent": f"p::{slug(p)}",
+                "name": c,
+                "value": v,
+            }
+            if "top_artists" in sb.columns and pd.notna(r.get("top_artists")):
+                try:
+                    ta = r.get("top_artists")
+                    ta_str = ""
+                    if isinstance(ta, str):
+                        ta_str = ta
+                    elif isinstance(ta, list | tuple):
+                        ta_str = ", ".join([str(x) for x in ta[:5]])
+                    else:
+                        try:
+                            from collections.abc import Iterable
+
+                            if isinstance(ta, Iterable) and not isinstance(ta, str | bytes | dict):
+                                seq = list(ta)
+                                ta_str = ", ".join([str(x) for x in seq[:5]])
+                            elif ta is not None:
+                                ta_str = str(ta)
+                        except Exception:
+                            pass
+                    if ta_str:
+                        point["custom"] = {"top_artists": ta_str}
+                except Exception:
+                    pass
+            data_points.append(point)
+        return {
+            "chart": {"height": 450, "backgroundColor": "#1e1e1e" if is_dark else "white"},
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "colors": ["#1DB954", "#1ed760", "#21e065", "#5eb859", "#7dd069", "#9be082", "#b5e8a3"],
+            "tooltip": {
+                "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+                "formatter": "function(){var ta=(this.point.custom&&this.point.custom.top_artists)?('<br/>Top Artists: '+this.point.custom.top_artists):'';return this.point.name+'<br/>Plays: '+this.point.value+ta;}",
+            },
+            "series": [
+                {
+                    "type": "sunburst",
+                    "data": data_points,
+                    "allowDrillToNode": True,
+                    "levels": [
+                        {"level": 1, "dataLabels": {"rotationMode": "perpendicular"}},
+                        {"level": 2, "colorByPoint": True},
+                    ],
+                }
+            ],
+        }
 
     @app.callback(
         Output("detailed-stats", "children"),
@@ -1622,20 +1352,63 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         )
 
     @app.callback(
-        Output("daily-song-heatmap", "figure"),
-        Input("tab-1-data", "data"),
-        State("theme-store", "data"),
+        Output("daily-song-heatmap-options", "data"),
+        [Input("tab-1-data", "data"), Input("theme-store", "data")],
     )
     def render_daily_heatmap(data, theme_data):
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "daily_counts" not in data:
-            return {"data": [], "layout": theme}
+            return None
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
-        fig_or_div = create_daily_top_heatmap(df, theme)
-        if isinstance(fig_or_div, dict) or hasattr(fig_or_div, "to_plotly_json"):
-            return fig_or_div
-        return {"data": [], "layout": theme}
+        if df.empty:
+            return None
+        grid_df = create_daily_top_playcount_grid(df)
+        z = grid_df.pivot(index="row", columns="col", values="play_count").values
+        rows = z.shape[0]
+        cols = z.shape[1]
+        date_matrix = grid_df.pivot(index="row", columns="col", values="date").astype(str).values
+        track_matrix = grid_df.pivot(index="row", columns="col", values="track").values
+        data_pts = []
+        for i in range(rows):
+            for j in range(cols):
+                val = int(z[i][j]) if pd.notna(z[i][j]) else 0
+                data_pts.append(
+                    {
+                        "x": j,
+                        "y": i,
+                        "value": val,
+                        "custom": {
+                            "date": str(date_matrix[i][j]),
+                            "track": str(track_matrix[i][j]),
+                        },
+                    }
+                )
+        return {
+            "chart": {
+                "type": "heatmap",
+                "height": 400,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {"text": None},
+            "credits": {"enabled": False},
+            "xAxis": {"visible": False},
+            "yAxis": {"visible": False},
+            "colorAxis": {
+                "stops": (
+                    [[0, "#f7fcf5"], [0.5, "#74c476"], [1, "#00441b"]]
+                    if not is_dark
+                    else [[0, "#440154"], [0.5, "#21918c"], [1, "#fde725"]]
+                )
+            },
+            "tooltip": {
+                "useHTML": True,
+                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
+                "borderColor": "#444444" if is_dark else "#cccccc",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+                "formatter": "function(){return 'Date: '+this.point.custom.date+'<br/>Track: '+this.point.custom.track+'<br/>Plays: '+this.point.value;}",
+            },
+            "series": [{"borderWidth": 0, "data": data_pts}],
+        }
 
     @app.callback(
         Output("tab-2-content", "children"),
@@ -1652,22 +1425,19 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 [
                     html.H3("Listening Over Time", className="card-title"),
                     create_monthly_trend_filter(),
-                    html.Div(
-                        [
-                            dcc.Loading(
-                                children=dcc.Graph(
-                                    id="trends-graph",
-                                    figure={},
-                                    config={"displayModeBar": False},
-                                ),
-                                delay_show=300,
-                                overlay_style={
-                                    "visibility": "visible",
-                                    "backgroundColor": "rgba(0,0,0,0.15)",
-                                },
-                                type="default",
-                            ),
-                        ]
+                    dcc.Store(id="trends-options"),
+                    dcc.Loading(
+                        children=html.Div(
+                            id="trends-container",
+                            children=html.Div(id="trends-container-root"),
+                            style={"minHeight": "380px"},
+                        ),
+                        delay_show=300,
+                        overlay_style={
+                            "visibility": "visible",
+                            "backgroundColor": "rgba(0,0,0,0.15)",
+                        },
+                        type="default",
                     ),
                 ],
                 className="card",
@@ -1677,21 +1447,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 [
                     html.H3("Genres Over Time", className="card-title"),
                     create_genre_trends_layout(df),
+                    dcc.Store(id="genre-trends-options"),
                     dcc.Loading(
-                        children=[
-                            html.Div(
-                                dcc.Graph(
-                                    id="genre-trends-graph",
-                                    config={"displayModeBar": False},
-                                )
-                            ),
-                            html.Div(
-                                html.Div(
-                                    id="genre-trends-table",
-                                    className="table-container",
-                                )
-                            ),
-                        ],
+                        children=html.Div(
+                            id="genre-trends-container",
+                            children=html.Div(id="genre-trends-container-root"),
+                            style={"minHeight": "380px"},
+                        ),
                         delay_show=300,
                         overlay_style={
                             "visibility": "visible",
@@ -1699,6 +1461,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         },
                         type="default",
                     ),
+                    html.Div(id="genre-trends-table", className="table-container"),
                 ],
                 className="card",
             )
@@ -1707,21 +1470,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 [
                     html.H3("Artists Over Time", className="card-title"),
                     create_artist_trends_layout(df),
+                    dcc.Store(id="artist-trends-options"),
                     dcc.Loading(
-                        children=[
-                            html.Div(
-                                dcc.Graph(
-                                    id="artist-trends-graph",
-                                    config={"displayModeBar": False},
-                                )
-                            ),
-                            html.Div(
-                                html.Div(
-                                    id="artist-trends-table",
-                                    className="table-container",
-                                )
-                            ),
-                        ],
+                        children=html.Div(
+                            id="artist-trends-container",
+                            children=html.Div(id="artist-trends-container-root"),
+                            style={"minHeight": "380px"},
+                        ),
                         delay_show=300,
                         overlay_style={
                             "visibility": "visible",
@@ -1729,6 +1484,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         },
                         type="default",
                     ),
+                    html.Div(id="artist-trends-table", className="table-container"),
                 ],
                 className="card",
             )
@@ -1737,19 +1493,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 [
                     html.H3("Tracks Over Time", className="card-title"),
                     create_track_trends_layout(df),
+                    dcc.Store(id="track-trends-options"),
                     dcc.Loading(
-                        children=[
-                            dcc.Graph(
-                                id="track-trends-graph",
-                                config={"displayModeBar": False},
-                            ),
-                            html.Div(
-                                html.Div(
-                                    id="track-trends-table",
-                                    className="table-container",
-                                )
-                            ),
-                        ],
+                        children=html.Div(
+                            id="track-trends-container",
+                            children=html.Div(id="track-trends-container-root"),
+                            style={"minHeight": "380px"},
+                        ),
                         delay_show=300,
                         overlay_style={
                             "visibility": "visible",
@@ -1757,6 +1507,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         },
                         type="default",
                     ),
+                    html.Div(id="track-trends-table", className="table-container"),
                 ],
                 className="card",
             )
@@ -1924,14 +1675,14 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return options_data
 
     @app.callback(
-        Output("trends-graph", "figure"),
+        Output("trends-options", "data"),
         [
             Input("metric-dropdown", "value"),
             Input("tab-2-data", "data"),
             Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def update_trend_dashboard(selected_metric, data, theme_data, selection):
         """Render monthly line chart for the selected metric.
@@ -1943,7 +1694,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if selection != "listening":
             raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "monthly_stats" not in data:
             raise PreventUpdate
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
@@ -1954,24 +1704,27 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             "avg_hours_per_day": "Average Hours per Day",
         }
         title = f"Monthly {labels[selected_metric]}"
-        fig = px.line(
-            monthly,
-            x="month",
-            y=selected_metric,
-            labels={"month": "Month", selected_metric: labels[selected_metric]},
-            title=title,
-        )
-        fig.update_layout(
-            **theme,
-            margin={"t": 50, "b": 30, "l": 30, "r": 30},
-            showlegend=False,
-        )
-        fig.update_traces(line_color="#1DB954")
-        return fig
+        cats = monthly["month"].astype(str).tolist()
+        series_data = [float(x) if pd.notna(x) else 0.0 for x in monthly[selected_metric].tolist()]
+        return {
+            "chart": {
+                "type": "line",
+                "height": 360,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {"text": title, "style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            "credits": {"enabled": False},
+            "legend": {"enabled": False},
+            "xAxis": {"categories": cats, "title": {"text": "Month"}},
+            "yAxis": {"title": {"text": labels[selected_metric]}},
+            "colors": ["#1DB954"],
+            "tooltip": {"shared": True},
+            "series": [{"name": labels[selected_metric], "data": series_data}],
+        }
 
     @app.callback(
         [
-            Output("genre-trends-graph", "figure"),
+            Output("genre-trends-options", "data"),
             Output("genre-trends-table", "children"),
         ],
         [
@@ -1983,7 +1736,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("tab-2-chart-selector", "value"),
             Input("genre-hide-level0-store", "data"),
         ],
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def update_genre_trends_graph(
         selected_genres, top_n, display_type, data, theme_data, selection, hide_level0_store
@@ -1997,7 +1750,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if selection != "genres":
             raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "genre_trends" not in data or "overall_genres" not in data:
             raise PreventUpdate
         hide_level0 = bool(hide_level0_store)
@@ -2032,7 +1784,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         # If filtering removed all rows, return empty artifacts gracefully
         if overall.empty or trends.empty:
-            return {"data": [], "layout": theme}, []
+            return None, []
 
         # Auto-select top genres if none chosen
         if not selected_genres:
@@ -2040,19 +1792,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             selected_genres = avg.head(top_n).index.tolist()
 
         plot_df = trends[trends["genre"].isin(selected_genres)]
-        fig = px.line(
-            plot_df,
-            x="month",
-            y=y_col,
-            color="genre",
-            labels={"month": "Month", y_col: y_title, "genre": "Genre"},
-            hover_data=["top_artists"],
-            title="Genre Trends Over Time",
-        )
-        fig.update_layout(
-            **theme,
-            margin={"t": 50, "b": 30, "l": 30, "r": 30},
-        )
+        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        series = []
+        for g, sub in plot_df.groupby("genre"):
+            by_month = sub.set_index(sub["month"].astype(str))[y_col]
+            data = [float(by_month.get(m, 0) or 0) for m in cats]
+            series.append({"name": str(g), "data": data})
 
         table = dash_table.DataTable(
             overall.to_dict("records"),
@@ -2088,11 +1833,27 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "height": "auto",
             },
         )
-        return fig, [table]
+        options = {
+            "chart": {
+                "type": "line",
+                "height": 360,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {
+                "text": "Genre Trends Over Time",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+            },
+            "credits": {"enabled": False},
+            "xAxis": {"categories": cats, "title": {"text": "Month"}},
+            "yAxis": {"title": {"text": y_title}},
+            "tooltip": {"shared": True},
+            "series": series,
+        }
+        return options, [table]
 
     @app.callback(
         [
-            Output("artist-trends-graph", "figure"),
+            Output("artist-trends-options", "data"),
             Output("artist-trends-table", "children"),
         ],
         [
@@ -2103,7 +1864,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def update_artist_trends_graph(
         selected_artists, top_n, display_type, data, theme_data, selection
@@ -2117,7 +1878,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if selection != "artists":
             raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "artist_trends" not in data or "overall_artists" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
@@ -2153,19 +1913,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             hover_data.append("artist_genres")
         if "top_tracks" in plot_df.columns:
             hover_data.append("top_tracks")
-        fig = px.line(
-            plot_df,
-            x="month",
-            y=y_col,
-            color="artist",
-            labels={"month": "Month", y_col: y_title, "artist": "Artist"},
-            hover_data=hover_data if hover_data else None,
-            title="Artist Trends Over Time",
-        )
-        fig.update_layout(
-            **theme,
-            margin={"t": 50, "b": 30, "l": 30, "r": 30},
-        )
+        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        series = []
+        for a, sub in plot_df.groupby("artist"):
+            by_month = sub.set_index(sub["month"].astype(str))[y_col]
+            data = [float(by_month.get(m, 0) or 0) for m in cats]
+            series.append({"name": str(a), "data": data})
 
         # Format genres and build table (robust to NaN/strings)
 
@@ -2211,11 +1964,27 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "height": "auto",
             },
         )
-        return fig, [table]
+        options = {
+            "chart": {
+                "type": "line",
+                "height": 360,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {
+                "text": "Artist Trends Over Time",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+            },
+            "credits": {"enabled": False},
+            "xAxis": {"categories": cats, "title": {"text": "Month"}},
+            "yAxis": {"title": {"text": y_title}},
+            "tooltip": {"shared": True},
+            "series": series,
+        }
+        return options, [table]
 
     @app.callback(
         [
-            Output("track-trends-graph", "figure"),
+            Output("track-trends-options", "data"),
             Output("track-trends-table", "children"),
         ],
         [
@@ -2226,7 +1995,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def update_track_trends_graph(
         selected_tracks, top_n, display_type, data, theme_data, selection
@@ -2240,7 +2009,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if selection != "tracks":
             raise PreventUpdate
         is_dark = bool(theme_data and theme_data.get("dark"))
-        theme = get_plotly_theme(is_dark)
         if not data or "track_trends" not in data or "overall_tracks" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
@@ -2258,20 +2026,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             selected_tracks = avg.head(top_n).index.tolist()
 
         plot_df = trends[trends["track_artist"].isin(selected_tracks)]
-        fig = px.line(
-            plot_df,
-            x="month",
-            y=y_col,
-            color="track_artist",
-            labels={"month": "Month", y_col: y_title, "track_artist": "Track"},
-            hover_data=["track_artist"],
-            title="Track Trends Over Time",
-            markers=True,
-        )
-        fig.update_layout(
-            **theme,
-            margin={"t": 50, "b": 30, "l": 30, "r": 30},
-        )
+        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        series = []
+        for t, sub in plot_df.groupby("track_artist"):
+            by_month = sub.set_index(sub["month"].astype(str))[y_col]
+            data = [float(by_month.get(m, 0) or 0) for m in cats]
+            series.append({"name": str(t), "data": data})
 
         # Prepare summary table
         overall = overall.drop(columns=["track_artist"])
@@ -2306,7 +2066,23 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "height": "auto",
             },
         )
-        return fig, [table]
+        options = {
+            "chart": {
+                "type": "line",
+                "height": 360,
+                "backgroundColor": "#1e1e1e" if is_dark else "white",
+            },
+            "title": {
+                "text": "Track Trends Over Time",
+                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
+            },
+            "credits": {"enabled": False},
+            "xAxis": {"categories": cats, "title": {"text": "Month"}},
+            "yAxis": {"title": {"text": y_title}},
+            "tooltip": {"shared": True},
+            "series": series,
+        }
+        return options, [table]
 
     @app.callback(
         [
@@ -2357,26 +2133,99 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
         return is_dark, theme_class, theme_store_data
 
-    # Clientside restyle-only callbacks to avoid server roundtrips
+    # Highcharts renderers for Wrapped charts
     app.clientside_callback(
-        ClientsideFunction(namespace="theme", function_name="restyle_wrapped"),
-        Output("top-tracks-graph", "figure", allow_duplicate=True),
-        Output("top-artists-graph", "figure", allow_duplicate=True),
-        Output("top-albums-graph", "figure", allow_duplicate=True),
-        Output("top-genres-graph", "figure", allow_duplicate=True),
-        Output("daily-song-heatmap", "figure", allow_duplicate=True),
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("top-artists-container", "children"),
         Input("theme-store", "data"),
-        State("top-tracks-graph", "figure"),
-        State("top-artists-graph", "figure"),
-        State("top-albums-graph", "figure"),
-        State("top-genres-graph", "figure"),
-        State("daily-song-heatmap", "figure"),
-        prevent_initial_call=True,
+        Input("top-artists-options", "data"),
+        Input("main-tabs", "value"),
+        State("top-artists-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("top-albums-container", "children"),
+        Input("theme-store", "data"),
+        Input("top-albums-options", "data"),
+        Input("main-tabs", "value"),
+        State("top-albums-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("top-genres-container", "children"),
+        Input("theme-store", "data"),
+        Input("top-genres-options", "data"),
+        Input("main-tabs", "value"),
+        State("top-genres-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("daily-song-heatmap-container", "children"),
+        Input("theme-store", "data"),
+        Input("daily-song-heatmap-options", "data"),
+        Input("main-tabs", "value"),
+        State("daily-song-heatmap-container", "id"),
+        prevent_initial_call=False,
+    )
+
+    # Highcharts clientside renderer for Most Played Tracks
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("top-tracks-container", "children"),
+        Input("theme-store", "data"),
+        Input("top-tracks-options", "data"),
+        Input("main-tabs", "value"),
+        State("top-tracks-container", "id"),
+        prevent_initial_call=False,
     )
 
     # Note: Trends graphs are themed in their server callbacks using theme-store,
     # so we avoid a clientside batch restyle here to prevent warnings when
     # outputs are not mounted in the current layout.
+    # Highcharts renderers for Trends charts
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("trends-container", "children"),
+        Input("theme-store", "data"),
+        Input("trends-options", "data"),
+        Input("main-tabs", "value"),
+        Input("tab-2-content", "children"),
+        State("trends-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("genre-trends-container", "children"),
+        Input("theme-store", "data"),
+        Input("genre-trends-options", "data"),
+        Input("main-tabs", "value"),
+        Input("tab-2-content", "children"),
+        State("genre-trends-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("artist-trends-container", "children"),
+        Input("theme-store", "data"),
+        Input("artist-trends-options", "data"),
+        Input("main-tabs", "value"),
+        Input("tab-2-content", "children"),
+        State("artist-trends-container", "id"),
+        prevent_initial_call=False,
+    )
+    app.clientside_callback(
+        ClientsideFunction(namespace="highcharts", function_name="render_single"),
+        Output("track-trends-container", "children"),
+        Input("theme-store", "data"),
+        Input("track-trends-options", "data"),
+        Input("main-tabs", "value"),
+        Input("tab-2-content", "children"),
+        State("track-trends-container", "id"),
+        prevent_initial_call=False,
+    )
 
     # Update Mantine provider theme for dmc components
     @app.callback(
