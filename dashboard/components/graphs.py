@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
 from dash import dcc, html
+from dash.development.base_component import Component
 
 
-def create_top_tracks_graph(_top_tracks=None):
+def create_top_tracks_graph(_top_tracks: pd.DataFrame | None = None) -> Component:
     """Create the container and store for 'Most Played Tracks' (Highcharts).
 
     This replaces the previous Plotly Graph with a simple container div that
@@ -35,7 +36,7 @@ def create_top_tracks_graph(_top_tracks=None):
     )
 
 
-def create_top_artists_graph(_top_artists=None):
+def create_top_artists_graph(_top_artists: pd.DataFrame | None = None) -> Component:
     """Create container + store for Top Artists (Highcharts)."""
     return html.Div(
         className="graph-card card",
@@ -59,7 +60,7 @@ def create_top_artists_graph(_top_artists=None):
     )
 
 
-def create_top_genres_graph(_top_genres=None):
+def create_top_genres_graph(_top_genres: pd.DataFrame | None = None) -> Component:
     """Create a two-level sunburst of genres using parent hierarchy.
 
     Notes:
@@ -98,7 +99,7 @@ def create_top_genres_graph(_top_genres=None):
     )
 
 
-def create_top_albums_graph(_top_albums=None):
+def create_top_albums_graph(_top_albums: pd.DataFrame | None = None) -> Component:
     """Create container + store for Top Albums (Highcharts)."""
     return html.Div(
         className="graph-card card",
@@ -122,7 +123,7 @@ def create_top_albums_graph(_top_albums=None):
     )
 
 
-def create_graphs_section_tab_one():
+def create_graphs_section_tab_one() -> Component:
     """Compose the first tab section with tracks, artists, albums, and genres."""
     return html.Div(
         children=[
@@ -146,7 +147,7 @@ def create_graphs_section_tab_one():
     )
 
 
-def create_daily_top_playcount_grid(daily_playcounts):
+def create_daily_top_playcount_grid(daily_playcounts: pd.DataFrame) -> pd.DataFrame:
     """Generate a grid layout DataFrame for daily top track play counts.
 
     Args:

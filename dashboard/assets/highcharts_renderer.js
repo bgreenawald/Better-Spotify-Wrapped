@@ -2,11 +2,13 @@
 
 window.dash_clientside = window.dash_clientside || {};
 window.dash_clientside.highcharts = (function () {
-  var HC_URL = 'https://code.highcharts.com/highcharts.js';
+  var HC_URL = 'https://code.highcharts.com/v11.2.0/highcharts.js';
   var MODULE_URLS = [
-    'https://code.highcharts.com/modules/heatmap.js',
-    'https://code.highcharts.com/modules/sunburst.js',
-    'https://code.highcharts.com/modules/venn.js'
+    'https://code.highcharts.com/v11.2.0/modules/heatmap.js',
+    'https://code.highcharts.com/v11.2.0/modules/treemap.js',
+    'https://code.highcharts.com/v11.2.0/modules/sunburst.js',
+    'https://code.highcharts.com/v11.2.0/modules/venn.js',
+    'https://code.highcharts.com/v11.2.0/modules/accessibility.js'
   ];
   var loading = false;
   var loaded = false;
@@ -107,11 +109,11 @@ window.dash_clientside.highcharts = (function () {
     var rootId = containerId + '-root';
     var el = document.getElementById(rootId) || document.getElementById(containerId);
     if (!el) return;
-    destroyChart(rootId);
+    var targetId = el.id;
+    destroyChart(targetId);
     try {
       // Revive any function-like strings in options (e.g., tooltip.formatter)
       options = reviveFunctions(options);
-      var targetId = el.id;
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
       // no-op
@@ -172,6 +174,10 @@ window.dash_clientside.highcharts = (function () {
 
 // --- Utility: revive function-like strings in an options object -------------
 // Converts values like "function(){...}" or "() => {...}" into actual functions.
+// SECURITY NOTE: Function revival using eval/Function is disabled by default due to XSS risks.
+// Set window.BSW_ENABLE_EVAL = true to explicitly opt-in to function revival.
+// LONG-TERM RECOMMENDATION: Replace stringified functions with IDs mapped to a safe
+// client-side registry to avoid XSS vulnerabilities entirely.
 function reviveFunctions(obj) {
   if (!obj || typeof obj !== 'object') return obj;
 
@@ -180,11 +186,16 @@ function reviveFunctions(obj) {
       var s = value.trim();
       var looksLikeFn = s.indexOf('function') === 0 || s.indexOf('() =>') === 0 || s.indexOf('(function') === 0;
       if (looksLikeFn) {
+        // Skip revival if opt-in flag is not set to prevent XSS
+        if (!window.BSW_ENABLE_EVAL) {
+          return value;
+        }
         try {
           /* eslint no-new-func: 0 */
-          // Wrap in parentheses to allow function expression parsing
+          // Use Function constructor instead of eval to avoid global scope pollution
+          // Wrap in return statement to allow function expression parsing
           // Example: new Function('return ' + s)()
-          return (0, eval)('(' + s + ')');
+          return new Function('return (' + s + ')')();
         } catch (e) {
           return value;
         }
