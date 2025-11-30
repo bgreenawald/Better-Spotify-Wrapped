@@ -20,6 +20,7 @@ from dashboard.callbacks.callbacks import register_callbacks
 from dashboard.components.filters import (
     create_artist_trends_layout,
     create_genre_trends_layout,
+    create_on_this_day_filter,
     create_track_trends_layout,
 )
 from dashboard.conn import get_db_connection
@@ -234,6 +235,15 @@ def create_app() -> Dash:
                         dcc.Graph(id="trends-graph"),
                     ]
                 ),
+            ]
+        ),
+        # On This Day tab
+        html.Div(
+            [
+                html.H3("On This Day", className="card-title"),
+                create_on_this_day_filter(),
+                dcc.Store(id="on-this-day-data"),
+                html.Div(id="on-this-day-content"),
             ]
         ),
     ]

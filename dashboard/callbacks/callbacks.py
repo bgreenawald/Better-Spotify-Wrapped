@@ -2085,6 +2085,337 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         return options, [table]
 
     @app.callback(
+        Output("on-this-day-content", "children"),
+        [
+            Input("on-this-day-date-picker", "value"),
+            Input("user-id-dropdown", "value"),
+            Input("exclude-december", "value"),
+            Input("remove-incognito", "value"),
+            Input("excluded-tracks-filter-dropdown", "value"),
+            Input("excluded-genres-filter-dropdown", "value"),
+            Input("excluded-artists-filter-dropdown", "value"),
+            Input("excluded-albums-filter-dropdown", "value"),
+        ],
+    )
+    def update_on_this_day_content(
+        selected_date,
+        user_id,
+        exclude_december,
+        remove_incognito,
+        excluded_tracks,
+        excluded_genres,
+        excluded_artists,
+        excluded_albums,
+    ):
+        if not selected_date or not user_id:
+            raise PreventUpdate
+
+        date_obj = datetime.strptime(selected_date.split("T")[0], "%Y-%m-%d")
+        month = date_obj.month
+        day = date_obj.day
+
+        con = get_db_connection()
+        try:
+            sql = """
+                WITH
+                  plays AS (
+                    SELECT
+                      ve.user_id,
+                      ve.played_at,
+                      ve.duration_ms,
+                      ve.reason_start,
+                      ve.reason_end,
+                      ve.skipped,
+                      ve.incognito_mode,
+                      ve.track_id,
+                      ve.track_name,
+                      REGEXP_REPLACE(TRIM(ve.artist_id), '.*:', '') AS artist_id,
+                      ve.artist_name,
+                      ve.album_name
+                    FROM v_plays_enriched ve
+                  ),
+                  artist_genres_agg AS (
+                    -- Build formatted artist genres as "Child (Parent1, Parent2)" when parents exist;
+                    -- otherwise just the genre name. De-duplicate labels per artist.
+                    WITH
+                      parent_map AS (
+                        SELECT
+                          gh.child_genre_id,
+                          STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
+                        FROM genre_hierarchy AS gh
+                        JOIN dim_genres AS pg ON pg.genre_id = gh.parent_genre_id
+                        WHERE
+                          COALESCE(pg.active, TRUE)
+                        GROUP BY
+                          gh.child_genre_id
+                      ),
+                      labels AS (
+                        SELECT DISTINCT
+                          COALESCE(
+                            TRIM(REGEXP_REPLACE(ag.artist_id, '.*:', '')),
+                            ''
+                          ) AS artist_id,
+                          CASE
+                            WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
+                            ELSE (g.name || ' (' || pm.parent_names || ')')
+                          END AS label
+                        FROM artist_genres AS ag
+                        JOIN dim_genres AS g ON g.genre_id = ag.genre_id
+                        LEFT JOIN parent_map AS pm ON pm.child_genre_id = g.genre_id
+                        WHERE
+                          COALESCE(g.active, TRUE)
+                      )
+                    SELECT
+                      artist_id,
+                      LIST(label) AS artist_genres
+                    FROM labels
+                    GROUP BY
+                      artist_id
+                  ),
+                  enriched_plays AS (
+                    SELECT
+                      p.*,
+                      aga.artist_genres
+                    FROM plays AS p
+                    LEFT JOIN artist_genres_agg AS aga ON aga.artist_id = p.artist_id
+                  ),
+                  filtered_plays AS (
+                    SELECT
+                      *
+                    FROM enriched_plays
+                    WHERE
+                      user_id = ?
+                      AND EXTRACT(MONTH FROM played_at) = ?
+                      AND EXTRACT(DAY FROM played_at) = ?
+                      AND (? = FALSE OR EXTRACT(MONTH FROM played_at) != 12)
+                      AND (? = FALSE OR incognito_mode = FALSE)
+                      AND (
+                        ARRAY_LENGTH(?) = 0
+                        OR track_name NOT IN (
+                          SELECT
+                            UNNEST(?)
+                        )
+                      )
+                      AND (
+                        ARRAY_LENGTH(?) = 0
+                        OR artist_name NOT IN (
+                          SELECT
+                            UNNEST(?)
+                        )
+                      )
+                      AND (
+                        ARRAY_LENGTH(?) = 0
+                        OR album_name NOT IN (
+                          SELECT
+                            UNNEST(?)
+                        )
+                      )
+                      AND (
+                        ARRAY_LENGTH(?) = 0
+                        OR artist_genres IS NULL
+                        OR NOT (
+                          SELECT
+                            list_has_any(
+                              artist_genres,
+                              (
+                                SELECT
+                                  UNNEST(?)
+                              )
+                            )
+                        )
+                      )
+                  ),
+                  ranked_tracks AS (
+                    SELECT
+                      EXTRACT(
+                        YEAR
+                        FROM
+                          played_at
+                      ) AS play_year,
+                      track_name,
+                      artist_name,
+                      COUNT(*) AS play_count,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY
+                          EXTRACT(
+                            YEAR
+                            FROM
+                              played_at
+                          )
+                        ORDER BY
+                          COUNT(*) DESC
+                      ) AS rn
+                    FROM
+                      filtered_plays
+                    GROUP BY
+                      play_year,
+                      track_name,
+                      artist_name
+                  ),
+                  ranked_artists AS (
+                    SELECT
+                      EXTRACT(
+                        YEAR
+                        FROM
+                          played_at
+                      ) AS play_year,
+                      artist_name,
+                      COUNT(*) AS play_count,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY
+                          EXTRACT(
+                            YEAR
+                            FROM
+                              played_at
+                          )
+                        ORDER BY
+                          COUNT(*) DESC
+                      ) AS rn
+                    FROM
+                      filtered_plays
+                    GROUP BY
+                      play_year,
+                      artist_name
+                  ),
+                  ranked_genres AS (
+                    SELECT
+                      EXTRACT(
+                        YEAR
+                        FROM
+                          played_at
+                      ) AS play_year,
+                      genre,
+                      COUNT(*) AS play_count,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY
+                          EXTRACT(
+                            YEAR
+                            FROM
+                              played_at
+                          )
+                        ORDER BY
+                          COUNT(*) DESC
+                      ) AS rn
+                    FROM
+                      filtered_plays,
+                      UNNEST(artist_genres) AS t (genre)
+                    WHERE artist_genres IS NOT NULL
+                    GROUP BY
+                      play_year,
+                      genre
+                  )
+                SELECT
+                  'track' AS category,
+                  play_year,
+                  track_name AS name,
+                  artist_name AS sub_name,
+                  play_count
+                FROM
+                  ranked_tracks
+                WHERE
+                  rn <= 3
+                UNION ALL
+                SELECT
+                  'artist' AS category,
+                  play_year,
+                  artist_name AS name,
+                  NULL AS sub_name,
+                  play_count
+                FROM
+                  ranked_artists
+                WHERE
+                  rn <= 3
+                UNION ALL
+                SELECT
+                  'genre' AS category,
+                  play_year,
+                  genre AS name,
+                  NULL AS sub_name,
+                  play_count
+                FROM
+                  ranked_genres
+                WHERE
+                  rn <= 3
+                ORDER BY
+                  play_year DESC,
+                  category,
+                  play_count DESC
+            """
+            params = [
+                user_id,
+                month,
+                day,
+                exclude_december,
+                remove_incognito,
+                excluded_tracks or [],
+                excluded_tracks or [],
+                excluded_artists or [],
+                excluded_artists or [],
+                excluded_albums or [],
+                excluded_albums or [],
+                excluded_genres or [],
+                excluded_genres or [],
+            ]
+            results_df = con.execute(sql, params).df()
+
+        finally:
+            with contextlib.suppress(Exception):
+                con.close()
+
+        if results_df.empty:
+            return html.Div("No listening history for this day.")
+
+        years = sorted(results_df["play_year"].unique(), reverse=True)
+        content = []
+        for year in years:
+            year_df = results_df[results_df["play_year"] == year]
+            tracks = year_df[year_df["category"] == "track"]
+            artists = year_df[year_df["category"] == "artist"]
+            genres = year_df[year_df["category"] == "genre"]
+
+            year_section = html.Div(
+                [
+                    html.H4(f"{date_obj.strftime('%B %d')}, {year}"),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.H5("Top Tracks"),
+                                    html.Ul(
+                                        [
+                                            html.Li(f"{row['name']} by {row['sub_name']}")
+                                            for _, row in tracks.iterrows()
+                                        ]
+                                    ),
+                                ]
+                            ),
+                            html.Div(
+                                [
+                                    html.H5("Top Artists"),
+                                    html.Ul(
+                                        [html.Li(f"{row['name']}") for _, row in artists.iterrows()]
+                                    ),
+                                ]
+                            ),
+                            html.Div(
+                                [
+                                    html.H5("Top Genres"),
+                                    html.Ul(
+                                        [html.Li(f"{row['name']}") for _, row in genres.iterrows()]
+                                    ),
+                                ]
+                            ),
+                        ],
+                        className="on-this-day-year-content",
+                    ),
+                ],
+                className="on-this-day-year-section card",
+            )
+            content.append(year_section)
+
+        return content
+
+    @app.callback(
         [
             Output("theme-toggle", "checked"),
             Output("app-container", "className"),

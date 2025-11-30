@@ -6,6 +6,7 @@ from dash.development.base_component import Component
 
 from dashboard.components.filters import (
     create_global_settings,
+    create_on_this_day_filter,
     create_social_date_range_filter,
     create_trend_filters_section,
     create_wrapped_filters_section,
@@ -156,6 +157,11 @@ def create_layout(df: pd.DataFrame) -> Component:
                                 value="social",
                                 children=[create_tab_social_layout(df)],
                             ),
+                            dcc.Tab(
+                                label="📅 On This Day",
+                                value="on-this-day",
+                                children=[create_on_this_day_layout()],
+                            ),
                         ],
                     ),
                 ],
@@ -163,6 +169,32 @@ def create_layout(df: pd.DataFrame) -> Component:
                 className="",
             )
         ]
+    )
+
+
+def create_on_this_day_layout() -> Component:
+    """Create the layout for the 'On This Day' tab."""
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.H3("Filters", className="card-title"),
+                    create_on_this_day_filter(),
+                ],
+                className="card",
+            ),
+            dcc.Loading(
+                children=html.Div(id="on-this-day-content"),
+                delay_show=300,
+                overlay_style={
+                    "visibility": "visible",
+                    "backgroundColor": "rgba(0,0,0,0.15)",
+                },
+                type="default",
+            ),
+            dcc.Store(id="on-this-day-data"),
+        ],
+        className="container",
     )
 
 

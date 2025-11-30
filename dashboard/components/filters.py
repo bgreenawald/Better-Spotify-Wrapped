@@ -5,6 +5,30 @@ import pandas as pd
 from dash import dcc, html
 
 
+def create_on_this_day_filter() -> html.Div:
+    """Create a date picker for the 'On This Day' tab."""
+    return html.Div(
+        [
+            html.Label("Select Date", className="filter-label"),
+            dmc.DatePickerInput(
+                id="on-this-day-date-picker",
+                value=date.today(),
+                size="sm",
+                variant="filled",
+                popoverProps={
+                    "withinPortal": True,
+                    "zIndex": 4000,
+                    "position": "bottom-start",
+                    "offset": 8,
+                },
+                persistence=True,
+                persistence_type="local",
+            ),
+        ],
+        className="filter-item",
+    )
+
+
 def create_year_dropdown(df: pd.DataFrame) -> html.Div:
     """Create a dropdown for selecting a year from DataFrame timestamps.
 
