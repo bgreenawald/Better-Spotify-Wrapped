@@ -202,7 +202,7 @@ def create_tab_one_layout(df: pd.DataFrame) -> Component:
                 children=html.Div(
                     [
                         html.H3(
-                            "Daily Song Heatmap",
+                            "Daily Song Plays Over Time",
                             className="card-title",
                         ),
                         dcc.Store(id="daily-song-heatmap-options"),

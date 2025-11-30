@@ -2,13 +2,14 @@
 
 window.dash_clientside = window.dash_clientside || {};
 window.dash_clientside.highcharts = (function () {
-  var HC_URL = 'https://code.highcharts.com/v11.2.0/highcharts.js';
+  // Use local files from assets folder to avoid CDN blocking issues
+  // Dash serves files from the assets folder at the root path
+  var HC_URL = '/assets/highcharts.js';
   var MODULE_URLS = [
-    'https://code.highcharts.com/v11.2.0/modules/heatmap.js',
-    'https://code.highcharts.com/v11.2.0/modules/treemap.js',
-    'https://code.highcharts.com/v11.2.0/modules/sunburst.js',
-    'https://code.highcharts.com/v11.2.0/modules/venn.js',
-    'https://code.highcharts.com/v11.2.0/modules/accessibility.js'
+    '/assets/sunburst.js',
+    '/assets/treemap.js',
+    '/assets/venn.js'
+    // Note: accessibility module is optional
   ];
   var loading = false;
   var loaded = false;
@@ -19,8 +20,12 @@ window.dash_clientside.highcharts = (function () {
     var s = document.createElement('script');
     s.src = src;
     s.async = true;
-    s.onload = cb;
-    s.onerror = cb; // best-effort
+    // No need for crossOrigin for local files
+    s.onload = function() { cb(null); };
+    s.onerror = function(err) {
+      console.warn('Failed to load Highcharts script (may be optional):', src);
+      cb(err);
+    };
     document.head.appendChild(s);
   }
 
@@ -29,17 +34,43 @@ window.dash_clientside.highcharts = (function () {
     queue.push(cb);
     if (loading) return;
     loading = true;
-    loadScript(HC_URL, function () {
-      function loadNext(i) {
-        if (i >= MODULE_URLS.length) {
-          loaded = true;
-          var q = queue.slice(); queue.length = 0;
-          q.forEach(function (f) { try { f(); } catch (e) {} });
-          return;
-        }
-        loadScript(MODULE_URLS[i], function(){ loadNext(i+1); });
+    loadScript(HC_URL, function (err) {
+      if (err) {
+        console.error('Failed to load Highcharts core library. Charts will not render.');
+        loading = false;
+        return;
       }
-      loadNext(0);
+      // Wait for Highcharts to be fully initialized before loading modules
+      // Modules need Highcharts to be available in the global scope
+      function waitForHighcharts(callback, attempts) {
+        attempts = attempts || 0;
+        if (window.Highcharts && typeof window.Highcharts.chart === 'function') {
+          callback();
+        } else if (attempts < 50) {
+          // Wait up to 1 second (50 * 20ms) for Highcharts to initialize
+          setTimeout(function() { waitForHighcharts(callback, attempts + 1); }, 20);
+        } else {
+          console.error('Highcharts library loaded but not fully initialized after timeout.');
+          loading = false;
+        }
+      }
+      waitForHighcharts(function() {
+        function loadNext(i) {
+          if (i >= MODULE_URLS.length) {
+            loaded = true;
+            loading = false;
+            var q = queue.slice(); queue.length = 0;
+            q.forEach(function (f) { try { f(); } catch (e) { console.error('Error in Highcharts callback:', e); } });
+            return;
+          }
+          // Load modules - failures are non-fatal as some modules are optional
+          loadScript(MODULE_URLS[i], function(moduleErr) {
+            // Continue loading other modules even if one fails
+            loadNext(i+1);
+          });
+        }
+        loadNext(0);
+      });
     });
   }
 
@@ -112,11 +143,16 @@ window.dash_clientside.highcharts = (function () {
     var targetId = el.id;
     destroyChart(targetId);
     try {
+      // Enable function revival for tooltip formatters and other callbacks
+      // This is safe because the options come from the server, not user input
+      var wasEnabled = window.BSW_ENABLE_EVAL;
+      window.BSW_ENABLE_EVAL = true;
       // Revive any function-like strings in options (e.g., tooltip.formatter)
       options = reviveFunctions(options);
+      window.BSW_ENABLE_EVAL = wasEnabled;
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
-      // no-op
+      console.error('Error rendering chart:', e);
     }
   }
 
@@ -150,8 +186,12 @@ window.dash_clientside.highcharts = (function () {
       destroyChart(el.id);
       try {
         options = JSON.parse(JSON.stringify(options));
+        // Enable function revival for tooltip formatters
+        var wasEnabled = window.BSW_ENABLE_EVAL;
+        window.BSW_ENABLE_EVAL = true;
         // Ensure any function-like strings are revived before rendering
         options = reviveFunctions(options);
+        window.BSW_ENABLE_EVAL = wasEnabled;
         options.chart = options.chart || {}; options.chart.type = 'venn';
         options.plotOptions = options.plotOptions || {};
         options.plotOptions.series = options.plotOptions.series || {};
