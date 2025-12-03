@@ -89,3 +89,6 @@ data
 # Genre info
 genre_taxonomy_results.json
 resources
+
+# Claude
+.claude/
