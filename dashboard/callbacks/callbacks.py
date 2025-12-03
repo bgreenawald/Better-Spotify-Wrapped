@@ -636,7 +636,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             except Exception:
                 sb_rows = pd.DataFrame(columns=["parent", "child", "value"])
 
-            daily_counts = get_playcount_by_day(filtered, con=con, top_only=True)
+            daily_counts = get_playcount_by_day(filtered, con=con, top_only=False)
 
             # Stats summary (preformatted to avoid shipping large DataFrame)
             from dashboard.components.stats import MS_PER_HOUR, format_stat
@@ -1362,52 +1362,211 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
         if df.empty:
             return None
-        grid_df = create_daily_top_playcount_grid(df)
-        z = grid_df.pivot(index="row", columns="col", values="play_count").values
-        rows = z.shape[0]
-        cols = z.shape[1]
-        date_matrix = grid_df.pivot(index="row", columns="col", values="date").astype(str).values
-        track_matrix = grid_df.pivot(index="row", columns="col", values="track").values
-        data_pts = []
-        for i in range(rows):
-            for j in range(cols):
-                val = int(z[i][j]) if pd.notna(z[i][j]) else 0
-                data_pts.append(
-                    {
-                        "x": j,
-                        "y": i,
-                        "value": val,
+
+        # Convert to line chart: aggregate by date and show top song play count per day
+        # Also track all top songs (ties) for each day
+        if "date" in df.columns and "play_count" in df.columns:
+            # Get all top songs per date (all tracks with max play_count for that date)
+            if "track" in df.columns and "artist" in df.columns:
+                # Find max play_count per date
+                max_plays_per_date = df.groupby("date")["play_count"].max().reset_index()
+                max_plays_per_date.columns = ["date", "max_play_count"]
+
+                # Merge to find all songs with max play_count for each date
+                df_with_max = df.merge(max_plays_per_date, on="date", how="left")
+                top_songs_df = df_with_max[
+                    df_with_max["play_count"] == df_with_max["max_play_count"]
+                ].copy()
+
+                # Create track-artist pairs, handling NaN values
+                def format_track_artist(row):
+                    track = str(row["track"]) if pd.notna(row["track"]) else ""
+                    artist = str(row["artist"]) if pd.notna(row["artist"]) else ""
+                    if track and artist:
+                        return f"{track} - {artist}"
+                    elif track:
+                        return track
+                    elif artist:
+                        return artist
+                    else:
+                        return ""
+
+                top_songs_df["track_artist"] = top_songs_df.apply(format_track_artist, axis=1)
+
+                # Filter out empty strings and group by date to collect all unique top songs
+                top_songs_df = top_songs_df[top_songs_df["track_artist"].str.strip() != ""].copy()
+
+                # Group by date and collect all unique top songs (as track-artist pairs)
+                top_songs_by_date = (
+                    top_songs_df.groupby("date")["track_artist"]
+                    .apply(lambda x: list(x.unique()))
+                    .reset_index()
+                )
+                top_songs_by_date.columns = ["date", "top_songs"]
+
+                # Use max_play_count as the play count (top song's play count, not total)
+                # This represents how many times the top song(s) were played
+                daily_totals = max_plays_per_date.copy()
+                daily_totals.rename(columns={"max_play_count": "play_count"}, inplace=True)
+
+                # Merge to get top songs info
+                daily_totals = daily_totals.merge(top_songs_by_date, on="date", how="left")
+
+                # Filter: only show days where top song had more than 1 play
+                daily_totals = daily_totals[daily_totals["play_count"] > 1].copy()
+            else:
+                # No track/artist info, just aggregate totals
+                daily_totals = df.groupby("date")["play_count"].sum().reset_index()
+                daily_totals["track"] = [[] for _ in range(len(daily_totals))]
+                daily_totals["artist"] = [[] for _ in range(len(daily_totals))]
+                daily_totals["max_play_count"] = daily_totals["play_count"]
+                # Filter: only show days with more than 1 play
+                daily_totals = daily_totals[daily_totals["play_count"] > 1].copy()
+
+            daily_totals = daily_totals.sort_values("date")
+
+            # Convert dates to timestamps for Highcharts
+            daily_totals["timestamp"] = pd.to_datetime(daily_totals["date"]).astype(int) // 10**6
+
+            # Create data points with custom info for tooltip
+            data_pts = []
+            for _idx, row in daily_totals.iterrows():
+                # Get top songs (already formatted as "Track - Artist")
+                top_songs = row.get("top_songs", [])
+
+                # Handle different data types
+                if top_songs is None:
+                    top_songs = []
+                elif hasattr(top_songs, "__len__") and not isinstance(top_songs, str | list):
+                    # Handle pandas Series, numpy arrays, etc.
+                    try:
+                        if hasattr(top_songs, "tolist"):
+                            top_songs = top_songs.tolist()
+                        elif hasattr(top_songs, "values"):
+                            top_songs = (
+                                top_songs.values.tolist()
+                                if hasattr(top_songs.values, "tolist")
+                                else list(top_songs.values)
+                            )
+                        else:
+                            top_songs = list(top_songs)
+                    except Exception:
+                        top_songs = []
+                elif isinstance(top_songs, str) or not isinstance(top_songs, list):
+                    top_songs = [top_songs] if top_songs else []
+
+                # Check for NaN values in the list
+                if isinstance(top_songs, list):
+                    top_songs = [
+                        s
+                        for s in top_songs
+                        if s is not None and not (isinstance(s, float) and pd.isna(s))
+                    ]
+
+                # Filter out empty strings and join
+                top_songs_list = [
+                    str(s) for s in top_songs if s and str(s).strip() and str(s) != "nan - nan"
+                ]
+                top_songs_str = ", ".join(top_songs_list) if top_songs_list else "N/A"
+
+                point = {
+                    "x": int(row["timestamp"]),
+                    "y": int(row["play_count"]),
+                    "custom": {
+                        "top_songs": top_songs_str,
+                    },
+                }
+                data_pts.append(point)
+        else:
+            # Fallback: use the grid data and aggregate
+            grid_df = create_daily_top_playcount_grid(df)
+            if "date" in grid_df.columns and "play_count" in grid_df.columns:
+                # Get max play_count per date to filter
+                max_plays_per_date = grid_df.groupby("date")["play_count"].max().reset_index()
+                max_plays_per_date.columns = ["date", "max_play_count"]
+
+                # Get all top tracks per date (all tracks with max play_count)
+                def get_top_tracks(group):
+                    max_plays = group["play_count"].max()
+                    top_tracks = group[group["play_count"] == max_plays]["track"].tolist()
+                    return top_tracks
+
+                top_tracks_by_date = grid_df.groupby("date").apply(get_top_tracks).reset_index()
+                top_tracks_by_date.columns = ["date", "top_tracks"]
+
+                # Aggregate total plays per date
+                daily_totals = grid_df.groupby("date")["play_count"].sum().reset_index()
+                # Merge to get top tracks and max play count
+                daily_totals = daily_totals.merge(top_tracks_by_date, on="date", how="left")
+                daily_totals = daily_totals.merge(max_plays_per_date, on="date", how="left")
+
+                # Filter: only show days where top song had more than 1 play
+                daily_totals = daily_totals[daily_totals["max_play_count"] > 1].copy()
+                daily_totals = daily_totals.sort_values("date")
+                daily_totals["timestamp"] = (
+                    pd.to_datetime(daily_totals["date"]).astype(int) // 10**6
+                )
+
+                data_pts = []
+                for _, row in daily_totals.iterrows():
+                    top_tracks = row.get("top_tracks", [])
+                    if isinstance(top_tracks, list):
+                        top_songs_str = ", ".join([str(t) for t in top_tracks if t])
+                    else:
+                        top_songs_str = str(top_tracks) if top_tracks else ""
+
+                    point = {
+                        "x": int(row["timestamp"]),
+                        "y": int(row["play_count"]),
                         "custom": {
-                            "date": str(date_matrix[i][j]),
-                            "track": str(track_matrix[i][j]),
+                            "top_songs": top_songs_str,
                         },
                     }
-                )
+                    data_pts.append(point)
+            else:
+                data_pts = []
+
         return {
             "chart": {
-                "type": "heatmap",
+                "type": "line",
                 "height": 400,
                 "backgroundColor": "#1e1e1e" if is_dark else "white",
             },
-            "title": {"text": None},
+            "title": {"text": "Daily Song Plays Over Time"},
             "credits": {"enabled": False},
-            "xAxis": {"visible": False},
-            "yAxis": {"visible": False},
-            "colorAxis": {
-                "stops": (
-                    [[0, "#f7fcf5"], [0.5, "#74c476"], [1, "#00441b"]]
-                    if not is_dark
-                    else [[0, "#440154"], [0.5, "#21918c"], [1, "#fde725"]]
-                )
+            "xAxis": {
+                "type": "datetime",
+                "title": {"text": "Date"},
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            },
+            "yAxis": {
+                "title": {"text": "Top Song Play Count"},
+                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+                "gridLineColor": "#333333" if is_dark else "#eeeeee",
             },
             "tooltip": {
                 "useHTML": True,
                 "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
                 "borderColor": "#444444" if is_dark else "#cccccc",
                 "style": {"color": "#e0e0e0" if is_dark else "#000000"},
-                "formatter": "function(){return 'Date: '+this.point.custom.date+'<br/>Track: '+this.point.custom.track+'<br/>Plays: '+this.point.value;}",
+                "formatter": "function(){var custom=this.point.custom||{};var topSongs=custom.top_songs||'N/A';return '<b>Date:</b> '+Highcharts.dateFormat('%Y-%m-%d', this.x)+'<br/><b>Top Song Play Count:</b> '+this.y+'<br/><b>Top Song(s):</b> '+topSongs;}",
             },
-            "series": [{"borderWidth": 0, "data": data_pts}],
+            "plotOptions": {
+                "line": {
+                    "color": "#1DB954",
+                    "lineWidth": 2,
+                    "marker": {
+                        "enabled": True,
+                        "radius": 3,
+                    },
+                }
+            },
+            "series": [
+                {
+                    "name": "Daily Plays",
+                    "data": data_pts,
+                }
+            ],
         }
 
     @app.callback(
