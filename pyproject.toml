@@ -25,8 +25,16 @@ dependencies = [
 [project.scripts]
 bsw = "src.cli:main"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
 
 [dependency-groups]
 dev = [
