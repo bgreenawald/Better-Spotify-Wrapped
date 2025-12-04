@@ -157,10 +157,19 @@ def test_get_top_albums(sample_df):
         # Run the album metric against the DuckDB backend
         result = metrics.get_top_albums(sample_df, con=con)
         assert isinstance(result, pd.DataFrame)
-        assert {"album_name", "artist", "median_plays", "total_tracks", "tracks_played"}.issubset(
-            result.columns
-        )
-        assert (result["median_plays"] >= 0).all()
+        assert {
+            "album_name",
+            "artist",
+            "album_score",
+            "mqpc",
+            "t_eff_capped",
+            "total_tracks",
+            "tracks_played",
+        }.issubset(result.columns)
+        assert (result["album_score"] >= 0).all()
+        assert (result["mqpc"] >= 0).all()
+        assert (result["t_eff_capped"] >= 0).all()
+        assert (result["t_eff_capped"] <= 15).all()
         # Ensure we excluded short releases: all totals should be >= 6
         assert (result["total_tracks"] >= 6).all()
     finally:

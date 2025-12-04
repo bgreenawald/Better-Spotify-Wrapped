@@ -1136,19 +1136,45 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
         if df.empty:
             return None
-        dff = df.head(10)
+
+        # Sort by album_score (already sorted, but ensure)
+        if "album_score" in df.columns:
+            df_sorted = df.sort_values("album_score", ascending=False)
+        else:
+            # Fallback if album_score not available
+            return None
+
+        dff = df_sorted.head(10)
         labels = dff["album_name"].astype(str).tolist()
         ticktext = _wrap_or_truncate_labels(labels)
         left_margin = _compute_left_margin(ticktext)
+
+        # Get album_score values
+        album_scores = (
+            dff["album_score"].fillna(0.0)
+            if "album_score" in dff.columns
+            else pd.Series([0.0] * len(dff))
+        )
+
+        # Get MQPC for tooltip
+        mqpc_values = (
+            dff["mqpc"].fillna(0.0) if "mqpc" in dff.columns else pd.Series([0.0] * len(dff))
+        )
+
         series_data = [
             {
-                "y": float(mp) if pd.notna(mp) else 0.0,
-                "custom": {"album": str(al), "artist": str(ar)},
+                "y": float(score) if pd.notna(score) else 0.0,
+                "custom": {
+                    "album": str(al),
+                    "artist": str(ar),
+                    "mqpc": float(mqpc) if pd.notna(mqpc) else 0.0,
+                },
             }
-            for al, ar, mp in zip(
+            for al, ar, score, mqpc in zip(
                 labels,
                 dff.get("artist", pd.Series([""] * len(dff))).fillna(""),
-                dff["median_plays"].fillna(0.0),
+                album_scores,
+                mqpc_values,
                 strict=False,
             )
         ]
@@ -1172,7 +1198,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             },
             "yAxis": {
-                "title": {"text": "Median Plays"},
+                "title": {"text": "Album Score"},
                 "gridLineWidth": 1,
                 "gridLineColor": "#333" if is_dark else "#eee",
                 "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
@@ -1196,9 +1222,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
                 "borderColor": "#444444" if is_dark else "#cccccc",
                 "style": {"color": "#e0e0e0" if is_dark else "#000000"},
-                "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Median Plays: {point.y}",
+                "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Album Score: {point.y:.1f}<br/>MQPC: {point.custom.mqpc:.1f}",
             },
-            "series": [{"name": "Median Plays", "data": series_data}],
+            "series": [{"name": "Album Score", "data": series_data}],
         }
 
     @app.callback(
