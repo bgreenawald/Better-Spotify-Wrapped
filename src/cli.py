@@ -44,6 +44,54 @@ def main() -> None:
     """Better Spotify Wrapped CLI."""
 
 
+@main.command("init-db")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file to initialize.",
+)
+@click.option(
+    "--ddl",
+    "ddl_path",
+    type=click.Path(path_type=Path),
+    default=Path("DDL.sql"),
+    show_default=True,
+    help="Path to DDL file with schema definitions.",
+)
+def init_db(db_path: Path, ddl_path: Path) -> None:
+    """Initialize a new database with the schema from DDL.sql.
+
+    Creates all tables, indexes, and views defined in DDL.sql.
+    Safe to run on existing databases (uses IF NOT EXISTS for most objects).
+    """
+    click.echo(f"Initializing database {db_path} with schema from {ddl_path}...")
+
+    # Create parent directory if needed
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    _maybe_apply_ddl(db_path, ddl_path)
+
+    # Verify initialization
+    conn = duckdb.connect(str(db_path))
+    try:
+        tables = conn.execute("SHOW TABLES").fetchall()
+        table_count = len(tables)
+        click.echo(f"✓ Database initialized successfully with {table_count} tables")
+        if table_count > 0:
+            click.echo(
+                f"  Tables: {', '.join(t[0] for t in tables[:5])}"
+                + (f" and {table_count - 5} more..." if table_count > 5 else "")
+            )
+    except Exception as e:
+        click.echo(f"✗ Verification failed: {e}", err=True)
+        raise
+    finally:
+        conn.close()
+
+
 @main.command("ingest-history")
 @click.option(
     "--db",
