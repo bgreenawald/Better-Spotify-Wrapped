@@ -167,7 +167,8 @@ def get_top_albums(
     Returns:
         pd.DataFrame: Albums sorted by album_score with columns:
             'album_name', 'artist', 'album_score', 'mqpc', 't_eff_capped',
-            'total_tracks', 'tracks_played', and optionally 'release_year'.
+            'total_tracks', 'tracks_played', 'release_year', and 'track_details'
+            (a list of dicts with 'track_name' and 'play_count' for each track).
     """
     # Fast exit
     if filtered_df.empty:
@@ -181,6 +182,7 @@ def get_top_albums(
                 "total_tracks",
                 "tracks_played",
                 "release_year",
+                "track_details",
             ]
         )
 
@@ -220,6 +222,7 @@ def get_top_albums(
                         "total_tracks",
                         "tracks_played",
                         "release_year",
+                        "track_details",
                     ]
                 )
 
@@ -296,10 +299,12 @@ def get_top_albums(
                     am.total_tracks,
                     am.tracks_played,
                     am.release_year,
-                    atc.play_count
+                    atc.play_count,
+                    t.track_name
                 FROM album_metadata am
                 JOIN album_track_counts atc ON atc.album_id = am.album_id
-                ORDER BY am.album_id, atc.play_count;
+                JOIN dim_tracks t ON t.track_id = atc.track_id
+                ORDER BY am.album_id, t.track_name;
 
             """
             res = con.execute(sql).df()
@@ -316,6 +321,7 @@ def get_top_albums(
                         "total_tracks",
                         "tracks_played",
                         "release_year",
+                        "track_details",
                     ]
                 )
 
@@ -362,6 +368,28 @@ def get_top_albums(
                 # Compute album_score
                 album_score = mqpc * size_factor
 
+                # Build track details from the group data (already has track_name and play_count)
+                track_details = []
+                if "track_name" in group.columns:
+                    # Sort by play_count descending to show most played tracks first
+                    sorted_group = group.sort_values("play_count", ascending=False)
+
+                    track_details = [
+                        {
+                            "track_name": str(row["track_name"])
+                            if pd.notna(row["track_name"])
+                            else f"Track {i + 1}",
+                            "play_count": int(row["play_count"]),
+                        }
+                        for i, (_, row) in enumerate(sorted_group.iterrows())
+                    ]
+                else:
+                    # Fallback: use play_counts list without names
+                    track_details = [
+                        {"track_name": f"Track {i + 1}", "play_count": int(pc)}
+                        for i, pc in enumerate(sorted(play_counts, reverse=True))
+                    ]
+
                 albums.append(
                     {
                         "album_name": album_name,
@@ -372,6 +400,7 @@ def get_top_albums(
                         "total_tracks": total_tracks,
                         "tracks_played": tracks_played,
                         "release_year": release_year,
+                        "track_details": track_details,
                     }
                 )
 

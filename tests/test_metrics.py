@@ -93,7 +93,8 @@ def test_get_top_albums(sample_df):
             """
             CREATE TABLE dim_tracks (
                 track_id   TEXT PRIMARY KEY,
-                album_id   TEXT
+                album_id   TEXT,
+                track_name TEXT NOT NULL
             );
             CREATE TABLE dim_albums (
                 album_id     TEXT PRIMARY KEY,
@@ -142,8 +143,8 @@ def test_get_top_albums(sample_df):
             # 6 tracks per album including the main_track used by the sample_df
             track_ids = [main_track] + [f"{album_id}_t{i}" for i in range(2, 7)]
             con.executemany(
-                "INSERT INTO dim_tracks(track_id, album_id) VALUES (?, ?)",
-                [(tid, album_id) for tid in track_ids],
+                "INSERT INTO dim_tracks(track_id, album_id, track_name) VALUES (?, ?, ?)",
+                [(tid, album_id, f"Track {tid}") for tid in track_ids],
             )
             con.executemany(
                 "INSERT INTO bridge_track_artists(track_id, artist_id, role) VALUES (?, ?, ?)",
@@ -165,6 +166,7 @@ def test_get_top_albums(sample_df):
             "t_eff_capped",
             "total_tracks",
             "tracks_played",
+            "track_details",
         }.issubset(result.columns)
         assert (result["album_score"] >= 0).all()
         assert (result["mqpc"] >= 0).all()
@@ -172,6 +174,13 @@ def test_get_top_albums(sample_df):
         assert (result["t_eff_capped"] <= 15).all()
         # Ensure we excluded short releases: all totals should be >= 6
         assert (result["total_tracks"] >= 6).all()
+        # Verify track_details is a list of dicts with track_name and play_count
+        if not result.empty:
+            first_album_tracks = result.iloc[0]["track_details"]
+            assert isinstance(first_album_tracks, list)
+            if first_album_tracks:
+                assert "track_name" in first_album_tracks[0]
+                assert "play_count" in first_album_tracks[0]
     finally:
         con.close()
 
