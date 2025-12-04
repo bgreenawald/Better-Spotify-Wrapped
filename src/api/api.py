@@ -2,7 +2,9 @@ import argparse
 import json
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ import duckdb
 import pandas as pd
 import spotipy
 from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
@@ -37,20 +40,26 @@ class SpotifyDataCollector:
 
     _TRACK_BATCH_SIZE: int = 50
     _ALBUM_BATCH_SIZE: int = 20
-    _ARTIST_BATCH_SIZE: int = 20
-    _RATE_LIMIT_DELAY: float = 0.2
+    _ARTIST_BATCH_SIZE: int = 50  # Increased from 20 to 50 (API max)
+    _DEFAULT_RATE_LIMIT_DELAY: float = 0.5  # Increased to avoid rate limiting
 
     def __init__(
         self,
         client_id: str | None = None,
         client_secret: str | None = None,
         cache_dir: str | os.PathLike[str] | None = None,
+        rate_limit_delay: float | None = None,
+        max_workers: int = 1,
     ) -> None:
         """Initialize the collector with Spotify API credentials and cache dirs.
 
         Args:
             client_id: Spotify API client ID.
             client_secret: Spotify API client secret.
+            cache_dir: Optional cache directory override.
+            rate_limit_delay: Delay between API requests in seconds (default: 0.5).
+            max_workers: Maximum concurrent worker threads for API requests (default: 1).
+                        Lower values are safer for rate limits, higher values are faster.
         """
         # Resolve credentials from args or env at runtime
         cid = client_id or os.getenv("SPOTIFY_CLIENT_ID")
@@ -75,6 +84,14 @@ class SpotifyDataCollector:
         cache_env = os.getenv("SPOTIFY_API_CACHE_DIR")
         self.cache_dir: Path = Path(cache_dir or cache_env or "data/api/cache")
         self._setup_cache_directories()
+
+        # Configure rate limiting and concurrency
+        self._rate_limit_delay = rate_limit_delay or float(
+            os.getenv("SPOTIFY_API_RATE_DELAY", str(self._DEFAULT_RATE_LIMIT_DELAY))
+        )
+        self._max_workers = max_workers
+        self._request_lock = threading.Lock()
+        self._last_request_time = 0.0
 
     def _setup_cache_directories(self) -> None:
         """Create cache subdirectories for tracks, artists, and albums."""
@@ -132,6 +149,54 @@ class SpotifyDataCollector:
         """
         return [items[i : i + size] for i in range(0, len(items), size)]
 
+    def _rate_limited_request(self) -> None:
+        """Enforce rate limiting between API requests using a thread-safe lock."""
+        with self._request_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self._rate_limit_delay:
+                time.sleep(self._rate_limit_delay - elapsed)
+            self._last_request_time = time.time()
+
+    def _fetch_with_retry(
+        self, fetch_func: Any, batch: list[str], max_retries: int = 3
+    ) -> list[dict[str, Any]]:
+        """Execute an API fetch with retry logic and exponential backoff.
+
+        Args:
+            fetch_func: The Spotify API method to call.
+            batch: The batch of IDs to fetch.
+            max_retries: Maximum number of retry attempts.
+
+        Returns:
+            List of fetched items.
+
+        Raises:
+            SpotifyException: If all retry attempts are exhausted.
+        """
+        for attempt in range(max_retries):
+            try:
+                self._rate_limited_request()
+                return fetch_func(batch)
+            except SpotifyException as e:
+                if e.http_status == 429:  # Rate limited
+                    retry_after = int(e.headers.get("Retry-After", 2**attempt))
+                    logging.warning(
+                        f"Rate limited. Retrying after {retry_after}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(retry_after)
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2**attempt
+                    logging.warning(f"Request failed: {e}. Retrying after {wait_time}s")
+                    time.sleep(wait_time)
+                else:
+                    raise
+        raise SpotifyException(
+            429, -1, f"Max retries ({max_retries}) exceeded for batch", headers={}
+        )
+
     def fetch_tracks(self, track_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch track data by IDs, using cache when available.
 
@@ -149,15 +214,28 @@ class SpotifyDataCollector:
             self._load_cache("tracks", tid) for tid in track_ids if tid in cached
         ]
 
-        # Fetch remaining tracks in batches
-        for batch in tqdm(
-            self._chunk_list(uncached, self._TRACK_BATCH_SIZE),
-            desc="Fetching track batches",
-        ):
-            response = self.spotify_client.tracks(batch)["tracks"]
-            self._save_cache("tracks", response)
-            tracks.extend(response)
-            time.sleep(self._RATE_LIMIT_DELAY)
+        # Fetch remaining tracks in batches with concurrent processing
+        batches = self._chunk_list(uncached, self._TRACK_BATCH_SIZE)
+        if batches:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._fetch_with_retry,
+                        lambda b: self.spotify_client.tracks(b)["tracks"],
+                        batch,
+                    ): batch
+                    for batch in batches
+                }
+
+                for future in tqdm(
+                    as_completed(futures), total=len(futures), desc="Fetching track batches"
+                ):
+                    try:
+                        response = future.result()
+                        self._save_cache("tracks", response)
+                        tracks.extend(response)
+                    except Exception as e:
+                        logging.error(f"Failed to fetch track batch: {e}")
 
         return tracks
 
@@ -177,14 +255,28 @@ class SpotifyDataCollector:
             self._load_cache("artists", aid) for aid in artist_ids if aid in cached
         ]
 
-        for batch in tqdm(
-            self._chunk_list(uncached, self._ARTIST_BATCH_SIZE),
-            desc="Fetching artist batches",
-        ):
-            response = self.spotify_client.artists(batch)["artists"]
-            self._save_cache("artists", response)
-            artists.extend(response)
-            time.sleep(self._RATE_LIMIT_DELAY)
+        # Fetch remaining artists in batches with concurrent processing
+        batches = self._chunk_list(uncached, self._ARTIST_BATCH_SIZE)
+        if batches:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._fetch_with_retry,
+                        lambda b: self.spotify_client.artists(b)["artists"],
+                        batch,
+                    ): batch
+                    for batch in batches
+                }
+
+                for future in tqdm(
+                    as_completed(futures), total=len(futures), desc="Fetching artist batches"
+                ):
+                    try:
+                        response = future.result()
+                        self._save_cache("artists", response)
+                        artists.extend(response)
+                    except Exception as e:
+                        logging.error(f"Failed to fetch artist batch: {e}")
 
         return artists
 
@@ -204,14 +296,28 @@ class SpotifyDataCollector:
             self._load_cache("albums", aid) for aid in album_ids if aid in cached
         ]
 
-        for batch in tqdm(
-            self._chunk_list(uncached, self._ALBUM_BATCH_SIZE),
-            desc="Fetching album batches",
-        ):
-            response = self.spotify_client.albums(batch)["albums"]
-            self._save_cache("albums", response)
-            albums.extend(response)
-            time.sleep(self._RATE_LIMIT_DELAY)
+        # Fetch remaining albums in batches with concurrent processing
+        batches = self._chunk_list(uncached, self._ALBUM_BATCH_SIZE)
+        if batches:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._fetch_with_retry,
+                        lambda b: self.spotify_client.albums(b)["albums"],
+                        batch,
+                    ): batch
+                    for batch in batches
+                }
+
+                for future in tqdm(
+                    as_completed(futures), total=len(futures), desc="Fetching album batches"
+                ):
+                    try:
+                        response = future.result()
+                        self._save_cache("albums", response)
+                        albums.extend(response)
+                    except Exception as e:
+                        logging.error(f"Failed to fetch album batch: {e}")
 
         return albums
 
@@ -548,6 +654,10 @@ def populate_track_albums(
         track_album_rows, columns=["track_id", "album_id"]
     ).drop_duplicates(subset=["track_id"], keep="first")
 
+    # Ensure proper data types to avoid DuckDB ART index issues
+    df_albums = df_albums.astype({"album_id": "string", "album_name": "string"})
+    df_track_album = df_track_album.astype({"track_id": "string", "album_id": "string"})
+
     # 4) Apply DB changes
     conn = duckdb.connect(str(db_path))
     try:
@@ -665,63 +775,89 @@ def populate_track_artists(
     if not bridge_rows:
         return {"artists_inserted": 0, "bridges_inserted": 0}
 
-    df_artists = pd.DataFrame(artist_rows, columns=["artist_id", "artist_name"]).drop_duplicates(
-        subset=["artist_id"], keep="first"
-    )
-    df_bridge = pd.DataFrame(
-        bridge_rows, columns=["track_id", "artist_id", "role"]
-    ).drop_duplicates()
+    # Deduplicate artist and bridge rows in Python
+    seen_artists: set[str] = set()
+    unique_artists: list[tuple[str, str]] = []
+    for aid, aname in artist_rows:
+        if aid not in seen_artists:
+            seen_artists.add(aid)
+            unique_artists.append((aid, aname))
 
-    # 4) Apply DB changes
+    unique_bridges = list(set(bridge_rows))  # Remove duplicates
+
+    # 4) Apply DB changes using batch inserts to avoid DataFrame registration issues
     conn = duckdb.connect(str(db_path))
     try:
-        conn.execute("BEGIN TRANSACTION;")
-        conn.register("df_artists", df_artists)
-        conn.register("df_bridge", df_bridge)
-
-        artists_to_insert = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM df_artists a
-            ANTI JOIN dim_artists d ON d.artist_id = a.artist_id
-            """
-        ).fetchone()[0]
-
-        bridges_to_insert = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM df_bridge b
-            ANTI JOIN bridge_track_artists d
-              ON d.track_id = b.track_id AND d.artist_id = b.artist_id AND d.role = b.role
-            """
-        ).fetchone()[0]
-
-        conn.execute(
-            """
-            INSERT INTO dim_artists (artist_id, artist_name)
-            SELECT a.artist_id, a.artist_name
-            FROM df_artists a
-            ANTI JOIN dim_artists d ON d.artist_id = a.artist_id
-            """
-        )
-
-        conn.execute(
-            """
-            INSERT INTO bridge_track_artists (track_id, artist_id, role)
-            SELECT b.track_id, b.artist_id, b.role
-            FROM df_bridge b
-            -- Ensure the referenced track exists to satisfy FK
-            JOIN dim_tracks t ON t.track_id = b.track_id
-            ANTI JOIN bridge_track_artists d
-              ON d.track_id = b.track_id AND d.artist_id = b.artist_id AND d.role = b.role
-            """
-        )
-
-        conn.execute("COMMIT;")
-        return {
-            "artists_inserted": int(artists_to_insert),
-            "bridges_inserted": int(bridges_to_insert),
+        # Get existing data to compute what needs inserting
+        existing_artists = {
+            r[0] for r in conn.execute("SELECT artist_id FROM dim_artists").fetchall()
         }
+        existing_tracks = {r[0] for r in conn.execute("SELECT track_id FROM dim_tracks").fetchall()}
+        bridge_results = conn.execute(
+            "SELECT track_id, artist_id, role FROM bridge_track_artists"
+        ).fetchall()
+        existing_bridges = {(r[0], r[1], r[2]) for r in bridge_results}
+
+        # Filter to only new artists
+        new_artists = [(aid, aname) for aid, aname in unique_artists if aid not in existing_artists]
+
+        # Filter to only new bridges where track exists
+        new_bridges = [
+            (tid, aid, role)
+            for tid, aid, role in unique_bridges
+            if (tid, aid, role) not in existing_bridges and tid in existing_tracks
+        ]
+
+        artists_to_insert = len(new_artists)
+        bridges_to_insert = len(new_bridges)
+
+        # Insert artists using executemany in batches
+        batch_size = 1000
+        if new_artists:
+            for i in range(0, len(new_artists), batch_size):
+                batch = new_artists[i : i + batch_size]
+                conn.executemany(
+                    "INSERT INTO dim_artists (artist_id, artist_name) VALUES (?, ?)", batch
+                )
+
+        # For bridge_track_artists: drop indexes, insert, recreate indexes
+        # This works around DuckDB ART index corruption during bulk inserts
+        if new_bridges:
+            # Drop indexes temporarily
+            try:
+                conn.execute("DROP INDEX IF EXISTS idx_bridge_track_role")
+                conn.execute("DROP INDEX IF EXISTS idx_bridge_artist_role")
+            except Exception as e:
+                logging.warning(f"Failed to drop indexes (may not exist): {e}")
+
+            # Insert in batches without indexes
+            bridge_batch_size = 5000  # Can use larger batches without indexes
+            for i in range(0, len(new_bridges), bridge_batch_size):
+                batch = new_bridges[i : i + bridge_batch_size]
+                conn.executemany(
+                    "INSERT INTO bridge_track_artists (track_id, artist_id, role) VALUES (?, ?, ?)",
+                    batch,
+                )
+
+            # Recreate indexes
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_bridge_track_role ON bridge_track_artists(track_id, role)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_bridge_artist_role ON bridge_track_artists(artist_id, role)"
+                )
+            except Exception as e:
+                logging.error(f"Failed to recreate indexes: {e}")
+                raise
+
+        return {
+            "artists_inserted": artists_to_insert,
+            "bridges_inserted": bridges_to_insert,
+        }
+    except Exception as e:
+        logging.error(f"Error in populate_track_artists: {e}")
+        raise
     finally:
         conn.close()
 
@@ -934,6 +1070,11 @@ def populate_tracks_from_cached_albums(
     df_tracks = pd.DataFrame(
         rows, columns=["track_id", "track_name", "album_id", "duration_ms", "explicit"]
     ).drop_duplicates(subset=["track_id"], keep="first")
+
+    # Ensure proper data types to avoid DuckDB ART index issues
+    df_tracks = df_tracks.astype(
+        {"track_id": "string", "track_name": "string", "album_id": "string"}
+    )
 
     conn = duckdb.connect(str(db_path))
     try:
@@ -1228,6 +1369,9 @@ def populate_artist_genres_from_cache(
         }
 
     df = pd.DataFrame(rows, columns=["artist_id", "genre_id"]).drop_duplicates()
+
+    # Ensure proper data types to avoid DuckDB ART index issues
+    df = df.astype({"artist_id": "string"})
 
     conn = duckdb.connect(str(db_path))
     try:
