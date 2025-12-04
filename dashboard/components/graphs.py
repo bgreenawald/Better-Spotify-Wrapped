@@ -100,7 +100,7 @@ def create_top_genres_graph(_top_genres: pd.DataFrame | None = None) -> Componen
 
 
 def create_top_albums_graph(_top_albums: pd.DataFrame | None = None) -> Component:
-    """Create container + store for Top Albums (Highcharts)."""
+    """Create container + store for Top Albums (Highcharts) with expandable track details."""
     return html.Div(
         className="graph-card card",
         children=[
@@ -118,6 +118,14 @@ def create_top_albums_graph(_top_albums: pd.DataFrame | None = None) -> Componen
                     "backgroundColor": "rgba(0,0,0,0.15)",
                 },
                 type="default",
+            ),
+            html.Div(
+                id="album-track-details",
+                style={"marginTop": "20px", "display": "none"},
+                children=[
+                    html.H4(id="album-track-details-title", style={"marginBottom": "10px"}),
+                    html.Div(id="album-track-details-table"),
+                ],
             ),
         ],
     )

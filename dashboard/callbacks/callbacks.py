@@ -1136,19 +1136,58 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
         if df.empty:
             return None
-        dff = df.head(10)
+
+        # Sort by album_score (already sorted, but ensure)
+        if "album_score" in df.columns:
+            df_sorted = df.sort_values("album_score", ascending=False)
+        else:
+            # Fallback if album_score not available
+            return None
+
+        dff = df_sorted.head(10)
         labels = dff["album_name"].astype(str).tolist()
         ticktext = _wrap_or_truncate_labels(labels)
         left_margin = _compute_left_margin(ticktext)
+
+        # Get album_score values
+        album_scores = (
+            dff["album_score"].fillna(0.0)
+            if "album_score" in dff.columns
+            else pd.Series([0.0] * len(dff))
+        )
+
+        # Get MQPC for tooltip
+        mqpc_values = (
+            dff["mqpc"].fillna(0.0) if "mqpc" in dff.columns else pd.Series([0.0] * len(dff))
+        )
+
+        # Extract track_details if available
+        track_details_list = []
+        if "track_details" in dff.columns:
+            for td in dff["track_details"]:
+                if isinstance(td, list):
+                    track_details_list.append(td)
+                else:
+                    track_details_list.append([])
+        else:
+            track_details_list = [[] for _ in range(len(dff))]
+
         series_data = [
             {
-                "y": float(mp) if pd.notna(mp) else 0.0,
-                "custom": {"album": str(al), "artist": str(ar)},
+                "y": float(score) if pd.notna(score) else 0.0,
+                "custom": {
+                    "album": str(al),
+                    "artist": str(ar),
+                    "mqpc": float(mqpc) if pd.notna(mqpc) else 0.0,
+                    "track_details": tracks,
+                },
             }
-            for al, ar, mp in zip(
+            for al, ar, score, mqpc, tracks in zip(
                 labels,
                 dff.get("artist", pd.Series([""] * len(dff))).fillna(""),
-                dff["median_plays"].fillna(0.0),
+                album_scores,
+                mqpc_values,
+                track_details_list,
                 strict=False,
             )
         ]
@@ -1172,13 +1211,58 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 },
             },
             "yAxis": {
-                "title": {"text": "Median Plays"},
+                "title": {"text": "Album Score"},
                 "gridLineWidth": 1,
                 "gridLineColor": "#333" if is_dark else "#eee",
                 "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "plotOptions": {
                 "series": {
+                    "cursor": "pointer",
+                    "point": {
+                        "events": {
+                            "click": """function() {
+                                var albumName = this.custom.album;
+                                var artist = this.custom.artist;
+                                var trackDetails = this.custom.track_details || [];
+
+                                var detailsDiv = document.getElementById('album-track-details');
+                                var titleDiv = document.getElementById('album-track-details-title');
+                                var tableDiv = document.getElementById('album-track-details-table');
+
+                                if (!detailsDiv || !titleDiv || !tableDiv) return;
+
+                                // Toggle if clicking same album
+                                if (window.__SELECTED_ALBUM === albumName && detailsDiv.style.display !== 'none') {
+                                    detailsDiv.style.display = 'none';
+                                    window.__SELECTED_ALBUM = null;
+                                    return;
+                                }
+
+                                window.__SELECTED_ALBUM = albumName;
+                                titleDiv.textContent = albumName + ' - ' + artist;
+
+                                // Build table HTML
+                                var html = '<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">';
+                                html += '<thead><tr style="border-bottom: 2px solid #1DB954;">';
+                                html += '<th style="text-align: left; padding: 8px;">Track</th>';
+                                html += '<th style="text-align: right; padding: 8px;">Play Count</th>';
+                                html += '</tr></thead><tbody>';
+
+                                trackDetails.forEach(function(track, idx) {
+                                    var bgColor = idx % 2 === 0 ? 'rgba(29, 185, 84, 0.05)' : 'transparent';
+                                    html += '<tr style="background-color: ' + bgColor + ';">';
+                                    html += '<td style="padding: 8px;">' + track.track_name + '</td>';
+                                    html += '<td style="text-align: right; padding: 8px;">' + track.play_count + '</td>';
+                                    html += '</tr>';
+                                });
+
+                                html += '</tbody></table>';
+                                tableDiv.innerHTML = html;
+                                detailsDiv.style.display = 'block';
+                            }"""
+                        }
+                    },
                     "dataLabels": {
                         "enabled": True,
                         "style": {
@@ -1188,7 +1272,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                         "crop": False,
                         "overflow": "allow",
                         "format": "{y:.1f}",
-                    }
+                    },
                 }
             },
             "tooltip": {
@@ -1196,9 +1280,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
                 "borderColor": "#444444" if is_dark else "#cccccc",
                 "style": {"color": "#e0e0e0" if is_dark else "#000000"},
-                "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Median Plays: {point.y}",
+                "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Album Score: {point.y:.1f}<br/>MQPC: {point.custom.mqpc:.1f}",
             },
-            "series": [{"name": "Median Plays", "data": series_data}],
+            "series": [{"name": "Album Score", "data": series_data}],
         }
 
     @app.callback(

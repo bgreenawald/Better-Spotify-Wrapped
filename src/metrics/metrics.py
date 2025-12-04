@@ -1,4 +1,5 @@
 import contextlib
+import math
 from pathlib import Path
 from typing import Any
 
@@ -143,9 +144,15 @@ def get_top_albums(
     db_path: str | Path | None = None,
     con: Any | None = None,
 ) -> pd.DataFrame:
-    """Calculate top albums based on median song plays (with zero-play tracks included).
+    """Calculate top albums based on a robust album score metric.
 
     Uses DuckDB exclusively: provide `con` or `db_path` to query the schema in DDL.sql.
+
+    The album score is computed as:
+    1. MQPC: Mean of middle 50% of track play counts (sorted ascending)
+    2. t_eff: Number of tracks with play_count >= 0.5 * MQPC, capped at 15
+    3. size_factor: 1 + 0.3 * (t_eff_capped / 15)
+    4. album_score: MQPC * size_factor
 
     Args:
         filtered_df: DataFrame already filtered by `filter_songs()` or
@@ -155,12 +162,13 @@ def get_top_albums(
 
     Notes:
         - Excludes short releases (albums with 5 or fewer tracks) to prevent
-          singles/EPs from dominating via inflated medians.
+          singles/EPs from dominating.
 
     Returns:
-        pd.DataFrame: Albums sorted by median play count with columns:
-            'album_name', 'artist', 'median_plays', 'total_tracks',
-            'tracks_played', and optionally 'release_year'.
+        pd.DataFrame: Albums sorted by album_score with columns:
+            'album_name', 'artist', 'album_score', 'mqpc', 't_eff_capped',
+            'total_tracks', 'tracks_played', 'release_year', and 'track_details'
+            (a list of dicts with 'track_name' and 'play_count' for each track).
     """
     # Fast exit
     if filtered_df.empty:
@@ -168,10 +176,13 @@ def get_top_albums(
             columns=[
                 "album_name",
                 "artist",
-                "median_plays",
+                "album_score",
+                "mqpc",
+                "t_eff_capped",
                 "total_tracks",
                 "tracks_played",
                 "release_year",
+                "track_details",
             ]
         )
 
@@ -205,10 +216,13 @@ def get_top_albums(
                     columns=[
                         "album_name",
                         "artist",
-                        "median_plays",
+                        "album_score",
+                        "mqpc",
+                        "t_eff_capped",
                         "total_tracks",
                         "tracks_played",
                         "release_year",
+                        "track_details",
                     ]
                 )
 
@@ -222,7 +236,8 @@ def get_top_albums(
             # 1) Map played tracks to album_ids via v_plays_enriched
             # 2) Expand to all tracks for those albums (dim_tracks)
             # 3) Left join play counts to include zero-play tracks
-            # 4) Compute per-album aggregates + pick a primary artist (mode over primary role)
+            # 4) Get all track play counts per album for Python processing
+            # 5) Pick a primary artist (mode over primary role)
             sql = """
                 WITH played_tracks AS (
                     SELECT ve.album_id, p.track_id, p.play_count
@@ -262,28 +277,137 @@ def get_top_albums(
                         artist_name,
                         ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY cnt DESC, artist_name) AS rn
                     FROM album_artist_counts
+                ),
+                album_metadata AS (
+                    SELECT
+                        al.album_id,
+                        al.album_name,
+                        COALESCE(pa.artist_name, '') AS artist,
+                        COUNT(*) AS total_tracks,
+                        SUM(CASE WHEN atc.play_count > 0 THEN 1 ELSE 0 END) AS tracks_played,
+                        al.release_year
+                    FROM album_track_counts atc
+                    JOIN dim_albums al ON al.album_id = atc.album_id
+                    LEFT JOIN album_primary_artist pa ON pa.album_id = atc.album_id AND pa.rn = 1
+                    GROUP BY 1, 2, 3, 6
+                    HAVING COUNT(*) > 5
                 )
                 SELECT
-                    al.album_name,
-                    COALESCE(pa.artist_name, '') AS artist,
-                    MEDIAN(atc.play_count) AS median_plays,
-                    COUNT(*) AS total_tracks,
-                    SUM(CASE WHEN atc.play_count > 0 THEN 1 ELSE 0 END) AS tracks_played,
-                    al.release_year
-                FROM album_track_counts atc
-                JOIN dim_albums al ON al.album_id = atc.album_id
-                LEFT JOIN album_primary_artist pa ON pa.album_id = atc.album_id AND pa.rn = 1
-                GROUP BY 1, 2, 6
-                HAVING COUNT(*) > 5
-                ORDER BY median_plays DESC, total_tracks DESC, album_name;
+                    am.album_id,
+                    am.album_name,
+                    am.artist,
+                    am.total_tracks,
+                    am.tracks_played,
+                    am.release_year,
+                    atc.play_count,
+                    t.track_name
+                FROM album_metadata am
+                JOIN album_track_counts atc ON atc.album_id = am.album_id
+                JOIN dim_tracks t ON t.track_id = atc.track_id
+                ORDER BY am.album_id, t.track_name;
 
             """
             res = con.execute(sql).df()
-            # Ensure types and ordering
-            if not res.empty:
-                res["median_plays"] = res["median_plays"].astype(float)
-                res = res.sort_values("median_plays", ascending=False)
-            return res
+
+            # Process in Python to compute album_score
+            if res.empty:
+                return pd.DataFrame(
+                    columns=[
+                        "album_name",
+                        "artist",
+                        "album_score",
+                        "mqpc",
+                        "t_eff_capped",
+                        "total_tracks",
+                        "tracks_played",
+                        "release_year",
+                        "track_details",
+                    ]
+                )
+
+            # Group by album and compute the metric
+            albums = []
+            for _album_id, group in res.groupby("album_id"):
+                # Get metadata (same for all rows in group)
+                album_name = group["album_name"].iloc[0]
+                artist = group["artist"].iloc[0]
+                total_tracks = int(group["total_tracks"].iloc[0])
+                tracks_played = int(group["tracks_played"].iloc[0])
+                release_year = (
+                    group["release_year"].iloc[0]
+                    if pd.notna(group["release_year"].iloc[0])
+                    else None
+                )
+
+                # Get sorted play counts (ascending)
+                play_counts = sorted(group["play_count"].tolist())
+                n = len(play_counts)
+
+                # Compute MQPC: mean of middle 50% range
+                # Range: from index ceil(0.25 * n) to floor(0.75 * n) (1-indexed, so subtract 1 for 0-indexed)
+                start_idx = math.ceil(0.25 * n) - 1  # Convert to 0-indexed
+                end_idx = math.floor(0.75 * n) - 1  # Convert to 0-indexed
+                # Ensure valid indices
+                start_idx = max(0, start_idx)
+                end_idx = min(n - 1, end_idx)
+
+                if start_idx <= end_idx:
+                    middle_range = play_counts[start_idx : end_idx + 1]
+                    mqpc = sum(middle_range) / len(middle_range) if middle_range else 0.0
+                else:
+                    mqpc = 0.0
+
+                # Compute t_eff: tracks with play_count >= 0.5 * MQPC
+                threshold = 0.5 * mqpc
+                t_eff = sum(1 for pc in play_counts if pc >= threshold)
+                t_eff_capped = min(t_eff, 15)
+
+                # Compute size_factor
+                size_factor = 1.0 + 0.3 * (t_eff_capped / 15.0)
+
+                # Compute album_score
+                album_score = mqpc * size_factor
+
+                # Build track details from the group data (already has track_name and play_count)
+                track_details = []
+                if "track_name" in group.columns:
+                    # Sort by play_count descending to show most played tracks first
+                    sorted_group = group.sort_values("play_count", ascending=False)
+
+                    track_details = [
+                        {
+                            "track_name": str(row["track_name"])
+                            if pd.notna(row["track_name"])
+                            else f"Track {i + 1}",
+                            "play_count": int(row["play_count"]),
+                        }
+                        for i, (_, row) in enumerate(sorted_group.iterrows())
+                    ]
+                else:
+                    # Fallback: use play_counts list without names
+                    track_details = [
+                        {"track_name": f"Track {i + 1}", "play_count": int(pc)}
+                        for i, pc in enumerate(sorted(play_counts, reverse=True))
+                    ]
+
+                albums.append(
+                    {
+                        "album_name": album_name,
+                        "artist": artist,
+                        "album_score": album_score,
+                        "mqpc": mqpc,
+                        "t_eff_capped": t_eff_capped,
+                        "total_tracks": total_tracks,
+                        "tracks_played": tracks_played,
+                        "release_year": release_year,
+                        "track_details": track_details,
+                    }
+                )
+
+            result_df = pd.DataFrame(albums)
+            if not result_df.empty:
+                result_df = result_df.sort_values("album_score", ascending=False)
+            return result_df
         finally:
             if close_conn:
                 con.close()
