@@ -233,33 +233,77 @@ def get_top_albums(
             con.register("df_play_counts", play_counts)
 
             # SQL plan (uses convenience views where helpful):
-            # 1) Map played tracks to album_ids via v_plays_enriched
-            # 2) Expand to all tracks for those albums (dim_tracks)
-            # 3) Left join play counts to include zero-play tracks
-            # 4) Get all track play counts per album for Python processing
+            # 1) Get ALL played track_ids (including singles) with their play counts
+            # 2) Find which albums contain tracks matching those track names + artists
+            # 3) Sum play counts by (track_name, artist) across ALL versions (single + album)
+            # 4) Map aggregated plays to album tracks
             # 5) Pick a primary artist (mode over primary role)
             sql = """
-                WITH played_tracks AS (
-                    SELECT ve.album_id, p.track_id, p.play_count
+                WITH all_plays_with_metadata AS (
+                    SELECT p.track_id, p.play_count, t.track_name, t.album_id
                     FROM df_play_counts p
-                    JOIN v_plays_enriched ve ON ve.track_id = p.track_id
-                    WHERE ve.album_id IS NOT NULL
+                    JOIN dim_tracks t ON t.track_id = p.track_id
+                ),
+                played_track_artists AS (
+                    SELECT ap.track_id,
+                        COALESCE(a.artist_name, '') AS primary_artist,
+                        ROW_NUMBER() OVER (PARTITION BY ap.track_id ORDER BY a.artist_name) AS rn
+                    FROM all_plays_with_metadata ap
+                    LEFT JOIN bridge_track_artists b ON b.track_id = ap.track_id AND b.role = 'primary'
+                    LEFT JOIN dim_artists a ON a.artist_id = b.artist_id
+                ),
+                played_track_artists_deduped AS (
+                    SELECT track_id, primary_artist
+                    FROM played_track_artists
+                    WHERE rn = 1 OR rn IS NULL
+                ),
+                plays_with_artists AS (
+                    SELECT ap.track_name,
+                        pta.primary_artist,
+                        SUM(ap.play_count) AS total_play_count
+                    FROM all_plays_with_metadata ap
+                    LEFT JOIN played_track_artists_deduped pta ON pta.track_id = ap.track_id
+                    GROUP BY 1, 2
                 ),
                 albums_in_scope AS (
-                    SELECT DISTINCT album_id FROM played_tracks
+                    SELECT DISTINCT t.album_id
+                    FROM dim_tracks t
+                    WHERE EXISTS (
+                        SELECT 1 FROM all_plays_with_metadata ap
+                        WHERE ap.track_id = t.track_id AND t.album_id IS NOT NULL
+                    )
                 ),
                 all_album_tracks AS (
-                    SELECT t.album_id, t.track_id
+                    SELECT t.album_id, t.track_id, t.track_name
                     FROM dim_tracks t
                     JOIN albums_in_scope s ON s.album_id = t.album_id
+                ),
+                track_primary_artists AS (
+                    SELECT b.track_id,
+                        COALESCE(a.artist_name, '') AS primary_artist,
+                        ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
+                    FROM dim_tracks t
+                    JOIN albums_in_scope s ON s.album_id = t.album_id
+                    LEFT JOIN bridge_track_artists b ON b.track_id = t.track_id AND b.role = 'primary'
+                    LEFT JOIN dim_artists a ON a.artist_id = b.artist_id
+                ),
+                track_primary_artists_deduped AS (
+                    SELECT track_id, primary_artist
+                    FROM track_primary_artists
+                    WHERE rn = 1 OR rn IS NULL
                 ),
                 album_track_counts AS (
                     SELECT a.album_id,
                         aat.track_id,
-                        COALESCE(p.play_count, 0) AS play_count
+                        aat.track_name,
+                        tpa.primary_artist,
+                        COALESCE(pwa.total_play_count, 0) AS play_count
                     FROM all_album_tracks aat
-                    LEFT JOIN df_play_counts p ON p.track_id = aat.track_id
                     JOIN dim_albums a ON a.album_id = aat.album_id
+                    LEFT JOIN track_primary_artists_deduped tpa ON tpa.track_id = aat.track_id
+                    LEFT JOIN plays_with_artists pwa
+                        ON pwa.track_name = aat.track_name
+                        AND pwa.primary_artist = tpa.primary_artist
                 ),
                 album_artist_counts AS (
                     SELECT t.album_id,
@@ -299,12 +343,13 @@ def get_top_albums(
                     am.total_tracks,
                     am.tracks_played,
                     am.release_year,
-                    atc.play_count,
-                    t.track_name
+                    atc.track_id,
+                    atc.track_name,
+                    atc.primary_artist,
+                    atc.play_count
                 FROM album_metadata am
                 JOIN album_track_counts atc ON atc.album_id = am.album_id
-                JOIN dim_tracks t ON t.track_id = atc.track_id
-                ORDER BY am.album_id, t.track_name;
+                ORDER BY am.album_id, atc.track_name;
 
             """
             res = con.execute(sql).df()
@@ -331,16 +376,25 @@ def get_top_albums(
                 # Get metadata (same for all rows in group)
                 album_name = group["album_name"].iloc[0]
                 artist = group["artist"].iloc[0]
-                total_tracks = int(group["total_tracks"].iloc[0])
-                tracks_played = int(group["tracks_played"].iloc[0])
                 release_year = (
                     group["release_year"].iloc[0]
                     if pd.notna(group["release_year"].iloc[0])
                     else None
                 )
 
-                # Get sorted play counts (ascending)
-                play_counts = sorted(group["play_count"].tolist())
+                # Deduplicate tracks by (track_name, primary_artist) - same song, different IDs
+                # This handles cases where Spotify has the same song as both single and album track
+                dedupe_cols = ["track_name", "primary_artist"]
+                deduped_group = group.groupby(dedupe_cols, as_index=False, dropna=False).agg(
+                    {"play_count": "sum"}
+                )
+
+                # Recalculate total_tracks and tracks_played based on deduplicated tracks
+                total_tracks = len(deduped_group)
+                tracks_played = int((deduped_group["play_count"] > 0).sum())
+
+                # Get sorted play counts (ascending) from deduplicated tracks
+                play_counts = sorted(deduped_group["play_count"].tolist())
                 n = len(play_counts)
 
                 # Compute MQPC: mean of middle 50% range
@@ -368,11 +422,11 @@ def get_top_albums(
                 # Compute album_score
                 album_score = mqpc * size_factor
 
-                # Build track details from the group data (already has track_name and play_count)
+                # Build track details from deduplicated data
                 track_details = []
-                if "track_name" in group.columns:
+                if "track_name" in deduped_group.columns:
                     # Sort by play_count descending to show most played tracks first
-                    sorted_group = group.sort_values("play_count", ascending=False)
+                    sorted_deduped = deduped_group.sort_values("play_count", ascending=False)
 
                     track_details = [
                         {
@@ -381,7 +435,7 @@ def get_top_albums(
                             else f"Track {i + 1}",
                             "play_count": int(row["play_count"]),
                         }
-                        for i, (_, row) in enumerate(sorted_group.iterrows())
+                        for i, (_, row) in enumerate(sorted_deduped.iterrows())
                     ]
                 else:
                     # Fallback: use play_counts list without names
