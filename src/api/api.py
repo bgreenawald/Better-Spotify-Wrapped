@@ -170,26 +170,36 @@ class SpotifyDataCollector:
 
         Tracks requests over a 30-second window and proactively sleeps
         if the request count is approaching the limit, preventing 429 errors.
+        Thread-safe: releases lock during sleep to avoid blocking other threads.
         """
+        # Check under lock, but don't hold lock during sleep
         with self._request_lock:
             now = time.time()
             cutoff = now - 30
             # Clean old timestamps
             self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
+            request_count = len(self._request_timestamps)
 
-            if len(self._request_timestamps) >= self._MAX_REQUESTS_PER_30S:
+            if request_count >= self._MAX_REQUESTS_PER_30S:
                 sleep_time = self._request_timestamps[0] - cutoff + 0.1
-                logging.info(
-                    f"Approaching rate limit ({len(self._request_timestamps)} requests in 30s), "
-                    f"sleeping {sleep_time:.1f}s"
-                )
-                time.sleep(sleep_time)
-                # Clean again after sleeping
+            else:
+                sleep_time = 0.0
+                # Record timestamp now if not sleeping
+                self._request_timestamps.append(now)
+
+        # Sleep outside the lock to avoid blocking other threads
+        if sleep_time > 0:
+            logging.info(
+                f"Approaching rate limit ({request_count} requests in 30s), "
+                f"sleeping {sleep_time:.1f}s"
+            )
+            time.sleep(sleep_time)
+            # Re-acquire lock to clean and record timestamp after sleeping
+            with self._request_lock:
                 now = time.time()
                 cutoff = now - 30
                 self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
-
-            self._request_timestamps.append(now)
+                self._request_timestamps.append(now)
 
     def _check_circuit_breaker(self) -> None:
         """Check and enforce circuit breaker if triggered.
