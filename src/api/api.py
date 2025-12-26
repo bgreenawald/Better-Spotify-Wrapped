@@ -196,37 +196,46 @@ class SpotifyDataCollector:
 
         After multiple consecutive rate limit errors, pause all requests
         for a cooldown period to prevent account-level throttling.
+        Thread-safe: acquires lock to check/modify state, releases during sleep.
         """
-        if self._consecutive_rate_limits >= self._CIRCUIT_BREAKER_THRESHOLD:
+        # Check under lock, but don't hold lock during sleep
+        with self._request_lock:
+            should_trigger = self._consecutive_rate_limits >= self._CIRCUIT_BREAKER_THRESHOLD
+            consecutive_count = self._consecutive_rate_limits
+
+        if should_trigger:
             logging.error(
-                f"Circuit breaker triggered after {self._consecutive_rate_limits} consecutive "
+                f"Circuit breaker triggered after {consecutive_count} consecutive "
                 f"rate limits. Waiting {self._CIRCUIT_BREAKER_COOLDOWN}s before resuming."
             )
             time.sleep(self._CIRCUIT_BREAKER_COOLDOWN)
-            self._consecutive_rate_limits = 0
-            self._circuit_breaker_triggered_at = time.time()
+            with self._request_lock:
+                self._consecutive_rate_limits = 0
+                self._circuit_breaker_triggered_at = time.time()
 
     def _handle_rate_limit_hit(self) -> None:
         """Track rate limit hits and adaptively increase delay.
 
         Increases the delay between requests by 50% after each rate limit hit,
-        up to a maximum of 5 seconds.
+        up to a maximum of 5 seconds. Thread-safe.
         """
-        self._consecutive_rate_limits += 1
-        # Increase delay by 50% after each hit, up to 5s max
-        new_delay = min(self._rate_limit_delay * 1.5, 5.0)
-        if new_delay != self._rate_limit_delay:
-            logging.warning(
-                f"Increasing rate limit delay from {self._rate_limit_delay}s to {new_delay}s"
-            )
-            self._rate_limit_delay = new_delay
+        with self._request_lock:
+            self._consecutive_rate_limits += 1
+            # Increase delay by 50% after each hit, up to 5s max
+            new_delay = min(self._rate_limit_delay * 1.5, 5.0)
+            if new_delay != self._rate_limit_delay:
+                logging.warning(
+                    f"Increasing rate limit delay from {self._rate_limit_delay}s to {new_delay}s"
+                )
+                self._rate_limit_delay = new_delay
 
     def _handle_successful_request(self) -> None:
-        """Reset consecutive rate limit counter on successful request."""
-        self._consecutive_rate_limits = 0
+        """Reset consecutive rate limit counter on successful request. Thread-safe."""
+        with self._request_lock:
+            self._consecutive_rate_limits = 0
 
     def get_rate_limit_status(self) -> dict[str, Any]:
-        """Return current rate limiting status for monitoring.
+        """Return current rate limiting status for monitoring. Thread-safe.
 
         Returns:
             Dictionary containing:
@@ -235,16 +244,17 @@ class SpotifyDataCollector:
                 - consecutive_rate_limits: Number of consecutive 429 errors
                 - circuit_breaker_active: Whether the circuit breaker is triggered
         """
-        now = time.time()
-        cutoff = now - 30
-        recent_requests = len([t for t in self._request_timestamps if t > cutoff])
-        return {
-            "requests_in_last_30s": recent_requests,
-            "current_delay": self._rate_limit_delay,
-            "consecutive_rate_limits": self._consecutive_rate_limits,
-            "circuit_breaker_active": self._consecutive_rate_limits
-            >= self._CIRCUIT_BREAKER_THRESHOLD,
-        }
+        with self._request_lock:
+            now = time.time()
+            cutoff = now - 30
+            recent_requests = len([t for t in self._request_timestamps if t > cutoff])
+            return {
+                "requests_in_last_30s": recent_requests,
+                "current_delay": self._rate_limit_delay,
+                "consecutive_rate_limits": self._consecutive_rate_limits,
+                "circuit_breaker_active": self._consecutive_rate_limits
+                >= self._CIRCUIT_BREAKER_THRESHOLD,
+            }
 
     def _fetch_with_retry(
         self, fetch_func: Any, batch: list[str], max_retries: int = 3
