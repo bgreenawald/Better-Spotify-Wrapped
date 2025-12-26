@@ -221,7 +221,7 @@ class SpotifyDataCollector:
                 futures = {
                     executor.submit(
                         self._fetch_with_retry,
-                        lambda b: self.spotify_client.tracks(b)["tracks"],
+                        lambda _batch=batch: self.spotify_client.tracks(_batch)["tracks"],
                         batch,
                     ): batch
                     for batch in batches
@@ -262,7 +262,7 @@ class SpotifyDataCollector:
                 futures = {
                     executor.submit(
                         self._fetch_with_retry,
-                        lambda b: self.spotify_client.artists(b)["artists"],
+                        lambda _batch=batch: self.spotify_client.artists(_batch)["artists"],
                         batch,
                     ): batch
                     for batch in batches
@@ -303,7 +303,7 @@ class SpotifyDataCollector:
                 futures = {
                     executor.submit(
                         self._fetch_with_retry,
-                        lambda b: self.spotify_client.albums(b)["albums"],
+                        lambda _batch=batch: self.spotify_client.albums(_batch)["albums"],
                         batch,
                     ): batch
                     for batch in batches
