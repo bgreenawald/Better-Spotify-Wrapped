@@ -41,7 +41,10 @@ class SpotifyDataCollector:
     _TRACK_BATCH_SIZE: int = 50
     _ALBUM_BATCH_SIZE: int = 20
     _ARTIST_BATCH_SIZE: int = 50  # Increased from 20 to 50 (API max)
-    _DEFAULT_RATE_LIMIT_DELAY: float = 0.5  # Increased to avoid rate limiting
+    _DEFAULT_RATE_LIMIT_DELAY: float = 1.0  # Conservative default for rate limiting
+    _MAX_REQUESTS_PER_30S: int = 50  # Conservative limit for 30s rolling window
+    _CIRCUIT_BREAKER_THRESHOLD: int = 3  # Consecutive 429s before cooldown
+    _CIRCUIT_BREAKER_COOLDOWN: float = 300.0  # 5 minutes
 
     def __init__(
         self,
@@ -92,6 +95,11 @@ class SpotifyDataCollector:
         self._max_workers = max_workers
         self._request_lock = threading.Lock()
         self._last_request_time = 0.0
+
+        # Rate limiting state for request counting and circuit breaker
+        self._request_timestamps: list[float] = []
+        self._consecutive_rate_limits: int = 0
+        self._circuit_breaker_triggered_at: float = 0.0
 
     def _setup_cache_directories(self) -> None:
         """Create cache subdirectories for tracks, artists, and albums."""
@@ -157,10 +165,111 @@ class SpotifyDataCollector:
                 time.sleep(self._rate_limit_delay - elapsed)
             self._last_request_time = time.time()
 
+    def _check_request_budget(self) -> None:
+        """Wait if approaching rate limit within 30s rolling window.
+
+        Tracks requests over a 30-second window and proactively sleeps
+        if the request count is approaching the limit, preventing 429 errors.
+        Thread-safe: releases lock during sleep to avoid blocking other threads.
+        """
+        # Check under lock, but don't hold lock during sleep
+        with self._request_lock:
+            now = time.time()
+            cutoff = now - 30
+            # Clean old timestamps
+            self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
+            request_count = len(self._request_timestamps)
+
+            if request_count >= self._MAX_REQUESTS_PER_30S:
+                sleep_time = self._request_timestamps[0] - cutoff + 0.1
+            else:
+                sleep_time = 0.0
+                # Record timestamp now if not sleeping
+                self._request_timestamps.append(now)
+
+        # Sleep outside the lock to avoid blocking other threads
+        if sleep_time > 0:
+            logging.info(
+                f"Approaching rate limit ({request_count} requests in 30s), "
+                f"sleeping {sleep_time:.1f}s"
+            )
+            time.sleep(sleep_time)
+            # Re-acquire lock to clean and record timestamp after sleeping
+            with self._request_lock:
+                now = time.time()
+                cutoff = now - 30
+                self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
+                self._request_timestamps.append(now)
+
+    def _check_circuit_breaker(self) -> None:
+        """Check and enforce circuit breaker if triggered.
+
+        After multiple consecutive rate limit errors, pause all requests
+        for a cooldown period to prevent account-level throttling.
+        Thread-safe: acquires lock to check/modify state, releases during sleep.
+        """
+        # Check under lock, but don't hold lock during sleep
+        with self._request_lock:
+            should_trigger = self._consecutive_rate_limits >= self._CIRCUIT_BREAKER_THRESHOLD
+            consecutive_count = self._consecutive_rate_limits
+
+        if should_trigger:
+            logging.error(
+                f"Circuit breaker triggered after {consecutive_count} consecutive "
+                f"rate limits. Waiting {self._CIRCUIT_BREAKER_COOLDOWN}s before resuming."
+            )
+            time.sleep(self._CIRCUIT_BREAKER_COOLDOWN)
+            with self._request_lock:
+                self._consecutive_rate_limits = 0
+                self._circuit_breaker_triggered_at = time.time()
+
+    def _handle_rate_limit_hit(self) -> None:
+        """Track rate limit hits and adaptively increase delay.
+
+        Increases the delay between requests by 50% after each rate limit hit,
+        up to a maximum of 5 seconds. Thread-safe.
+        """
+        with self._request_lock:
+            self._consecutive_rate_limits += 1
+            # Increase delay by 50% after each hit, up to 5s max
+            new_delay = min(self._rate_limit_delay * 1.5, 5.0)
+            if new_delay != self._rate_limit_delay:
+                logging.warning(
+                    f"Increasing rate limit delay from {self._rate_limit_delay}s to {new_delay}s"
+                )
+                self._rate_limit_delay = new_delay
+
+    def _handle_successful_request(self) -> None:
+        """Reset consecutive rate limit counter on successful request. Thread-safe."""
+        with self._request_lock:
+            self._consecutive_rate_limits = 0
+
+    def get_rate_limit_status(self) -> dict[str, Any]:
+        """Return current rate limiting status for monitoring. Thread-safe.
+
+        Returns:
+            Dictionary containing:
+                - requests_in_last_30s: Number of requests in the last 30 seconds
+                - current_delay: Current delay between requests in seconds
+                - consecutive_rate_limits: Number of consecutive 429 errors
+                - circuit_breaker_active: Whether the circuit breaker is triggered
+        """
+        with self._request_lock:
+            now = time.time()
+            cutoff = now - 30
+            recent_requests = len([t for t in self._request_timestamps if t > cutoff])
+            return {
+                "requests_in_last_30s": recent_requests,
+                "current_delay": self._rate_limit_delay,
+                "consecutive_rate_limits": self._consecutive_rate_limits,
+                "circuit_breaker_active": self._consecutive_rate_limits
+                >= self._CIRCUIT_BREAKER_THRESHOLD,
+            }
+
     def _fetch_with_retry(
         self, fetch_func: Any, batch: list[str], max_retries: int = 3
     ) -> list[dict[str, Any]]:
-        """Execute an API fetch with retry logic and exponential backoff.
+        """Execute an API fetch with retry logic, adaptive rate limiting, and circuit breaker.
 
         Args:
             fetch_func: The Spotify API method to call.
@@ -173,15 +282,28 @@ class SpotifyDataCollector:
         Raises:
             SpotifyException: If all retry attempts are exhausted.
         """
+        # Check circuit breaker before attempting any requests
+        self._check_circuit_breaker()
+
         for attempt in range(max_retries):
             try:
+                # Proactively check request budget to avoid hitting rate limits
+                self._check_request_budget()
                 self._rate_limited_request()
-                return fetch_func(batch)
+                result = fetch_func(batch)
+                # Reset consecutive rate limit counter on success
+                self._handle_successful_request()
+                return result
             except SpotifyException as e:
                 if e.http_status == 429:  # Rate limited
+                    # Track the rate limit hit and adapt delay
+                    self._handle_rate_limit_hit()
+                    # Check if circuit breaker should trigger
+                    self._check_circuit_breaker()
                     retry_after = int(e.headers.get("Retry-After", 2**attempt))
                     logging.warning(
-                        f"Rate limited. Retrying after {retry_after}s (attempt {attempt + 1}/{max_retries})"
+                        f"Rate limited. Retrying after {retry_after}s "
+                        f"(attempt {attempt + 1}/{max_retries})"
                     )
                     time.sleep(retry_after)
                 else:
