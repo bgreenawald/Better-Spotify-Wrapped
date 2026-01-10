@@ -123,8 +123,8 @@ uv run bsw ingest-track-albums --db data/db/music.db && \
 uv run bsw ingest-track-artists --db data/db/music.db
 
 # 4. Load genre information
-uv run bsw ingest-artist-genres --db data/db/music.db;
-uv run bsw link-artist-genres --db data/db/music.db;
+uv run bsw ingest-artist-genres --db data/db/music.db && \
+uv run bsw link-artist-genres --db data/db/music.db
 ```
 
 ### Environment Setup for API Enrichment
