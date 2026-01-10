@@ -118,9 +118,9 @@ uv run bsw ingest-history \
   --apply-ddl
 
 # 3. Enrich with Spotify API metadata
-uv run bsw ingest-track-metadata --db data/db/music.db;
-uv run bsw ingest-track-albums --db data/db/music.db;
-uv run bsw ingest-track-artists --db data/db/music.db;
+uv run bsw ingest-track-metadata --db data/db/music.db && \
+uv run bsw ingest-track-albums --db data/db/music.db && \
+uv run bsw ingest-track-artists --db data/db/music.db
 
 # 4. Load genre information
 uv run bsw ingest-artist-genres --db data/db/music.db;
