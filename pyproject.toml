@@ -20,6 +20,7 @@ dependencies = [
     "dash-mantine-components>=2.2.1",
     "google-genai>=1.32.0",
     "openai>=1.102.0",
+    "rapidfuzz>=3.14.3",
 ]
 
 [project.scripts]

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from rapidfuzz import fuzz
 
 from src.metrics.utils import extract_track_id
 
@@ -136,6 +137,69 @@ def get_most_played_tracks(
     finally:
         if close_conn:
             con.close()
+
+
+def _deduplicate_albums_fuzzy(
+    albums: list[dict[str, Any]], similarity_threshold: float = 90.0
+) -> list[dict[str, Any]]:
+    """Deduplicate albums using fuzzy matching on album names with exact artist matching.
+
+    Args:
+        albums: List of album dictionaries with 'album_name', 'artist', 'album_score', etc.
+        similarity_threshold: Minimum similarity score (0-100) to consider albums as duplicates.
+
+    Returns:
+        Deduplicated list of albums, keeping the highest-scoring variant for each match.
+    """
+    if not albums:
+        return albums
+
+    # Group albums by exact artist name for efficient comparison
+    artist_groups: dict[str, list[dict[str, Any]]] = {}
+    for album in albums:
+        artist = album.get("artist", "")
+        artist_groups.setdefault(artist, []).append(album)
+
+    deduplicated = []
+
+    # Process each artist group separately
+    for _artist, artist_albums in artist_groups.items():
+        if len(artist_albums) == 1:
+            # No duplicates possible if only one album by this artist
+            deduplicated.extend(artist_albums)
+            continue
+
+        # Track which albums have been merged
+        used_indices = set()
+
+        for i, album_a in enumerate(artist_albums):
+            if i in used_indices:
+                continue
+
+            # Find all albums similar to album_a
+            similar_group = [album_a]
+            album_a_name = str(album_a.get("album_name", ""))
+
+            for j in range(i + 1, len(artist_albums)):
+                if j in used_indices:
+                    continue
+
+                album_b = artist_albums[j]
+                album_b_name = str(album_b.get("album_name", ""))
+
+                # Use token_set_ratio for fuzzy matching (handles editions, remasters, etc.)
+                similarity = fuzz.token_set_ratio(album_a_name.lower(), album_b_name.lower())
+
+                if similarity >= similarity_threshold:
+                    similar_group.append(album_b)
+                    used_indices.add(j)
+
+            # Keep the album with the highest album_score from the similar group
+            best_album = max(similar_group, key=lambda x: x.get("album_score", 0.0))
+            deduplicated.append(best_album)
+            used_indices.add(i)
+
+    return deduplicated
 
 
 def get_top_albums(
@@ -457,6 +521,9 @@ def get_top_albums(
                         "track_details": track_details,
                     }
                 )
+
+            # Deduplicate albums using fuzzy matching on album names (exact artist match)
+            albums = _deduplicate_albums_fuzzy(albums, similarity_threshold=70.0)
 
             result_df = pd.DataFrame(albums)
             if not result_df.empty:
