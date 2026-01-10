@@ -160,8 +160,6 @@ def _deduplicate_albums_fuzzy(
         artist = album.get("artist", "")
         artist_groups.setdefault(artist, []).append(album)
 
-
-
     deduplicated = []
 
     # Process each artist group separately
