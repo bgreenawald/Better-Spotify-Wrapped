@@ -158,9 +158,9 @@ def _deduplicate_albums_fuzzy(
     artist_groups: dict[str, list[dict[str, Any]]] = {}
     for album in albums:
         artist = album.get("artist", "")
-        if artist not in artist_groups:
-            artist_groups[artist] = []
-        artist_groups[artist].append(album)
+        artist_groups.setdefault(artist, []).append(album)
+
+
 
     deduplicated = []
 
