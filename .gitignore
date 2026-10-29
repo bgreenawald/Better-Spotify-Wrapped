@@ -82,9 +82,6 @@ tmp/
 # Needed data
 listening_history
 data
- # Needed data
- listening_history
- data
 
 # Genre info
 genre_taxonomy_results.json
@@ -92,3 +89,7 @@ resources
 
 # Claude
 .claude/
+
+# Local archives / scratch
+*.zip
+CLAUDE_FABLE_CODE_REVIEW.md
