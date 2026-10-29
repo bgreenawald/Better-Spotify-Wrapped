@@ -282,16 +282,28 @@ def get_filtered_plays(
     filters.append("COALESCE(p.duration_ms, 0) > 0")
     filters.append("COALESCE(p.reason_start, 'unknown') <> 'unknown'")
     filters.append("COALESCE(p.reason_end, 'unknown') <> 'unknown'")
+    # A skipped play is not a listen: in the live data their median listening
+    # time is ~10s against ~200s for the rest. The social and legacy filters
+    # already excluded them, so including them here made the same conceptual
+    # filter mean different things on different tabs.
+    filters.append("COALESCE(p.skipped, false) = false")
     if remove_incognito:
         filters.append("COALESCE(p.incognito_mode, false) = false")
-    # Optional name-based exclusions
+    # Optional name-based exclusions. Compared case-insensitively, so an
+    # exclusion typed in any case works the same here as it does in social.
     extra_where = []
     if rel_tracks:
-        extra_where.append(f"COALESCE(t.track_name, '') NOT IN (SELECT val FROM {rel_tracks})")
+        extra_where.append(
+            f"LOWER(COALESCE(t.track_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_tracks})"
+        )
     if rel_artists:
-        extra_where.append(f"COALESCE(ar.artist_name, '') NOT IN (SELECT val FROM {rel_artists})")
+        extra_where.append(
+            f"LOWER(COALESCE(ar.artist_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_artists})"
+        )
     if rel_albums:
-        extra_where.append(f"COALESCE(al.album_name, '') NOT IN (SELECT val FROM {rel_albums})")
+        extra_where.append(
+            f"LOWER(COALESCE(al.album_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_albums})"
+        )
     # Global genre exclusion using both track_genres and artist_genres, honoring parent mappings
     if rel_genres and _table_exists("dim_genres"):
         has_tg = _table_exists("track_genres")

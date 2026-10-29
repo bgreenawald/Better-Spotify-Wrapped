@@ -95,3 +95,37 @@ def test_inclusive_end_bound_passes_through_none() -> None:
     """An open-ended range stays open-ended."""
     assert inclusive_end_bound(None) is None
     assert inclusive_end_bound(pd.NaT) is None
+
+
+def test_skipped_plays_are_excluded(con) -> None:
+    """A skipped play is not a listen, and Social already excluded them."""
+    con.execute(
+        "INSERT INTO fact_plays (play_id, user_id, track_id, played_at, duration_ms, "
+        "reason_start, reason_end, skipped, incognito_mode) "
+        "VALUES ('skip1', 'u1', 't1', '2024-06-20 10:00:00', 9000, "
+        "'clickrow', 'fwdbtn', true, false)"
+    )
+
+    df = get_filtered_plays(
+        con,
+        user_id="u1",
+        start_date=datetime(2024, 6, 1),
+        end_date=datetime(2024, 6, 30),
+        exclude_december=False,
+    )
+
+    assert not df["skipped"].fillna(False).any()
+    assert len(df) == 4  # Jun 15 plus the three on Jun 30, skip excluded
+
+
+def test_name_exclusions_are_case_insensitive(con) -> None:
+    """An exclusion typed in any case must apply, as it does in Social."""
+    df = get_filtered_plays(
+        con,
+        user_id="u1",
+        start_date=datetime(2024, 6, 1),
+        end_date=datetime(2024, 6, 30),
+        exclude_december=False,
+        excluded_tracks=["sOnG"],
+    )
+    assert df.empty, "lower/upper-case mismatch should not defeat the exclusion"
