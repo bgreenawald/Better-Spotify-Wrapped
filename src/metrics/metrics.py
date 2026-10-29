@@ -1,11 +1,15 @@
 import contextlib
-import math
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from rapidfuzz import fuzz
 
+from src.metrics.albums import (
+    canonical_album_name,
+    cluster_album_variants,
+    compute_album_score,
+    is_album_sized,
+)
 from src.metrics.utils import extract_track_id
 
 
@@ -141,69 +145,6 @@ def get_most_played_tracks(
             con.close()
 
 
-def _deduplicate_albums_fuzzy(
-    albums: list[dict[str, Any]], similarity_threshold: float = 90.0
-) -> list[dict[str, Any]]:
-    """Deduplicate albums using fuzzy matching on album names with exact artist matching.
-
-    Args:
-        albums: List of album dictionaries with 'album_name', 'artist', 'album_score', etc.
-        similarity_threshold: Minimum similarity score (0-100) to consider albums as duplicates.
-
-    Returns:
-        Deduplicated list of albums, keeping the highest-scoring variant for each match.
-    """
-    if not albums:
-        return albums
-
-    # Group albums by exact artist name for efficient comparison
-    artist_groups: dict[str, list[dict[str, Any]]] = {}
-    for album in albums:
-        artist = album.get("artist", "")
-        artist_groups.setdefault(artist, []).append(album)
-
-    deduplicated = []
-
-    # Process each artist group separately
-    for _artist, artist_albums in artist_groups.items():
-        if len(artist_albums) == 1:
-            # No duplicates possible if only one album by this artist
-            deduplicated.extend(artist_albums)
-            continue
-
-        # Track which albums have been merged
-        used_indices = set()
-
-        for i, album_a in enumerate(artist_albums):
-            if i in used_indices:
-                continue
-
-            # Find all albums similar to album_a
-            similar_group = [album_a]
-            album_a_name = str(album_a.get("album_name", ""))
-
-            for j in range(i + 1, len(artist_albums)):
-                if j in used_indices:
-                    continue
-
-                album_b = artist_albums[j]
-                album_b_name = str(album_b.get("album_name", ""))
-
-                # Use token_set_ratio for fuzzy matching (handles editions, remasters, etc.)
-                similarity = fuzz.token_set_ratio(album_a_name.lower(), album_b_name.lower())
-
-                if similarity >= similarity_threshold:
-                    similar_group.append(album_b)
-                    used_indices.add(j)
-
-            # Keep the album with the highest album_score from the similar group
-            best_album = max(similar_group, key=lambda x: x.get("album_score", 0.0))
-            deduplicated.append(best_album)
-            used_indices.add(i)
-
-    return deduplicated
-
-
 def get_top_albums(
     filtered_df: pd.DataFrame,
     *,
@@ -226,9 +167,24 @@ def get_top_albums(
         db_path: Optional DuckDB database path (if `con` not provided).
         con: Optional DuckDB connection to use.
 
+    The arithmetic and the name matching live in `src/metrics/albums.py` as
+    pure functions; this function supplies the data and formats the result.
+
     Notes:
-        - Excludes short releases (albums with 5 or fewer tracks) to prevent
-          singles/EPs from dominating.
+        - Plays are attributed by `track_id`. A track with the same name on
+          another release (a compilation, a Greatest Hits) is a different
+          track and is credited separately.
+        - Editions of one album (Deluxe, Remastered, "Taylor's Version") are
+          merged before scoring: their tracklists are unioned by track name
+          and their play counts summed. The plain title is displayed. Matching
+          is deliberately conservative, since merging discards the distinction
+          between two releases -- a variant whose title differs beyond an
+          edition suffix stays its own row.
+        - Excludes short releases (5 or fewer tracks) to prevent singles/EPs
+          from dominating. Applied *after* edition merging, so a release is
+          judged on its merged tracklist.
+        - An album where most tracks went unplayed scores 0. That is the
+          metric reporting that the album was sampled, not listened to.
 
     Returns:
         pd.DataFrame: Albums sorted by album_score with columns:
@@ -298,125 +254,56 @@ def get_top_albums(
                     con.unregister("df_play_counts")
             con.register("df_play_counts", play_counts)
 
-            # SQL plan (uses convenience views where helpful):
-            # 1) Get ALL played track_ids (including singles) with their play counts
-            # 2) Find which albums contain tracks matching those track names + artists
-            # 3) Sum play counts by (track_name, artist) across ALL versions (single + album)
-            # 4) Map aggregated plays to album tracks
-            # 5) Pick a primary artist (mode over primary role)
+            # Plays are attributed strictly by track_id. The previous version
+            # matched on (track_name, primary_artist), so every album holding a
+            # same-named track by that artist received the full play count --
+            # compilations, Greatest Hits and each deluxe edition all credited
+            # at once. Editions are instead merged in Python below, by name.
             sql = """
-                WITH all_plays_with_metadata AS (
-                    SELECT p.track_id, p.play_count, t.track_name, t.album_id
+                WITH played AS (
+                    SELECT p.track_id, p.play_count, t.album_id
                     FROM df_play_counts p
                     JOIN dim_tracks t ON t.track_id = p.track_id
-                ),
-                played_track_artists AS (
-                    SELECT ap.track_id,
-                        COALESCE(a.artist_name, '') AS primary_artist,
-                        ROW_NUMBER() OVER (PARTITION BY ap.track_id ORDER BY a.artist_name) AS rn
-                    FROM all_plays_with_metadata ap
-                    LEFT JOIN bridge_track_artists b ON b.track_id = ap.track_id AND b.role = 'primary'
-                    LEFT JOIN dim_artists a ON a.artist_id = b.artist_id
-                ),
-                played_track_artists_deduped AS (
-                    SELECT track_id, primary_artist
-                    FROM played_track_artists
-                    WHERE rn = 1 OR rn IS NULL
-                ),
-                plays_with_artists AS (
-                    SELECT ap.track_name,
-                        pta.primary_artist,
-                        SUM(ap.play_count) AS total_play_count
-                    FROM all_plays_with_metadata ap
-                    LEFT JOIN played_track_artists_deduped pta ON pta.track_id = ap.track_id
-                    GROUP BY 1, 2
+                    WHERE t.album_id IS NOT NULL
                 ),
                 albums_in_scope AS (
-                    SELECT DISTINCT t.album_id
-                    FROM dim_tracks t
-                    WHERE EXISTS (
-                        SELECT 1 FROM all_plays_with_metadata ap
-                        WHERE ap.track_id = t.track_id AND t.album_id IS NOT NULL
-                    )
+                    SELECT DISTINCT album_id FROM played
                 ),
-                all_album_tracks AS (
+                album_tracks AS (
                     SELECT t.album_id, t.track_id, t.track_name
                     FROM dim_tracks t
                     JOIN albums_in_scope s ON s.album_id = t.album_id
                 ),
-                track_primary_artists AS (
-                    SELECT b.track_id,
-                        COALESCE(a.artist_name, '') AS primary_artist,
-                        ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
-                    FROM dim_tracks t
-                    JOIN albums_in_scope s ON s.album_id = t.album_id
-                    LEFT JOIN bridge_track_artists b ON b.track_id = t.track_id AND b.role = 'primary'
-                    LEFT JOIN dim_artists a ON a.artist_id = b.artist_id
-                ),
-                track_primary_artists_deduped AS (
-                    SELECT track_id, primary_artist
-                    FROM track_primary_artists
-                    WHERE rn = 1 OR rn IS NULL
-                ),
-                album_track_counts AS (
-                    SELECT a.album_id,
-                        aat.track_id,
-                        aat.track_name,
-                        tpa.primary_artist,
-                        COALESCE(pwa.total_play_count, 0) AS play_count
-                    FROM all_album_tracks aat
-                    JOIN dim_albums a ON a.album_id = aat.album_id
-                    LEFT JOIN track_primary_artists_deduped tpa ON tpa.track_id = aat.track_id
-                    LEFT JOIN plays_with_artists pwa
-                        ON pwa.track_name = aat.track_name
-                        AND pwa.primary_artist = tpa.primary_artist
-                ),
                 album_artist_counts AS (
-                    SELECT t.album_id,
-                        ar.artist_name,
-                        COUNT(*) AS cnt
+                    SELECT t.album_id, ar.artist_name, COUNT(*) AS cnt
                     FROM dim_tracks t
                     JOIN albums_in_scope s ON s.album_id = t.album_id
                     JOIN bridge_track_artists b
-                    ON b.track_id = t.track_id AND b."role" = 'primary'
+                      ON b.track_id = t.track_id AND b."role" = 'primary'
                     JOIN dim_artists ar ON ar.artist_id = b.artist_id
                     GROUP BY 1, 2
                 ),
                 album_primary_artist AS (
-                    SELECT album_id,
-                        artist_name,
-                        ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY cnt DESC, artist_name) AS rn
+                    SELECT album_id, artist_name,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY album_id ORDER BY cnt DESC, artist_name
+                           ) AS rn
                     FROM album_artist_counts
-                ),
-                album_metadata AS (
-                    SELECT
-                        al.album_id,
-                        al.album_name,
-                        COALESCE(pa.artist_name, '') AS artist,
-                        COUNT(*) AS total_tracks,
-                        SUM(CASE WHEN atc.play_count > 0 THEN 1 ELSE 0 END) AS tracks_played,
-                        al.release_year
-                    FROM album_track_counts atc
-                    JOIN dim_albums al ON al.album_id = atc.album_id
-                    LEFT JOIN album_primary_artist pa ON pa.album_id = atc.album_id AND pa.rn = 1
-                    GROUP BY 1, 2, 3, 6
-                    HAVING COUNT(*) > 5
                 )
                 SELECT
-                    am.album_id,
-                    am.album_name,
-                    am.artist,
-                    am.total_tracks,
-                    am.tracks_played,
-                    am.release_year,
-                    atc.track_id,
-                    atc.track_name,
-                    atc.primary_artist,
-                    atc.play_count
-                FROM album_metadata am
-                JOIN album_track_counts atc ON atc.album_id = am.album_id
-                ORDER BY am.album_id, atc.track_name;
-
+                    atr.album_id,
+                    al.album_name,
+                    COALESCE(pa.artist_name, '') AS artist,
+                    al.release_year,
+                    atr.track_id,
+                    atr.track_name,
+                    COALESCE(pl.play_count, 0) AS play_count
+                FROM album_tracks atr
+                JOIN dim_albums al ON al.album_id = atr.album_id
+                LEFT JOIN played pl ON pl.track_id = atr.track_id
+                LEFT JOIN album_primary_artist pa
+                    ON pa.album_id = atr.album_id AND pa.rn = 1
+                ORDER BY atr.album_id, atr.track_name
             """
             res = con.execute(sql).df()
 
@@ -436,96 +323,81 @@ def get_top_albums(
                     ]
                 )
 
-            # Group by album and compute the metric
-            albums = []
-            for _album_id, group in res.groupby("album_id"):
-                # Get metadata (same for all rows in group)
-                album_name = group["album_name"].iloc[0]
-                artist = group["artist"].iloc[0]
+            # One record per album_id, carrying its tracklist.
+            per_album: list[dict[str, Any]] = []
+            for album_id, group in res.groupby("album_id"):
+                # Distinct tracks within this album_id, summing any duplicate
+                # track names (a song can appear under more than one id).
+                tracks = group.groupby("track_name", as_index=False, dropna=False).agg(
+                    {"play_count": "sum"}
+                )
                 release_year = (
                     group["release_year"].iloc[0]
                     if pd.notna(group["release_year"].iloc[0])
                     else None
                 )
-
-                # Deduplicate tracks by (track_name, primary_artist) - same song, different IDs
-                # This handles cases where Spotify has the same song as both single and album track
-                dedupe_cols = ["track_name", "primary_artist"]
-                deduped_group = group.groupby(dedupe_cols, as_index=False, dropna=False).agg(
-                    {"play_count": "sum"}
-                )
-
-                # Recalculate total_tracks and tracks_played based on deduplicated tracks
-                total_tracks = len(deduped_group)
-                tracks_played = int((deduped_group["play_count"] > 0).sum())
-
-                # Get sorted play counts (ascending) from deduplicated tracks
-                play_counts = sorted(deduped_group["play_count"].tolist())
-                n = len(play_counts)
-
-                # Compute MQPC: mean of middle 50% range
-                # Range: from index ceil(0.25 * n) to floor(0.75 * n) (1-indexed, so subtract 1 for 0-indexed)
-                start_idx = math.ceil(0.25 * n) - 1  # Convert to 0-indexed
-                end_idx = math.floor(0.75 * n) - 1  # Convert to 0-indexed
-                # Ensure valid indices
-                start_idx = max(0, start_idx)
-                end_idx = min(n - 1, end_idx)
-
-                if start_idx <= end_idx:
-                    middle_range = play_counts[start_idx : end_idx + 1]
-                    mqpc = sum(middle_range) / len(middle_range) if middle_range else 0.0
-                else:
-                    mqpc = 0.0
-
-                # Compute t_eff: tracks with play_count >= 0.5 * MQPC
-                threshold = 0.5 * mqpc
-                t_eff = sum(1 for pc in play_counts if pc >= threshold)
-                t_eff_capped = min(t_eff, 15)
-
-                # Compute size_factor
-                size_factor = 1.0 + 0.3 * (t_eff_capped / 15.0)
-
-                # Compute album_score
-                album_score = mqpc * size_factor
-
-                # Build track details from deduplicated data
-                track_details = []
-                if "track_name" in deduped_group.columns:
-                    # Sort by play_count descending to show most played tracks first
-                    sorted_deduped = deduped_group.sort_values("play_count", ascending=False)
-
-                    track_details = [
-                        {
-                            "track_name": str(row["track_name"])
-                            if pd.notna(row["track_name"])
-                            else f"Track {i + 1}",
-                            "play_count": int(row["play_count"]),
-                        }
-                        for i, (_, row) in enumerate(sorted_deduped.iterrows())
-                    ]
-                else:
-                    # Fallback: use play_counts list without names
-                    track_details = [
-                        {"track_name": f"Track {i + 1}", "play_count": int(pc)}
-                        for i, pc in enumerate(sorted(play_counts, reverse=True))
-                    ]
-
-                albums.append(
+                per_album.append(
                     {
-                        "album_name": album_name,
-                        "artist": artist,
-                        "album_score": album_score,
-                        "mqpc": mqpc,
-                        "t_eff_capped": t_eff_capped,
-                        "total_tracks": total_tracks,
-                        "tracks_played": tracks_played,
+                        "album_id": album_id,
+                        "album_name": str(group["album_name"].iloc[0] or ""),
+                        "artist": str(group["artist"].iloc[0] or ""),
                         "release_year": release_year,
-                        "track_details": track_details,
+                        "tracks": tracks,
                     }
                 )
 
-            # Deduplicate albums using fuzzy matching on album names (exact artist match)
-            albums = _deduplicate_albums_fuzzy(albums, similarity_threshold=70.0)
+            # Merge editions of the same album (Deluxe, Remastered, Taylor's
+            # Version, ...) before scoring or applying the length threshold.
+            clusters = cluster_album_variants(
+                [a["album_name"] for a in per_album],
+                [a["artist"] for a in per_album],
+            )
+
+            albums = []
+            for cluster in clusters:
+                members = [per_album[i] for i in cluster]
+
+                # Union the tracklists by name; a song appearing on the standard
+                # and the deluxe edition is one song, and its plays are the sum
+                # of what each edition's track id received.
+                merged = (
+                    pd.concat([m["tracks"] for m in members], ignore_index=True)
+                    .groupby("track_name", as_index=False, dropna=False)
+                    .agg({"play_count": "sum"})
+                )
+
+                total_tracks = len(merged)
+                # Applied here, after merging, rather than in SQL before it.
+                if not is_album_sized(total_tracks):
+                    continue
+
+                play_counts = [int(x) for x in merged["play_count"].tolist()]
+                score = compute_album_score(play_counts)
+
+                years = [m["release_year"] for m in members if m["release_year"] is not None]
+                sorted_tracks = merged.sort_values("play_count", ascending=False)
+
+                albums.append(
+                    {
+                        "album_name": canonical_album_name([m["album_name"] for m in members]),
+                        "artist": members[0]["artist"],
+                        "album_score": score.album_score,
+                        "mqpc": score.mqpc,
+                        "t_eff_capped": score.t_eff_capped,
+                        "total_tracks": total_tracks,
+                        "tracks_played": int((merged["play_count"] > 0).sum()),
+                        "release_year": min(years) if years else None,
+                        "track_details": [
+                            {
+                                "track_name": str(row["track_name"])
+                                if pd.notna(row["track_name"])
+                                else f"Track {i + 1}",
+                                "play_count": int(row["play_count"]),
+                            }
+                            for i, (_, row) in enumerate(sorted_tracks.iterrows())
+                        ],
+                    }
+                )
 
             result_df = pd.DataFrame(albums)
             if not result_df.empty:
