@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.metrics.albums import gini_coefficient, normalized_entropy, shannon_entropy
 from src.metrics.utils import column_exists
 
 from .utils import extract_track_id
@@ -81,6 +82,9 @@ def get_listening_time_by_month(
             if has_tracks
             else "COALESCE(p.track_id, p.master_metadata_track_name)"
         )
+        # dim_tracks.duration_ms is the track's length; fact_plays.duration_ms
+        # (aliased ms_played here) is how much of it was actually played.
+        track_length = "dt.duration_ms" if has_tracks else "NULL"
         sql = f"""
             WITH base AS (
                 -- Counted by identity, not by display name: distinct
@@ -90,6 +94,7 @@ def get_listening_time_by_month(
                 SELECT strftime(p.ts, '%Y-%m') AS month,
                        p.ms_played,
                        {recording_key} AS recording_key,
+                       {track_length} AS track_length_ms,
                        COALESCE(NULLIF(TRIM(p.artist_id), ''),
                                 p.master_metadata_album_artist_name) AS artist_key
                 FROM {rel} p
@@ -98,7 +103,18 @@ def get_listening_time_by_month(
                 SELECT month,
                        SUM(ms_played) AS ms_played,
                        COUNT(DISTINCT recording_key) AS unique_tracks,
-                       COUNT(DISTINCT artist_key) AS unique_artists
+                       COUNT(DISTINCT artist_key) AS unique_artists,
+                       -- Plays are unweighted by duration everywhere else, so
+                       -- report how complete they were: listened ms over the
+                       -- track's own length. A month of half-finished tracks
+                       -- otherwise looks the same as a month of full ones.
+                       AVG(
+                           CASE
+                               WHEN COALESCE(track_length_ms, 0) > 0
+                               THEN LEAST(ms_played::DOUBLE / track_length_ms, 1.0)
+                           END
+                       ) AS avg_completion,
+                       COUNT(*) AS plays
                 FROM base
                 GROUP BY 1
             ), bounds AS (
@@ -127,6 +143,8 @@ def get_listening_time_by_month(
             SELECT m.month,
                    m.unique_tracks,
                    m.unique_artists,
+                   m.plays,
+                   ROUND(100.0 * m.avg_completion, 1) AS avg_completion_pct,
                    ROUND(m.ms_played / (1000.0 * 60.0 * 60.0), 2) AS total_hours,
                    ROUND((m.ms_played / (1000.0 * 60.0 * 60.0)) / NULLIF(d.days_observed, 0), 2) AS avg_hours_per_day
             FROM monthly m
@@ -144,8 +162,14 @@ def get_genre_trends(
     *,
     db_path: str | Path | None = None,
     con: Any | None = None,
+    min_month_plays: int = 0,
 ) -> pd.DataFrame:
     """Calculate genre listening trends over time (DuckDB-only).
+
+    `min_month_plays` suppresses months too thin to rank meaningfully: with no
+    threshold a month holding three plays can crown a genre #1 alongside a
+    month of six hundred. The returned `month_plays` column carries each
+    month's total so a caller can mark thin months instead of dropping them.
 
     Uses the normalized schema (see DDL.sql).
 
@@ -199,7 +223,15 @@ def get_genre_trends(
 
         if plays.empty:
             return pd.DataFrame(
-                columns=["month", "genre", "play_count", "percentage", "top_artists", "rank"]
+                columns=[
+                    "month",
+                    "genre",
+                    "month_plays",
+                    "play_count",
+                    "percentage",
+                    "top_artists",
+                    "rank",
+                ]
             )
 
         with contextlib.suppress(Exception):
@@ -247,6 +279,7 @@ def get_genre_trends(
             )
             SELECT gm.month,
                    gm.genre,
+                   CAST(mt.total_plays AS BIGINT) AS month_plays,
                    CAST(gm.play_count AS BIGINT) AS play_count,
                    ROUND((gm.play_count::DOUBLE / NULLIF(mt.total_plays, 0)) * 100, 2) AS percentage,
                    COALESCE(t2.top_artists, '') AS top_artists,
@@ -261,9 +294,19 @@ def get_genre_trends(
             ORDER BY gm.month, gm.play_count DESC, gm.genre
         """
         out = con.execute(sql).df()
+        if not out.empty and min_month_plays > 0:
+            out = out[out["month_plays"] >= int(min_month_plays)].reset_index(drop=True)
         if out.empty:
             return pd.DataFrame(
-                columns=["month", "genre", "play_count", "percentage", "top_artists", "rank"]
+                columns=[
+                    "month",
+                    "genre",
+                    "month_plays",
+                    "play_count",
+                    "percentage",
+                    "top_artists",
+                    "rank",
+                ]
             )
         return out.reset_index(drop=True)
     finally:
@@ -514,3 +557,80 @@ def get_track_trends(
     finally:
         if close_conn:
             con.close()
+
+
+def get_listening_diversity_by_month(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    """Per-month diversity of listening across artists.
+
+    Answers "did I range widely this month, or replay the same few artists?",
+    which no existing metric reported. Entropy is in bits; `entropy_norm`
+    divides by log2(n) so months with different catalogue sizes are
+    comparable; `gini` is the concentration view, where high means a few
+    artists took most of the plays; `top_artist_share` is the single largest
+    artist's share of the month.
+
+    Computed in pandas from the plays frame alone, so it needs no database
+    connection.
+
+    Args:
+        filtered_df: Plays, as returned by `get_filtered_plays`.
+
+    Returns:
+        One row per month with columns 'month', 'unique_artists', 'plays',
+        'entropy', 'entropy_norm', 'gini' and 'top_artist_share' (0-100).
+    """
+    columns = [
+        "month",
+        "unique_artists",
+        "plays",
+        "entropy",
+        "entropy_norm",
+        "gini",
+        "top_artist_share",
+    ]
+    if filtered_df is None or filtered_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    needed = {"ts", "master_metadata_album_artist_name"}
+    if not needed.issubset(filtered_df.columns):
+        return pd.DataFrame(columns=columns)
+
+    df = filtered_df[["ts", "master_metadata_album_artist_name"]].copy()
+    if "artist_id" in filtered_df.columns:
+        df["artist_id"] = filtered_df["artist_id"]
+    else:
+        df["artist_id"] = None
+
+    # Key by artist_id where available, matching how artists are counted
+    # elsewhere, so a renamed artist is not two entities here either.
+    df["artist_key"] = (
+        df["artist_id"]
+        .astype("string")
+        .str.strip()
+        .replace({"": pd.NA})
+        .fillna(df["master_metadata_album_artist_name"].astype("string"))
+    )
+    df = df.dropna(subset=["ts", "artist_key"])
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df["month"] = pd.to_datetime(df["ts"], errors="coerce").dt.strftime("%Y-%m")
+    df = df.dropna(subset=["month"])
+
+    rows: list[dict[str, Any]] = []
+    for month, group in df.groupby("month", sort=True):
+        counts = group["artist_key"].value_counts().tolist()
+        plays = int(sum(counts))
+        rows.append(
+            {
+                "month": str(month),
+                "unique_artists": len(counts),
+                "plays": plays,
+                "entropy": round(shannon_entropy(counts), 4),
+                "entropy_norm": round(normalized_entropy(counts), 4),
+                "gini": round(gini_coefficient(counts), 4),
+                "top_artist_share": round(100.0 * max(counts) / plays, 2) if plays else 0.0,
+            }
+        )
+
+    return pd.DataFrame(rows, columns=columns)

@@ -38,6 +38,21 @@ def _setup_duckdb_with_minimal_schema(con):
         );
         """
     )
+    # The queries join this view rather than the raw bridge, so that two
+    # 'primary' rows for one track cannot duplicate its plays.
+    con.execute(
+        """
+        CREATE VIEW v_primary_artist_per_track AS
+        WITH ranked AS (
+          SELECT b.track_id, b.artist_id, a.artist_name,
+                 ROW_NUMBER() OVER (PARTITION BY b.track_id ORDER BY a.artist_name) AS rn
+          FROM bridge_track_artists b
+          JOIN dim_artists a ON a.artist_id = b.artist_id
+          WHERE b.role = 'primary'
+        )
+        SELECT track_id, artist_id, artist_name FROM ranked WHERE rn = 1;
+        """
+    )
 
 
 def test_social_tracks_two_users_basic():

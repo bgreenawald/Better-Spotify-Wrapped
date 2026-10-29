@@ -140,6 +140,29 @@ def _fmt_genres(g):
     return str(g) if g is not None else ""
 
 
+def _month_categories(months: pd.Series) -> list[str]:
+    """Return every calendar month from the first to the last, inclusive.
+
+    Using only the months present drops silent ones from the axis entirely, so
+    a line joins across a gap as though listening had continued. Filling the
+    span means a month with no plays shows as zero.
+
+    Args:
+        months: Month labels in "YYYY-MM" form; may contain gaps or repeats.
+
+    Returns:
+        Sorted "YYYY-MM" labels covering the whole span.
+    """
+    labels = sorted({str(m) for m in months.dropna().astype(str) if str(m).strip()})
+    if not labels:
+        return []
+    try:
+        span = pd.period_range(start=labels[0], end=labels[-1], freq="M")
+    except Exception:
+        return labels
+    return [str(p) for p in span]
+
+
 def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     """Register all Dash callbacks for the listening dashboard.
 
@@ -2047,7 +2070,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             selected_genres = avg.head(top_n).index.tolist()
 
         plot_df = trends[trends["genre"].isin(selected_genres)]
-        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        cats = _month_categories(plot_df["month"])
         series = []
         for g, sub in plot_df.groupby("genre"):
             by_month = sub.set_index(sub["month"].astype(str))[y_col]
@@ -2168,7 +2191,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             hover_data.append("artist_genres")
         if "top_tracks" in plot_df.columns:
             hover_data.append("top_tracks")
-        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        cats = _month_categories(plot_df["month"])
         series = []
         for a, sub in plot_df.groupby("artist"):
             by_month = sub.set_index(sub["month"].astype(str))[y_col]
@@ -2281,7 +2304,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             selected_tracks = avg.head(top_n).index.tolist()
 
         plot_df = trends[trends["track_artist"].isin(selected_tracks)]
-        cats = sorted(plot_df["month"].astype(str).unique().tolist())
+        cats = _month_categories(plot_df["month"])
         series = []
         for t, sub in plot_df.groupby("track_artist"):
             by_month = sub.set_index(sub["month"].astype(str))[y_col]

@@ -139,3 +139,29 @@ def test_name_exclusions_are_case_insensitive(con) -> None:
         excluded_tracks=["sOnG"],
     )
     assert df.empty, "lower/upper-case mismatch should not defeat the exclusion"
+
+
+def test_two_primary_artists_do_not_duplicate_plays(con) -> None:
+    """The DDL permits two 'primary' bridge rows for one track.
+
+    Joining the raw bridge would then return a row per artist, duplicating
+    every play of that track. The query joins v_primary_artist_per_track,
+    which picks exactly one.
+    """
+    con.execute("INSERT INTO dim_artists VALUES ('ar1', 'Artist A'), ('ar2', 'Artist B')")
+    con.execute(
+        "INSERT INTO bridge_track_artists (track_id, artist_id, role) "
+        "VALUES ('t1', 'ar1', 'primary'), ('t1', 'ar2', 'primary')"
+    )
+
+    df = get_filtered_plays(
+        con,
+        user_id="u1",
+        start_date=datetime(2024, 6, 1),
+        end_date=datetime(2024, 6, 30),
+        exclude_december=False,
+    )
+
+    # Still the four June plays, not eight.
+    assert len(df) == 4
+    assert df["master_metadata_album_artist_name"].nunique() == 1

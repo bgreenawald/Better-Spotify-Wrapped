@@ -109,7 +109,8 @@ def _base_plays_sql(
     # Build JOINs, including albums only if album exclusions are provided
     joins = [
         "LEFT JOIN dim_tracks t ON t.track_id = p.track_id",
-        "LEFT JOIN bridge_track_artists b ON b.track_id = p.track_id AND b.role = 'primary'",
+        # One row per track; see the note in preprocessing.get_filtered_plays.
+        "LEFT JOIN v_primary_artist_per_track b ON b.track_id = p.track_id",
         "LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id",
     ]
     if rel_albums:

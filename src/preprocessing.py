@@ -321,8 +321,12 @@ def get_filtered_plays(
                 al.album_name
             FROM fact_plays p
             LEFT JOIN dim_tracks t ON t.track_id = p.track_id
-            LEFT JOIN bridge_track_artists b
-                ON b.track_id = p.track_id AND b.role = 'primary'
+            -- v_primary_artist_per_track, not the raw bridge: the DDL's PK is
+            -- (track_id, artist_id, role), so two 'primary' rows for one track
+            -- are permitted and would duplicate every play of it. The view
+            -- picks exactly one. Ingest writes only one today, so this is a
+            -- guard rather than a live fix.
+            LEFT JOIN v_primary_artist_per_track b ON b.track_id = p.track_id
             LEFT JOIN dim_artists ar ON ar.artist_id = b.artist_id
             LEFT JOIN dim_albums al ON al.album_id = t.album_id
             WHERE {where_clause}

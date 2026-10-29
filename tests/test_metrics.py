@@ -300,6 +300,8 @@ def test_get_listening_time_by_month():
             "month",
             "unique_tracks",
             "unique_artists",
+            "plays",
+            "avg_completion_pct",
             "total_hours",
             "avg_hours_per_day",
         ]

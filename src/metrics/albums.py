@@ -1,4 +1,4 @@
-"""Pure album scoring and edition-merging helpers.
+"""Pure scoring, edition-merging and distribution helpers.
 
 These are deliberately free of DuckDB and pandas so they can be unit tested
 directly. `get_top_albums` in `metrics.py` supplies the data and formats the
@@ -7,6 +7,7 @@ result; the arithmetic and the name matching live here.
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -279,3 +280,68 @@ def is_album_sized(total_tracks: int) -> bool:
         True when the release has at least `MIN_ALBUM_TRACKS` tracks.
     """
     return total_tracks >= MIN_ALBUM_TRACKS
+
+
+def shannon_entropy(counts: list[int] | list[float]) -> float:
+    """Shannon entropy, in bits, of a play-count distribution.
+
+    Measures how spread listening is across entities. Zero means everything
+    went to one artist; the maximum, log2(n), means every entity got an equal
+    share. Use it to compare months: a rising value means broader listening.
+
+    Args:
+        counts: Per-entity play counts. Non-positive values are ignored.
+
+    Returns:
+        Entropy in bits, 0.0 when there is nothing (or only one entity).
+    """
+    positive = [float(c) for c in counts if c and c > 0]
+    total = sum(positive)
+    if total <= 0 or len(positive) < 2:
+        return 0.0
+    out = 0.0
+    for c in positive:
+        p = c / total
+        out -= p * math.log2(p)
+    return out
+
+
+def normalized_entropy(counts: list[int] | list[float]) -> float:
+    """Shannon entropy scaled to 0-1 by the maximum possible for the count.
+
+    Raw entropy grows with the number of entities, so it cannot be compared
+    across months with different catalogue sizes. Dividing by log2(n) gives
+    "how evenly spread, regardless of how many".
+
+    Args:
+        counts: Per-entity play counts.
+
+    Returns:
+        A value in [0, 1]; 1.0 means perfectly even.
+    """
+    positive = [float(c) for c in counts if c and c > 0]
+    if len(positive) < 2:
+        return 0.0
+    return shannon_entropy(positive) / math.log2(len(positive))
+
+
+def gini_coefficient(counts: list[int] | list[float]) -> float:
+    """Gini coefficient of a play-count distribution.
+
+    The complement of entropy's view: 0 means every entity got the same number
+    of plays, approaching 1 means a single entity took nearly all of them.
+
+    Args:
+        counts: Per-entity play counts. Non-positive values are ignored.
+
+    Returns:
+        A value in [0, 1); 0.0 when there is nothing or only one entity.
+    """
+    positive = sorted(float(c) for c in counts if c and c > 0)
+    n = len(positive)
+    total = sum(positive)
+    if n < 2 or total <= 0:
+        return 0.0
+    # Weighted sum over the sorted values, the standard discrete formula.
+    weighted = sum((i + 1) * c for i, c in enumerate(positive))
+    return (2.0 * weighted) / (n * total) - (n + 1.0) / n
