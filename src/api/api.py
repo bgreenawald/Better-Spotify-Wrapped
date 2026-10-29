@@ -489,6 +489,7 @@ class SpotifyDataCollector:
                 executor.submit(self._fetch_batch_resilient, batch, api_fn): batch
                 for batch in batches
             }
+            failures: list[str] = []
             for future in tqdm(
                 as_completed(futures), total=len(futures), desc=f"Fetching {category} batches"
             ):
@@ -497,6 +498,7 @@ class SpotifyDataCollector:
                     response = future.result()
                 except Exception as e:
                     logging.error("Failed to fetch %s batch of %d: %s", category, len(batch), e)
+                    failures.append(str(e))
                     continue
 
                 resolved = [i for i in response if isinstance(i, dict) and i.get("id")]
@@ -513,6 +515,16 @@ class SpotifyDataCollector:
                         ", ".join(sorted(missing)),
                     )
                     self._mark_dead(category, sorted(missing))
+
+        # A run where every batch failed must not look like "nothing to do".
+        # Returning 0 updated rows with exit code 0 made a wrong secret or a
+        # dropped network indistinguishable from an already-complete database.
+        if failures and len(failures) == len(batches):
+            raise RuntimeError(
+                f"All {len(batches)} {category} batch(es) failed; no data was fetched. "
+                f"First error: {failures[0]}. "
+                "Check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET and network access."
+            )
 
         return items
 

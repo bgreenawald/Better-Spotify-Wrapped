@@ -127,3 +127,37 @@ def test_successful_request_decays_adaptive_delay(collector: SpotifyDataCollecto
         collector._handle_successful_request()
 
     assert collector._rate_limit_delay == pytest.approx(1.0)
+
+
+def test_total_batch_failure_raises_instead_of_returning_empty(
+    collector: SpotifyDataCollector,
+) -> None:
+    """A wholly failed run must not look like 'nothing to do'.
+
+    Returning no items let the CLI print "Updated rows: 0" and exit 0, so a
+    wrong secret was indistinguishable from an already-complete database.
+    """
+
+    def api_fn(_batch: list[str]) -> list[Any]:
+        raise SpotifyException(401, -1, "invalid client", headers={})
+
+    with pytest.raises(RuntimeError, match="SPOTIFY_CLIENT_ID"):
+        collector._fetch_cached("tracks", ["t1", "t2"], 50, api_fn)
+
+
+def test_partial_batch_failure_still_returns_what_succeeded(
+    collector: SpotifyDataCollector,
+) -> None:
+    """One bad batch must not discard the batches that worked."""
+    calls: list[list[str]] = []
+
+    def api_fn(batch: list[str]) -> list[Any]:
+        calls.append(list(batch))
+        if "boom" in batch:
+            raise SpotifyException(500, -1, "server error", headers={})
+        return [{"id": i} for i in batch]
+
+    # batch_size 1 gives one batch per id, so exactly one of them fails.
+    items = collector._fetch_cached("tracks", ["good1", "boom", "good2"], 1, api_fn)
+
+    assert sorted(i["id"] for i in items) == ["good1", "good2"]

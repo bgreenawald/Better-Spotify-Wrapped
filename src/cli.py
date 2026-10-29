@@ -24,6 +24,7 @@ from .api.api import (
     populate_tracks_from_cached_albums,
 )
 from .db_ingest import IngestResult, load_history_into_fact_plays
+from .status import collect_status
 
 
 def _maybe_apply_ddl(db_path: Path, ddl_path: Path) -> None:
@@ -525,3 +526,38 @@ def ingest_tracks_from_albums(db_path: Path, limit: int | None, cache_dir: Path 
 
 if __name__ == "__main__":
     main()
+
+
+@main.command("status")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+def status_cmd(db_path: Path) -> None:
+    """Report what is populated in the database and what is missing.
+
+    Exits non-zero when something needs attention, so it can gate a pipeline.
+    """
+    try:
+        report = collect_status(db_path)
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    width = max(len(c.name) for c in report.checks)
+    click.echo(f"Database: {report.db_path}\n")
+    for check in report.checks:
+        mark = "ok  " if check.ok else "WARN"
+        click.echo(f"  [{mark}] {check.name.ljust(width)}  {check.value}")
+
+    if report.ok:
+        click.echo("\nAll checks passed.")
+        return
+
+    click.echo("\nNeeds attention:")
+    for check in report.problems:
+        click.echo(f"  - {check.name}: {check.hint or check.value}")
+    raise SystemExit(1)

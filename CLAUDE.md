@@ -87,6 +87,12 @@ uv run slopify ingest-isrcs --db data/db/music.db
 uv run slopify ingest-duration-explicit --db data/db/music.db
 ```
 
+```bash
+# Report what is populated and what is missing; exits non-zero if
+# anything needs attention, so it can gate a pipeline
+uv run slopify status --db data/db/music.db
+```
+
 ### Dashboard
 
 ```bash
