@@ -1,5 +1,7 @@
 from typing import Any
 
+import pandas as pd
+
 
 def extract_track_id(uri: Any) -> str | None:
     """Extract a Spotify track ID from common URI/URL formats.
@@ -35,3 +37,34 @@ def extract_track_id(uri: Any) -> str | None:
         return tid or None
 
     return None
+
+
+def inclusive_end_bound(end: Any) -> Any:
+    """Normalize a range end so the whole final day is included.
+
+    Callers pass a date-only or midnight timestamp to mean "through this day"
+    (a date picker value, or ``datetime(year, 12, 31)``). Comparing
+    ``played_at <= midnight`` silently drops every play on that last day, so a
+    midnight bound is pushed to the end of the same day. A bound that carries a
+    real time of day is honored as given.
+
+    Args:
+        end: The end of the range, or None.
+
+    Returns:
+        A ``pandas.Timestamp`` covering the full day, or None if ``end`` is None.
+    """
+    if end is None:
+        return None
+    ts = pd.to_datetime(end)
+    if pd.isna(ts):
+        return None
+    if (ts.hour, ts.minute, ts.second, ts.microsecond, getattr(ts, "nanosecond", 0)) == (
+        0,
+        0,
+        0,
+        0,
+        0,
+    ):
+        return ts + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    return ts

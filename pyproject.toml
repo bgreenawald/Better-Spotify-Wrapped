@@ -1,7 +1,10 @@
 [project]
 name = "slopify-wrapped"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analyze Spotify listening history with more detailed insights than Spotify Wrapped"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ben Greenawald" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -9,12 +12,11 @@ dependencies = [
     "dash-bootstrap-components>=1.6.0",
     "dash>=2.18.2",
     "numpy>=2.2.0",
-    "openpyxl>=3.1.5",
+    "openpyxl>=3.1.5",  # needed implicitly by pandas.to_excel in src/wrapped.py
     "pandas>=2.2.3",
     "python-dotenv>=1.0.1",
     "spotipy>=2.24.0",
     "tqdm>=4.67.1",
-    "pyinstaller>=6.11.1",
     "webdriver-manager>=4.0.2",
     "duckdb>=1.3.2",
     "dash-mantine-components>=2.2.1",
@@ -43,6 +45,4 @@ dev = [
     "pre-commit>=4.3.0",
     "pytest>=8.3.5",
     "ruff>=0.12.10",
-# Highcharts-core is used only for client-side JS bundle; complies with Highcharts' free license (non-commercial use)
-    "highcharts-core>=1.10.3,<1.11",
 ]

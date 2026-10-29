@@ -1,3 +1,12 @@
+ci:
+  # Configuration for the pre-commit.ci service
+  autofix_prs: true
+  autoupdate_schedule: weekly
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+
+    for more information, see https://pre-commit.ci
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.12.10

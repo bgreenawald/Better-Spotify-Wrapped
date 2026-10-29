@@ -6,12 +6,14 @@ the normalized DuckDB schema (see DDL.sql).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import click
 import duckdb
 
 from .api.api import (
+    fetch_artist_cache,
     populate_artist_genre_evidence_from_cache,
     populate_artist_genres_from_cache,
     populate_duration_and_explicit,
@@ -27,21 +29,41 @@ from .db_ingest import IngestResult, load_history_into_fact_plays
 def _maybe_apply_ddl(db_path: Path, ddl_path: Path) -> None:
     if not ddl_path.exists():
         raise click.ClickException(f"DDL file not found: {ddl_path}")
+    sql = ddl_path.read_text(encoding="utf-8")
     conn = duckdb.connect(str(db_path))
     try:
-        with ddl_path.open("r", encoding="utf-8") as f:
-            sql = f.read()
-        # Naively split on semicolons to execute multiple statements
-        statements = [s.strip() for s in sql.split(";") if s.strip()]
-        for stmt in statements:
-            conn.execute(stmt)
+        # DuckDB accepts multi-statement strings, so hand it the whole file.
+        # Splitting on ";" breaks on semicolons inside comments and string
+        # literals. The transaction keeps a failure from leaving a partial
+        # schema behind.
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute(sql)
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
     finally:
         conn.close()
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-def main() -> None:
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase log verbosity (-v for INFO, -vv for DEBUG).",
+)
+def main(verbose: int) -> None:
     """Slopify Wrapped CLI."""
+    # Without this, every logging.info/warning in the codebase is discarded,
+    # so a failed batch or a skipped row leaves no trace anywhere.
+    level = logging.WARNING if verbose == 0 else logging.INFO if verbose == 1 else logging.DEBUG
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
 
 @main.command("init-db")
@@ -344,6 +366,54 @@ def ingest_track_artists(db_path: Path, limit: int | None, cache_dir: Path | Non
 
     click.echo(
         f"Inserted artists: {counts['artists_inserted']} | Bridges inserted: {counts['bridges_inserted']}"
+    )
+
+
+@main.command("fetch-artist-cache")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of artists to fetch.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Concurrent worker threads for API requests.",
+)
+def fetch_artist_cache_cmd(
+    db_path: Path, limit: int | None, cache_dir: Path | None, workers: int
+) -> None:
+    """Fetch artist JSONs from Spotify into the local cache.
+
+    Run this after `ingest-track-artists` and before `ingest-artist-genres`,
+    which reads the cache this command fills.
+    """
+    counts = fetch_artist_cache(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+        max_workers=workers,
+    )
+    click.echo(
+        f"Artists in DB: {counts['artists_in_db']} | "
+        f"Already cached: {counts['already_cached']} | Fetched: {counts['fetched']}"
     )
 
 

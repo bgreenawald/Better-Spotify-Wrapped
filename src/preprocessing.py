@@ -8,6 +8,7 @@ import duckdb
 import pandas as pd
 
 from src.api.api import SpotifyData
+from src.metrics.utils import inclusive_end_bound
 
 
 def add_api_data(
@@ -274,7 +275,7 @@ def get_filtered_plays(
         params.append(s_date)
     if e_date is not None:
         filters.append("p.played_at <= ?")
-        params.append(e_date)
+        params.append(inclusive_end_bound(e_date))
     if exclude_december:
         filters.append("EXTRACT(month FROM p.played_at) <> 12")
     # Require duration_ms > 0, excluding NULLs

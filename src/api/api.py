@@ -44,6 +44,8 @@ class SpotifyDataCollector:
     _DEFAULT_RATE_LIMIT_DELAY: float = 1.0  # Conservative default for rate limiting
     _MAX_REQUESTS_PER_30S: int = 50  # Conservative limit for 30s rolling window
     _CIRCUIT_BREAKER_THRESHOLD: int = 3  # Consecutive 429s before cooldown
+    _MAX_RATE_LIMIT_WAITS: int = 5  # Give up on a batch after this many 429 waits
+    _MAX_RETRY_AFTER: float = 60.0  # Cap on a server-supplied Retry-After, in seconds
     _CIRCUIT_BREAKER_COOLDOWN: float = 300.0  # 5 minutes
 
     def __init__(
@@ -75,14 +77,13 @@ class SpotifyDataCollector:
         self.spotify_client = spotipy.Spotify(
             auth_manager=SpotifyClientCredentials(client_id=cid, client_secret=csecret)
         )
+        # DATA_DIR is optional: only the legacy whole-export helpers read it,
+        # and the DB-backed populate commands never touch it. Requiring it here
+        # made every `ingest-*` command fail on a variable they do not use.
         data_dir_env = os.getenv("DATA_DIR")
-        if not data_dir_env:
-            raise ValueError(
-                "DATA_DIR is not set. Create a .env with DATA_DIR=<path> "
-                "(keys: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, DATA_DIR)."
-            )
-        self.data_dir = Path(data_dir_env)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir = Path(data_dir_env) if data_dir_env else None
+        if self.data_dir is not None:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
         # Allow configurable cache directory via arg or env, defaulting to repo path
         cache_env = os.getenv("SPOTIFY_API_CACHE_DIR")
         self.cache_dir: Path = Path(cache_dir or cache_env or "data/api/cache")
@@ -92,6 +93,8 @@ class SpotifyDataCollector:
         self._rate_limit_delay = rate_limit_delay or float(
             os.getenv("SPOTIFY_API_RATE_DELAY", str(self._DEFAULT_RATE_LIMIT_DELAY))
         )
+        # Baseline the adaptive delay decays back toward after a 429 burst.
+        self._baseline_rate_limit_delay = self._rate_limit_delay
         self._max_workers = max_workers
         self._request_lock = threading.Lock()
         self._last_request_time = 0.0
@@ -105,6 +108,46 @@ class SpotifyDataCollector:
         """Create cache subdirectories for tracks, artists, and albums."""
         for category in ("tracks", "artists", "albums"):
             (self.cache_dir / category).mkdir(parents=True, exist_ok=True)
+            (self.cache_dir / category / "_dead").mkdir(parents=True, exist_ok=True)
+
+    def _dead_path(self, category: str, item_id: str) -> Path:
+        """Return the negative-cache marker path for an ID.
+
+        Args:
+            category: Cache category.
+            item_id: ID of the item.
+
+        Returns:
+            Path to the marker file recording that the API cannot resolve this ID.
+        """
+        return self.cache_dir / category / "_dead" / f"{item_id}.marker"
+
+    def _get_dead_ids(self, category: str) -> set[str]:
+        """Retrieve IDs the API has already failed to resolve.
+
+        These are recorded so that a permanently unresolvable ID is not
+        re-requested on every subsequent run.
+
+        Args:
+            category: One of 'tracks', 'artists', 'albums'.
+
+        Returns:
+            A set of known-dead item IDs.
+        """
+        return {file.stem for file in (self.cache_dir / category / "_dead").glob("*.marker")}
+
+    def _mark_dead(self, category: str, item_ids: list[str]) -> None:
+        """Record IDs that the API returned as null so they are not re-fetched.
+
+        Args:
+            category: Cache category.
+            item_ids: IDs the API could not resolve.
+        """
+        for item_id in item_ids:
+            try:
+                self._dead_path(category, item_id).touch()
+            except OSError as e:
+                logging.warning("Could not record dead %s id %s: %s", category, item_id, e)
 
     def _get_cached_ids(self, category: str) -> set[str]:
         """Retrieve all cached item IDs for a given category.
@@ -118,32 +161,53 @@ class SpotifyDataCollector:
         cache_path = self.cache_dir / category
         return {file.stem for file in cache_path.glob("*.json")}
 
-    def _load_cache(self, category: str, item_id: str) -> dict[str, Any]:
+    def _load_cache(self, category: str, item_id: str) -> dict[str, Any] | None:
         """Load a single cached item from disk.
+
+        A truncated or otherwise unreadable file is treated as a cache miss and
+        removed, so that a crash mid-write cannot permanently poison the cache.
 
         Args:
             category: Cache category.
             item_id: ID of the item to load.
 
         Returns:
-            The cached item data as a dictionary.
+            The cached item data, or None if the entry is missing or corrupt.
         """
         path = self.cache_dir / category / f"{item_id}.json"
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logging.warning("Discarding unreadable cache file %s: %s", path, e)
+            path.unlink(missing_ok=True)
+            return None
 
     def _save_cache(self, category: str, items: list[dict[str, Any]]) -> None:
-        """Save multiple items to the cache.
+        """Save multiple items to the cache atomically.
+
+        Items the API could not resolve come back as None; those are skipped and
+        recorded in the negative cache rather than aborting the whole batch.
+        Each file is written to a temporary path in the same directory and then
+        renamed, so a crash mid-write cannot leave truncated JSON behind.
 
         Args:
             category: Cache category.
-            items: List of item data dictionaries with 'id' keys.
+            items: List of item data dictionaries with 'id' keys. May contain None.
         """
         for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
             item_id = item["id"]
             path = self.cache_dir / category / f"{item_id}.json"
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(item, f, indent=4, sort_keys=True)
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(item, f, sort_keys=True, separators=(",", ":"))
+                os.replace(tmp, path)
+            except OSError as e:
+                logging.warning("Could not cache %s %s: %s", category, item_id, e)
+                tmp.unlink(missing_ok=True)
 
     def _chunk_list(self, items: list[str], size: int) -> list[list[str]]:
         """Split a list into smaller lists of a given size.
@@ -158,12 +222,19 @@ class SpotifyDataCollector:
         return [items[i : i + size] for i in range(0, len(items), size)]
 
     def _rate_limited_request(self) -> None:
-        """Enforce rate limiting between API requests using a thread-safe lock."""
+        """Enforce a minimum interval between API requests.
+
+        The next request slot is reserved under the lock, but the wait happens
+        outside it. Sleeping while holding the lock would serialize every
+        worker, making ``max_workers > 1`` buy nothing.
+        """
         with self._request_lock:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < self._rate_limit_delay:
-                time.sleep(self._rate_limit_delay - elapsed)
-            self._last_request_time = time.time()
+            now = time.time()
+            slot = max(now, self._last_request_time + self._rate_limit_delay)
+            self._last_request_time = slot
+        wait = slot - time.time()
+        if wait > 0:
+            time.sleep(wait)
 
     def _check_request_budget(self) -> None:
         """Wait if approaching rate limit within 30s rolling window.
@@ -240,9 +311,18 @@ class SpotifyDataCollector:
                 self._rate_limit_delay = new_delay
 
     def _handle_successful_request(self) -> None:
-        """Reset consecutive rate limit counter on successful request. Thread-safe."""
+        """Reset the rate limit counter and decay the adaptive delay. Thread-safe.
+
+        The delay is walked back toward its configured baseline so that one bad
+        patch of 429s does not leave the collector throttled at up to 5s per
+        request for the remainder of the process.
+        """
         with self._request_lock:
             self._consecutive_rate_limits = 0
+            if self._rate_limit_delay > self._baseline_rate_limit_delay:
+                self._rate_limit_delay = max(
+                    self._baseline_rate_limit_delay, self._rate_limit_delay / 1.1
+                )
 
     def get_rate_limit_status(self) -> dict[str, Any]:
         """Return current rate limiting status for monitoring. Thread-safe.
@@ -266,6 +346,29 @@ class SpotifyDataCollector:
                 >= self._CIRCUIT_BREAKER_THRESHOLD,
             }
 
+    def _parse_retry_after(self, exc: SpotifyException, attempt: int) -> float:
+        """Read a bounded wait from a 429's Retry-After header.
+
+        The header may be absent or non-numeric, and an unbounded value would
+        stall the run, so it is clamped to ``_MAX_RETRY_AFTER``.
+
+        Args:
+            exc: The 429 exception carrying the response headers.
+            attempt: Current attempt number, used for exponential fallback.
+
+        Returns:
+            Seconds to wait before retrying.
+        """
+        fallback = float(2**attempt)
+        headers = getattr(exc, "headers", None) or {}
+        try:
+            retry_after = float(headers.get("Retry-After", fallback))
+        except (TypeError, ValueError):
+            retry_after = fallback
+        if retry_after < 0:
+            retry_after = fallback
+        return min(retry_after, self._MAX_RETRY_AFTER)
+
     def _fetch_with_retry(
         self, fetch_func: Any, batch: list[str], max_retries: int = 3
     ) -> list[dict[str, Any]]:
@@ -285,7 +388,9 @@ class SpotifyDataCollector:
         # Check circuit breaker before attempting any requests
         self._check_circuit_breaker()
 
-        for attempt in range(max_retries):
+        attempt = 0
+        rate_limit_waits = 0
+        while attempt < max_retries:
             try:
                 # Proactively check request budget to avoid hitting rate limits
                 self._check_request_budget()
@@ -300,24 +405,146 @@ class SpotifyDataCollector:
                     self._handle_rate_limit_hit()
                     # Check if circuit breaker should trigger
                     self._check_circuit_breaker()
-                    retry_after = int(e.headers.get("Retry-After", 2**attempt))
+                    retry_after = self._parse_retry_after(e, attempt)
+                    rate_limit_waits += 1
                     logging.warning(
-                        f"Rate limited. Retrying after {retry_after}s "
-                        f"(attempt {attempt + 1}/{max_retries})"
+                        "Rate limited. Retrying after %ss (rate-limit wait %d/%d)",
+                        retry_after,
+                        rate_limit_waits,
+                        self._MAX_RATE_LIMIT_WAITS,
                     )
                     time.sleep(retry_after)
+                    # A 429 is a "come back later", not a failed attempt, so it
+                    # does not consume the retry budget -- but cap the waits so
+                    # a persistently throttled batch still terminates.
+                    if rate_limit_waits >= self._MAX_RATE_LIMIT_WAITS:
+                        raise
+                    continue
                 else:
                     raise
             except Exception as e:
-                if attempt < max_retries - 1:
+                attempt += 1
+                if attempt < max_retries:
                     wait_time = 2**attempt
-                    logging.warning(f"Request failed: {e}. Retrying after {wait_time}s")
+                    logging.warning("Request failed: %s. Retrying after %ss", e, wait_time)
                     time.sleep(wait_time)
                 else:
                     raise
         raise SpotifyException(
             429, -1, f"Max retries ({max_retries}) exceeded for batch", headers={}
         )
+
+    def _fetch_cached(
+        self,
+        category: str,
+        item_ids: list[str],
+        batch_size: int,
+        api_fn: Any,
+    ) -> list[dict[str, Any]]:
+        """Fetch items by ID, serving from cache and fetching the remainder.
+
+        IDs the API has previously returned as null are skipped via the negative
+        cache. A batch that fails with a 400 (one malformed ID poisons the whole
+        request) is bisected so the good IDs in it are still retrieved.
+
+        Args:
+            category: Cache category ('tracks', 'artists', 'albums').
+            item_ids: IDs to retrieve.
+            batch_size: Maximum IDs per API request.
+            api_fn: Callable taking a list of IDs and returning a list of items,
+                where unresolvable IDs come back as None.
+
+        Returns:
+            List of item data dictionaries, excluding unresolvable IDs.
+        """
+        cached = self._get_cached_ids(category)
+        dead = self._get_dead_ids(category)
+
+        items: list[dict[str, Any]] = []
+        uncached: list[str] = []
+        for item_id in item_ids:
+            if item_id in dead:
+                continue
+            if item_id in cached:
+                hit = self._load_cache(category, item_id)
+                if hit is not None:
+                    items.append(hit)
+                    continue
+                # Corrupt entry was discarded by _load_cache; refetch it.
+            uncached.append(item_id)
+
+        if dead:
+            logging.info(
+                "Skipping %d known-unresolvable %s id(s) from the negative cache",
+                len(dead),
+                category,
+            )
+
+        batches = self._chunk_list(uncached, batch_size)
+        if not batches:
+            return items
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            futures = {
+                executor.submit(self._fetch_batch_resilient, batch, api_fn): batch
+                for batch in batches
+            }
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc=f"Fetching {category} batches"
+            ):
+                batch = futures[future]
+                try:
+                    response = future.result()
+                except Exception as e:
+                    logging.error("Failed to fetch %s batch of %d: %s", category, len(batch), e)
+                    continue
+
+                resolved = [i for i in response if isinstance(i, dict) and i.get("id")]
+                self._save_cache(category, resolved)
+                items.extend(resolved)
+
+                # Anything requested but absent from the response is unresolvable.
+                missing = set(batch) - {i["id"] for i in resolved}
+                if missing:
+                    logging.warning(
+                        "Spotify returned no %s for %d id(s); recording as dead: %s",
+                        category,
+                        len(missing),
+                        ", ".join(sorted(missing)),
+                    )
+                    self._mark_dead(category, sorted(missing))
+
+        return items
+
+    def _fetch_batch_resilient(self, batch: list[str], api_fn: Any) -> list[Any]:
+        """Fetch one batch, bisecting it if a malformed ID makes the API reject it.
+
+        A single invalid ID causes Spotify to 400 the entire request. Splitting
+        the batch isolates the bad ID instead of discarding every good ID with it.
+
+        Args:
+            batch: IDs to fetch.
+            api_fn: Callable taking a list of IDs and returning a list of items.
+
+        Returns:
+            List of items (may contain None for unresolvable IDs).
+        """
+        try:
+            return self._fetch_with_retry(lambda _b=batch: api_fn(_b), batch)
+        except SpotifyException as e:
+            if e.http_status != 400 or len(batch) == 1:
+                raise
+            mid = len(batch) // 2
+            logging.warning(
+                "Batch of %d rejected with 400; bisecting to isolate the bad id(s)", len(batch)
+            )
+            results: list[Any] = []
+            for half in (batch[:mid], batch[mid:]):
+                try:
+                    results.extend(self._fetch_batch_resilient(half, api_fn))
+                except SpotifyException as inner:
+                    logging.error("Dropping %d id(s) after bisect: %s", len(half), inner)
+            return results
 
     def fetch_tracks(self, track_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch track data by IDs, using cache when available.
@@ -328,38 +555,12 @@ class SpotifyDataCollector:
         Returns:
             List of track data dictionaries.
         """
-        cached = self._get_cached_ids("tracks")
-        uncached = [tid for tid in track_ids if tid not in cached]
-
-        # Load cached tracks
-        tracks: list[dict[str, Any]] = [
-            self._load_cache("tracks", tid) for tid in track_ids if tid in cached
-        ]
-
-        # Fetch remaining tracks in batches with concurrent processing
-        batches = self._chunk_list(uncached, self._TRACK_BATCH_SIZE)
-        if batches:
-            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        self._fetch_with_retry,
-                        lambda _batch=batch: self.spotify_client.tracks(_batch)["tracks"],
-                        batch,
-                    ): batch
-                    for batch in batches
-                }
-
-                for future in tqdm(
-                    as_completed(futures), total=len(futures), desc="Fetching track batches"
-                ):
-                    try:
-                        response = future.result()
-                        self._save_cache("tracks", response)
-                        tracks.extend(response)
-                    except Exception as e:
-                        logging.error(f"Failed to fetch track batch: {e}")
-
-        return tracks
+        return self._fetch_cached(
+            "tracks",
+            track_ids,
+            self._TRACK_BATCH_SIZE,
+            lambda batch: self.spotify_client.tracks(batch)["tracks"],
+        )
 
     def fetch_artists(self, artist_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch artist data by IDs, using cache when available.
@@ -370,37 +571,12 @@ class SpotifyDataCollector:
         Returns:
             List of artist data dictionaries.
         """
-        cached = self._get_cached_ids("artists")
-        uncached = [aid for aid in artist_ids if aid not in cached]
-
-        artists: list[dict[str, Any]] = [
-            self._load_cache("artists", aid) for aid in artist_ids if aid in cached
-        ]
-
-        # Fetch remaining artists in batches with concurrent processing
-        batches = self._chunk_list(uncached, self._ARTIST_BATCH_SIZE)
-        if batches:
-            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        self._fetch_with_retry,
-                        lambda _batch=batch: self.spotify_client.artists(_batch)["artists"],
-                        batch,
-                    ): batch
-                    for batch in batches
-                }
-
-                for future in tqdm(
-                    as_completed(futures), total=len(futures), desc="Fetching artist batches"
-                ):
-                    try:
-                        response = future.result()
-                        self._save_cache("artists", response)
-                        artists.extend(response)
-                    except Exception as e:
-                        logging.error(f"Failed to fetch artist batch: {e}")
-
-        return artists
+        return self._fetch_cached(
+            "artists",
+            artist_ids,
+            self._ARTIST_BATCH_SIZE,
+            lambda batch: self.spotify_client.artists(batch)["artists"],
+        )
 
     def fetch_albums(self, album_ids: list[str]) -> list[dict[str, Any]]:
         """Fetch album data by IDs, using cache when available.
@@ -411,37 +587,12 @@ class SpotifyDataCollector:
         Returns:
             List of album data dictionaries.
         """
-        cached = self._get_cached_ids("albums")
-        uncached = [aid for aid in album_ids if aid not in cached]
-
-        albums: list[dict[str, Any]] = [
-            self._load_cache("albums", aid) for aid in album_ids if aid in cached
-        ]
-
-        # Fetch remaining albums in batches with concurrent processing
-        batches = self._chunk_list(uncached, self._ALBUM_BATCH_SIZE)
-        if batches:
-            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        self._fetch_with_retry,
-                        lambda _batch=batch: self.spotify_client.albums(_batch)["albums"],
-                        batch,
-                    ): batch
-                    for batch in batches
-                }
-
-                for future in tqdm(
-                    as_completed(futures), total=len(futures), desc="Fetching album batches"
-                ):
-                    try:
-                        response = future.result()
-                        self._save_cache("albums", response)
-                        albums.extend(response)
-                    except Exception as e:
-                        logging.error(f"Failed to fetch album batch: {e}")
-
-        return albums
+        return self._fetch_cached(
+            "albums",
+            album_ids,
+            self._ALBUM_BATCH_SIZE,
+            lambda batch: self.spotify_client.albums(batch)["albums"],
+        )
 
 
 def _list_to_dict(items: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
@@ -1254,6 +1405,71 @@ def populate_tracks_from_cached_albums(
         }
     finally:
         conn.close()
+
+
+def fetch_artist_cache(
+    *,
+    db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+    max_workers: int = 1,
+) -> dict[str, int]:
+    """Fetch and cache Spotify artist JSONs for every artist in `dim_artists`.
+
+    This is the step that fills `cache_dir/artists/`, which
+    :func:`populate_artist_genre_evidence_from_cache` then reads. Without it the
+    genre pipeline has no input on a fresh install.
+
+    Args:
+        db_path: Path to DuckDB database file.
+        client_id: Spotify Client ID (falls back to env `SPOTIFY_CLIENT_ID`).
+        client_secret: Spotify Client Secret (falls back to env `SPOTIFY_CLIENT_SECRET`).
+        cache_dir: Optional cache directory override.
+        limit: Optional cap on the number of artists to fetch.
+        max_workers: Concurrent worker threads for API requests.
+
+    Returns:
+        Counts: {"artists_in_db": n, "already_cached": c, "fetched": f}.
+    """
+    collector = SpotifyDataCollector(
+        client_id=client_id,
+        client_secret=client_secret,
+        cache_dir=cache_dir,
+        max_workers=max_workers,
+    )
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT artist_id FROM dim_artists WHERE artist_id IS NOT NULL"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    artist_ids = [r[0] for r in rows if r[0]]
+    total = len(artist_ids)
+    if limit is not None:
+        artist_ids = artist_ids[: max(0, int(limit))]
+
+    already = collector._get_cached_ids("artists")
+    to_fetch = [a for a in artist_ids if a not in already]
+    cached_count = len(artist_ids) - len(to_fetch)
+
+    if not to_fetch:
+        logging.info("All %d requested artists are already cached", len(artist_ids))
+        return {"artists_in_db": total, "already_cached": cached_count, "fetched": 0}
+
+    before = len(collector._get_cached_ids("artists"))
+    collector.fetch_artists(to_fetch)
+    after = len(collector._get_cached_ids("artists"))
+
+    return {
+        "artists_in_db": total,
+        "already_cached": cached_count,
+        "fetched": after - before,
+    }
 
 
 def populate_artist_genre_evidence_from_cache(

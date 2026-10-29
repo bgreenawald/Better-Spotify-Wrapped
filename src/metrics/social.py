@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from src.metrics.utils import inclusive_end_bound
+
 Mode = Literal["tracks", "artists", "genres"]
 
 # How many ranked items are considered per region when building disjoint
@@ -261,7 +263,7 @@ def compute_social_regions(
         params.append(pd.to_datetime(start).to_pydatetime())
     if end is not None:
         date_clause += " AND p.played_at <= ?"
-        params.append(pd.to_datetime(end).to_pydatetime())
+        params.append(inclusive_end_bound(end).to_pydatetime())
 
     has_genre_hierarchy = False
     if rel_genres:
