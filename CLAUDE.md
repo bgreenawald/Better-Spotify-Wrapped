@@ -69,6 +69,10 @@ uv run slopify ingest-track-albums --db data/db/music.db
 # Populate artist information and bridge tables
 uv run slopify ingest-track-artists --db data/db/music.db
 
+# Fetch artist JSONs from Spotify into the local cache
+# (must run after ingest-track-artists and before ingest-artist-genres)
+uv run slopify fetch-artist-cache --db data/db/music.db
+
 # Load artist genre evidence from cache
 uv run slopify ingest-artist-genres --db data/db/music.db
 
@@ -77,6 +81,10 @@ uv run slopify link-artist-genres --db data/db/music.db
 
 # Populate tracks from cached album data
 uv run slopify ingest-tracks-from-albums --db data/db/music.db
+
+# Narrower backfills of dim_tracks columns (see `uv run slopify --help` for all 11 commands)
+uv run slopify ingest-isrcs --db data/db/music.db
+uv run slopify ingest-duration-explicit --db data/db/music.db
 ```
 
 ### Dashboard
@@ -94,18 +102,19 @@ The dashboard runs on http://localhost:8050 by default.
 
 The project uses a normalized DuckDB schema defined in `DDL.sql`:
 
-- **Dimension tables**: `dim_users`, `dim_tracks`, `dim_albums`, `dim_artists`, `dim_genres`, `dim_moods`
+- **Dimension tables**: `dim_users`, `dim_tracks`, `dim_albums`, `dim_artists`, `dim_genres`
 - **Fact table**: `fact_plays` (listening history events)
 - **Bridge tables**: `bridge_track_artists` (handles features, remixers with role field)
-- **Genre/Mood mapping**: `tag_evidence` (raw tags from APIs), `map_genre`/`map_mood` (mappings to canonical IDs)
-- **Relationship tables**: `artist_genres`, `track_genres`, `track_moods`, `genre_hierarchy`
-- **Aggregation tables**: `agg_user_genre_daily`, `agg_user_genre_monthly`, `agg_user_mood_daily`, `agg_user_mood_monthly`
+- **Genre mapping**: `tag_evidence` (raw tags from APIs), `map_genre` (mapping to canonical IDs)
+- **Relationship tables**: `artist_genres`, `genre_hierarchy`
 - **Views**: `v_primary_artist_per_track`, `v_plays_enriched` (denormalized plays with track/album/artist)
+
+That is the full set of 13 objects. Genre data comes from `artist_genres` only. There are no mood, `track_genres`, or pre-aggregated rollup tables (removed: no data source or writer/reader; aggregate from `fact_plays` directly).
 
 ### Data Flow
 
 1. **Ingestion** (`src/db_ingest.py`): Loads raw Spotify JSON exports into `fact_plays` and minimal `dim_tracks`/`dim_users` records
-2. **Enrichment** (`src/api/api.py`): Uses Spotify API (via spotipy) to fetch metadata; results cached in `data/api/cache/`
+2. **Enrichment** (`src/api/api.py`): Uses Spotify API (via spotipy) to fetch metadata; results cached in `data/api/cache/`. Order matters: `ingest-track-artists` -> `fetch-artist-cache` -> `ingest-artist-genres` -> `link-artist-genres`
 3. **Genre taxonomy** (`src/load_genre_taxonomy.py`): Loads hierarchical genre structure with parent-child relationships
 4. **Metrics** (`src/metrics/`): Computes trends, social listening patterns, and statistics
 5. **Dashboard** (`dashboard/`): Dash application with callbacks, components, and layouts for visualization
@@ -117,7 +126,19 @@ The project uses a normalized DuckDB schema defined in `DDL.sql`:
 **src/api/api.py**:
 - `SpotifyDataCollector`: Fetches and caches track/artist/album data from Spotify API
 - Functions like `populate_track_metadata()`, `populate_track_albums()`, `populate_track_artists()` populate database tables from cached API responses
-- Thread-safe caching with file locks to avoid concurrent write issues
+- Caching: in-process `threading.Lock` only (no file locking); cache writes are atomic (temp file + `os.replace`); unreadable/truncated cache files count as a miss and are refetched; IDs Spotify cannot resolve go in a negative cache (`_dead/`) and are not re-requested
+
+**src/link_artist_genres.py**: Links artists to canonical genres (backs `link-artist-genres`)
+
+**src/load_genre_taxonomy.py**: Loads the hierarchical genre taxonomy into `dim_genres`/`genre_hierarchy`
+
+**src/io.py**: `load_spotify_history()` reads raw export JSON into a DataFrame (legacy path)
+
+**src/wrapped.py**: Standalone script that exports top played tracks per year to Excel (legacy)
+
+**llm/**: Offline scripts that generate the genre subgenre taxonomy via an LLM (`get_subgenre_taxonomy.py`)
+
+**scripts/bootstrap_worktree.sh**: Symlinks shared untracked paths (data, `.env`, etc.) into a new git worktree
 
 **src/db_ingest.py**:
 - `load_history_into_fact_plays()`: Main function to load Spotify JSON exports into database
@@ -160,10 +181,10 @@ The project uses a `.env` file with the following keys:
 
 - `SPOTIFY_CLIENT_ID`: Spotify API client ID (required for API calls)
 - `SPOTIFY_CLIENT_SECRET`: Spotify API client secret (required for API calls)
-- `DATA_DIR`: Base directory for user data (e.g., `data/ben.greenawald`)
+- `DATA_DIR`: Optional, legacy only. Base directory for user data (e.g., `data/ben.greenawald`), read by `src/wrapped.py` and the legacy export helpers. The `ingest-*` commands do not need it.
 - `MUSIC_DB`: Path to DuckDB database (default: `data/db/music.db`)
 - `SPOTIFY_API_CACHE_DIR`: Override for API cache directory (default: `data/api/cache`)
-- `ENVIRONMENT`: Set to "local", "dev", "development", or "test" to override env vars from .env file
+- `ENVIRONMENT`: Dashboard only (`dashboard/application.py`, `dashboard/conn.py`): set to "local", "dev", "development", or "test" to let `.env` override existing env vars. `src/api/api.py` and `src/api/utils.py` call `load_dotenv(override=True)` unconditionally, so CLI runs always let `.env` clobber shell env vars
 
 ### API Caching
 
@@ -172,7 +193,7 @@ Spotify API responses are cached in `data/api/cache/` organized by resource type
 - `artists/`: Artist metadata JSON files (keyed by artist ID)
 - `albums/`: Album metadata JSON files (keyed by album ID)
 
-Caching uses file locks to prevent concurrent writes and reduce API calls.
+Each category also has a `_dead/` subdirectory of marker files for IDs Spotify cannot resolve (negative cache). Writes are atomic (temp file + `os.replace`) and corrupt files are refetched; there is no file locking.
 
 ### Code Style
 

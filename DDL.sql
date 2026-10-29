@@ -1,3 +1,20 @@
+-- Slopify Wrapped schema.
+--
+-- Every table here is written and read by code. Removed on 2026-10-29 as
+-- unreachable (recoverable from git history if any of it is revived):
+--
+--   dim_moods, map_mood, track_moods   -- the mood half had no code at all,
+--     and no data source: the Spotify audio features that would supply mood
+--     scores are never fetched anywhere in this project.
+--   track_genres                       -- read by two guarded fallbacks, never
+--     written, so those paths could not fire. Genres come from artist_genres.
+--   agg_user_{genre,mood}_{daily,monthly}  -- rollups with no writer and no
+--     reader. A monthly aggregate straight off fact_plays measures ~4ms, so
+--     they optimized nothing.
+--
+-- Keep this file honest: a table nothing touches belongs in git history, not
+-- here, because DDL doubles as the project's description of itself.
+
 CREATE TABLE IF NOT EXISTS dim_users (
   user_id         TEXT PRIMARY KEY,      -- internal UUID
   display_name    TEXT,
@@ -69,18 +86,12 @@ CREATE TABLE IF NOT EXISTS dim_genres (
   active     BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS dim_moods (
-  mood_id        INTEGER PRIMARY KEY,
-  name           TEXT UNIQUE NOT NULL,
-  active         BOOLEAN DEFAULT TRUE
-);
-
 CREATE TABLE IF NOT EXISTS tag_evidence (
   entity_type    TEXT NOT NULL,    -- 'track' | 'artist' | 'release'
   entity_key     TEXT NOT NULL,    -- track_id / artist_id / album_id
-  source         TEXT NOT NULL,    -- 'musicbrainz' | 'lastfm' | 'discogs' | 'theaudiodb'
+  source         TEXT NOT NULL,    -- 'spotify' (the only source the ingest writes)
   tag_raw        TEXT NOT NULL,    -- exact string from API
-  tag_kind       TEXT NOT NULL,    -- 'genre' | 'mood'
+  tag_kind       TEXT NOT NULL,    -- 'genre'
   weight_raw     REAL,             -- source-provided weight, or 1.0
   observed_at    TIMESTAMP NOT NULL,
   PRIMARY KEY (entity_type, entity_key, source, tag_raw, tag_kind)
@@ -104,73 +115,10 @@ CREATE TABLE IF NOT EXISTS genre_hierarchy (
 CREATE INDEX IF NOT EXISTS idx_genre_h_child  ON genre_hierarchy(child_genre_id);
 CREATE INDEX IF NOT EXISTS idx_genre_h_parent ON genre_hierarchy(parent_genre_id);
 
-CREATE TABLE IF NOT EXISTS map_mood (
-  source         TEXT NOT NULL,
-  tag_raw        TEXT NOT NULL,
-  mood_id        INTEGER NOT NULL REFERENCES dim_moods(mood_id),
-  confidence     REAL NOT NULL,
-  PRIMARY KEY (source, tag_raw)
-);
-
-CREATE TABLE IF NOT EXISTS track_genres (
-  track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
-  genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
-  score          REAL NOT NULL,         -- sums to 1.0 per track
-  PRIMARY KEY (track_id, genre_id)
-);
-
 CREATE TABLE IF NOT EXISTS artist_genres (
   artist_id      TEXT NOT NULL REFERENCES dim_artists(artist_id),
   genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
   PRIMARY KEY (artist_id, genre_id)
-);
-
-CREATE TABLE IF NOT EXISTS track_moods (
-  track_id       TEXT NOT NULL REFERENCES dim_tracks(track_id),
-  mood_id        INTEGER NOT NULL REFERENCES dim_moods(mood_id),
-  score          REAL NOT NULL,         -- sums to 1.0 per track
-  method_version TEXT NOT NULL,
-  PRIMARY KEY (track_id, mood_id)
-);
-
-CREATE TABLE IF NOT EXISTS agg_user_genre_daily (
-  user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
-  date           DATE NOT NULL,
-  genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
-  plays          INTEGER NOT NULL,
-  ms_listened    BIGINT NOT NULL,
-  avg_score_weighted REAL NOT NULL,
-  PRIMARY KEY (user_id, date, genre_id)
-);
-
-CREATE TABLE IF NOT EXISTS agg_user_genre_monthly (
-  user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
-  month          TEXT NOT NULL,    -- 'YYYY-MM'
-  genre_id       INTEGER NOT NULL REFERENCES dim_genres(genre_id),
-  plays          INTEGER NOT NULL,
-  ms_listened    BIGINT NOT NULL,
-  avg_score_weighted REAL NOT NULL,
-  PRIMARY KEY (user_id, month, genre_id)
-);
-
-CREATE TABLE IF NOT EXISTS agg_user_mood_daily (
-  user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
-  date           DATE NOT NULL,
-  mood_id        INTEGER NOT NULL REFERENCES dim_moods(mood_id),
-  plays          INTEGER NOT NULL,
-  ms_listened    BIGINT NOT NULL,
-  avg_score_weighted REAL NOT NULL,
-  PRIMARY KEY (user_id, date, mood_id)
-);
-
-CREATE TABLE IF NOT EXISTS agg_user_mood_monthly (
-  user_id        TEXT NOT NULL REFERENCES dim_users(user_id),
-  month          TEXT NOT NULL,    -- 'YYYY-MM'
-  mood_id        INTEGER NOT NULL REFERENCES dim_moods(mood_id),
-  plays          INTEGER NOT NULL,
-  ms_listened    BIGINT NOT NULL,
-  avg_score_weighted REAL NOT NULL,
-  PRIMARY KEY (user_id, month, mood_id)
 );
 
 -- ========================
@@ -192,11 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_dim_tracks_album ON dim_tracks(album_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_track_role  ON bridge_track_artists(track_id, role);
 CREATE INDEX IF NOT EXISTS idx_bridge_artist_role ON bridge_track_artists(artist_id, role);
 
--- artist_genres and track_genres: joins by both sides
+-- artist_genres: joins by both sides
 CREATE INDEX IF NOT EXISTS idx_artist_genres_artist ON artist_genres(artist_id);
 CREATE INDEX IF NOT EXISTS idx_artist_genres_genre  ON artist_genres(genre_id);
-CREATE INDEX IF NOT EXISTS idx_track_genres_track   ON track_genres(track_id);
-CREATE INDEX IF NOT EXISTS idx_track_genres_genre   ON track_genres(genre_id);
 
 -- dim_albums: joins by album_id from dim_tracks
 CREATE INDEX IF NOT EXISTS idx_dim_albums_album_id ON dim_albums(album_id);

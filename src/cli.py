@@ -127,7 +127,7 @@ def init_db(db_path: Path, ddl_path: Path) -> None:
     "--user-id",
     type=str,
     required=True,
-    help="User UUID (required).",
+    help="User id (required), e.g. ben.greenawald.",
 )
 @click.option(
     "--history-dir",

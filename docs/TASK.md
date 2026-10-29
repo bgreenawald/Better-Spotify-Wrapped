@@ -1,3 +1,7 @@
+> **SUPERSEDED - HISTORICAL DOCUMENT (2026-10-29).** This is the original migration plan and no longer describes the project. The files it references (`music_schema_proposed.sql`, `genres_taxonomy.yaml`, `moods_taxonomy.yaml`) do not exist, the Streamlit/Next.js options were never taken, and the mood goal was dropped for lack of any data source. For the current state see `CLAUDE.md` and the consolidated review in `CODE_REVIEW.md`.
+
+---
+
 
 # TASK.md
 

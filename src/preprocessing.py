@@ -238,7 +238,7 @@ def get_filtered_plays(
     Notes:
     - Excluding by artists/albums requires populated `bridge_track_artists` and
       `dim_albums`. If those tables are empty, the filters are effectively ignored.
-    - Excluding by genres uses `track_genres` + `dim_genres.name`. If unpopulated,
+    - Excluding by genres uses `artist_genres` + `dim_genres.name`. If unpopulated,
       no rows are excluded.
     """
     s_date = _to_date(start_date)
@@ -304,28 +304,12 @@ def get_filtered_plays(
         extra_where.append(
             f"LOWER(COALESCE(al.album_name, '')) NOT IN (SELECT LOWER(val) FROM {rel_albums})"
         )
-    # Global genre exclusion using both track_genres and artist_genres, honoring parent mappings
+    # Global genre exclusion via artist_genres, honoring parent mappings
     if rel_genres and _table_exists("dim_genres"):
-        has_tg = _table_exists("track_genres")
         has_ag = _table_exists("artist_genres") and _table_exists("bridge_track_artists")
         clauses: list[str] = []
         # Normalize comparison to lower-case to avoid case mismatches
         has_hier = _table_exists("genre_hierarchy")
-        if has_tg:
-            # Exclude tracks tagged with an excluded child genre name
-            clauses.append(
-                "SELECT tg.track_id FROM track_genres tg "
-                "JOIN dim_genres g ON g.genre_id = tg.genre_id "
-                f"WHERE lower(g.name) IN (SELECT lower(val) FROM {rel_genres})"
-            )
-            # Exclude tracks whose child maps to an excluded parent genre
-            if has_hier:
-                clauses.append(
-                    "SELECT tg.track_id FROM track_genres tg "
-                    "JOIN genre_hierarchy gh ON gh.child_genre_id = tg.genre_id "
-                    "JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id "
-                    f"WHERE lower(pg.name) IN (SELECT lower(val) FROM {rel_genres})"
-                )
         if has_ag:
             # Exclude tracks whose primary artist has an excluded child or parent genre
             if has_hier:

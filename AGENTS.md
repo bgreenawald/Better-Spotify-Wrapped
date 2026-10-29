@@ -10,7 +10,7 @@
 ## Build, Test, and Development Commands
 - `uv sync --dev`: install dependencies from `pyproject.toml`/`uv.lock`.
 - `uv run slopify init-db --db data/db/music.db`: initialize a DuckDB file with `DDL.sql`.
-- `uv run slopify ingest-history --user-id <uuid> --history-dir data/<user>/listening_history`: ingest Spotify JSON history into `fact_plays`.
+- `uv run slopify ingest-history --user-id <slug> --history-dir data/<user>/listening_history`: ingest Spotify JSON history into `fact_plays`.
 - `uv run python dashboard/application.py`: run the Dash app locally.
 - `pytest`: run all tests in `tests/` (`pytest -k <pattern>` for a subset).
 

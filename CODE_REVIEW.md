@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-29 against `690f11c`.
 
-> **Fix progress (2026-10-29, through `2df309f`).** Resolved: **P0 #1–#4**, **P1 #5**, **P1 #6**, **P1 #7**, the P1 repo-posture items, and from P2 ingest: `DATA_DIR`, the retry/backoff defects, and the missing `logging.basicConfig`. Also folded `.pre-commit-config-ci.yaml` in and fixed the ruff version drift. Tests went 7 → 30. Still open and highest-value: **#8** (dead mood/rollup schema), **#9** (`get_top_albums`), **#10** (UTC bucketing), **#11** (averages), `slopify status`, and the performance and UX sections.
+> **Fix progress (2026-10-29, through `2df309f`).** Resolved: **P0 #1–#4**, **P1 #5–#8**, the P1 repo-posture items, and from P2 ingest: `DATA_DIR`, the retry/backoff defects, and the missing `logging.basicConfig`. The `CLAUDE.md` corrections are done too, so it no longer misleads agent sessions. Tests went 7 → 32. Still open and highest-value: **#9** (`get_top_albums`), **#10** (UTC bucketing), **#11** (averages), **#12**/**#13** (ranks and name keying), `slopify status`, and the performance and UX sections.
 
 This is the single, current review doc for the project. It merges:
 
@@ -145,19 +145,21 @@ June noted the base-plays filter is implemented three times. The new finding is 
 
 So Wrapped includes skipped plays that Social excludes, and an exclusion typed in different case works on one tab and not another. Collapse to one SQL builder.
 
-### 8. Half the schema is dead; the rollups are never populated — **[New, Verified]**
+### 8. Half the schema is dead; the rollups are never populated — **[New, Verified — FIXED `aa8e5df`]**
+
+> Resolved by deletion, per table. Removed from `DDL.sql`: the mood half (`dim_moods`, `map_mood`, `track_moods`) — no code and no data source, since Spotify audio features are never fetched; `track_genres` — read by two guarded fallbacks, never written, so neither could fire; and the four `agg_*` rollups — no writer, no reader, and a monthly aggregate off `fact_plays` measures ~4ms. The 74-line dead `track_genres` fallback in `metrics.py` and the dead branch in `preprocessing.py` are gone, the stale empty `track_artists` was dropped from the live DB, and `DDL.sql` now declares exactly the 13 objects the live database has. A test asserts that set so the schema cannot drift back.
 
 `DDL.sql` declares 21 objects. The live DB has 14. Missing entirely: `dim_moods`, `map_mood`, `track_moods`, `track_genres`, and all four `agg_user_{genre,mood}_{daily,monthly}` tables.
 
 Grepping `src/`, `dashboard/`, and `tests/`:
 
-- The **entire mood half** of the schema (TASK.md's goal #2) is referenced by **zero lines of code**. It is aspiration, not implementation.
+- The **entire mood half** of the schema (`docs/TASK.md`'s goal #2) is referenced by **zero lines of code**. It is aspiration, not implementation.
 - The four `agg_*` rollup tables have **no writer and no reader**. Every trend is recomputed per request. `agg_user_genre_monthly` would serve `get_genre_trends` directly.
 - `track_genres` is **read** (`preprocessing.py:304`, `metrics.py:808`) but **never written** by any code. Those reads sit behind `_table_exists` guards and a bare `except: pass` (`metrics.py:867` — June #3's showcase example), so the fallback silently never fires and you would never know.
 - `DDL.sql:81` names MusicBrainz, Last.fm, Discogs and TheAudioDB as tag sources. **No code uses any of them.**
 - The live DB additionally has a stale empty `track_artists` table (0 rows) that `DDL.sql` does not declare.
 
-Decide per table: populate it, or delete it from `DDL.sql`. Right now `DDL.sql`, `CLAUDE.md`, and `TASK.md` all describe a mood/rollup system that does not exist — actively misleading, including to future agents reading `CLAUDE.md`.
+Decide per table: populate it, or delete it from `DDL.sql`. Right now `DDL.sql`, `CLAUDE.md`, and `TASK.md` all described a mood/rollup system that did not exist — actively misleading, including to future agents reading `CLAUDE.md`.
 
 ### 9. `get_top_albums` credits plays to the wrong albums — **[Jun #10 (threshold only), New (the rest)]**
 
@@ -202,7 +204,7 @@ Tracks, artists and `unique_tracks` are grouped by name (`metrics.py:68`, `:931`
 
 - **Missing months are not zero-filled.** Artist, track and genre trends emit only months with plays, so line charts interpolate over silent months.
 - **Social "totals" are capped.** `social.py:586` caps every Venn total at `CONSIDER_LIMITS` (250/100/50), so a pair sharing 800 tracks displays 250. June #22 asked for a comment; the display is misleading regardless.
-- **No diversity or concentration measure exists** — no entropy, Gini, HHI, top-N share, or repeat rate — despite TASK.md calling for entropy. Shannon entropy is cheap: `-SUM(p*ln p)` over per-artist play share.
+- **No diversity or concentration measure exists** — no entropy, Gini, HHI, top-N share, or repeat rate — despite `docs/TASK.md` calling for entropy. Shannon entropy is cheap: `-SUM(p*ln p)` over per-artist play share.
 - **Play counts are unweighted by duration.** A 31-second play counts the same as a full one, while `avg_duration_min` is shown alongside; the mean includes truncated plays, and no completion rate is computed.
 - **No minimum-plays threshold**, so a month with 3 plays can rank a genre #1.
 - **The album score is opaque** — the constants (0.5, 15, 0.3, `>5` tracks) are undocumented in the UI, with no small-sample confidence.
@@ -423,7 +425,7 @@ Also **[Jun #20]**: `conftest.py:8` runs Chrome/webdriver setup as an **autouse 
 - **No screenshots.** For a dashboard project, 3–4 images at the top of the README would do more for comprehension than the entire CLI reference table — and `AGENTS.md:30` already requires a screenshot for UI PRs. **[New]**
 - **No quickstart without data.** No sample or fixture dataset, and `SEED.sql` seeds users with zero plays, so a new user cannot see anything work before a 30-day Spotify export arrives. A tiny synthetic fixture would double as the test fixture the suite needs. **[New]**
 - **`AGENTS.md` and `CLAUDE.md` overlap and disagree** (UUID vs slug, different command lists). Consolidate to one; make the other a pointer. **[New]**
-- **`TASK.md` is a historical migration plan presented as current.** It references `music_schema_proposed.sql`, `genres_taxonomy.yaml`, and `moods_taxonomy.yaml` — **none of which exist** — and weighs Streamlit vs Next.js options never taken. Archive under `docs/` with a "superseded" header, or delete. **[New]**
+- **`TASK.md` is a historical migration plan presented as current.** **[FIXED `aa8e5df`: moved to `docs/TASK.md` with a superseded header.]** It references `music_schema_proposed.sql`, `genres_taxonomy.yaml`, and `moods_taxonomy.yaml` — **none of which exist** — and weighs Streamlit vs Next.js options never taken. Archive under `docs/` with a "superseded" header, or delete. **[New]**
 - **`.pre-commit-config-ci.yaml` is inert** — **[New, Verified]**. pre-commit.ci reads a `ci:` block *inside* `.pre-commit-config.yaml`; it does not read a separate file by that name. `autofix_prs` and `autoupdate_schedule` are currently no-ops. Move those keys into the real config and delete the file.
 - **Version drift** — **[New, Verified]**. Pre-commit pins ruff `v0.12.10`; `uv.lock` resolves `0.12.12`. No Dependabot or Renovate. CI never runs pre-commit, so hooks and CI can drift independently.
 - **Python version mismatch** — **[New, Verified]**. Local dev is **3.13.11**; the CI matrix is `3.10`–`3.12`. The interpreter you actually develop on is never tested, and there is no `.python-version`. The CI `push` trigger also still lists a stale `code-quality` branch.
