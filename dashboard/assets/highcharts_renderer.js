@@ -90,7 +90,16 @@ window.dash_clientside.highcharts = (function () {
         plotBackgroundColor: bg,
         style: { fontFamily: 'Segoe UI, sans-serif' }
       },
-      colors: ['#1DB954', '#1ed760', '#21e065', '#5eb859', '#7dd069', '#9be082', '#b5e8a3'],
+      // Categorical, not a green ramp. The previous seven colours were all
+      // near-identical greens (#1DB954 #1ed760 #21e065 #5eb859 #7dd069 #9be082
+      // #b5e8a3), which made a 5-15 line trend chart or a sunburst's sibling
+      // slices unreadable, and was not colourblind-safe. Spotify green stays
+      // first so single-series charts look unchanged; the rest is Okabe-Ito,
+      // which is distinguishable under all common colour vision deficiencies.
+      colors: [
+        '#1DB954', '#E69F00', '#56B4E9', '#CC79A7',
+        '#0072B2', '#D55E00', '#009E73', '#7D5BA6'
+      ],
       title: { style: { color: text } },
       subtitle: { style: { color: text } },
       legend: {
@@ -134,6 +143,22 @@ window.dash_clientside.highcharts = (function () {
     try { window.Highcharts.setOptions(opts); } catch (e) {}
   }
 
+  // Dash patterns cycled across line series, so the chart does not rely on
+  // colour alone to tell series apart (WCAG 1.4.1, and it helps on a
+  // projector or in print).
+  var DASH_STYLES = ['Solid', 'ShortDash', 'Dot', 'DashDot', 'LongDash', 'ShortDot'];
+
+  function applyLineDashStyles(options) {
+    if (!options || !Array.isArray(options.series) || options.series.length < 3) return;
+    var chartType = (options.chart && options.chart.type) || 'line';
+    if (chartType !== 'line' && chartType !== 'spline' && chartType !== 'area') return;
+    options.series.forEach(function (s, i) {
+      if (s && typeof s === 'object' && !s.dashStyle) {
+        s.dashStyle = DASH_STYLES[i % DASH_STYLES.length];
+      }
+    });
+  }
+
   function destroyChart(containerId) {
     var prev = chartRegistry[containerId];
     if (prev && typeof prev.destroy === 'function') {
@@ -161,6 +186,7 @@ window.dash_clientside.highcharts = (function () {
       if (currentThemeOptions && Highcharts.merge) {
         options = Highcharts.merge(options, currentThemeOptions);
       }
+      applyLineDashStyles(options);
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
       console.error('Error rendering chart:', e);
