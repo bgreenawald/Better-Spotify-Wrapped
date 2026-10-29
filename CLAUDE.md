@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Better Spotify Wrapped is a tool for analyzing Spotify listening history with more detailed insights than the standard Spotify Wrapped. The project consists of:
+Slopify Wrapped is a tool for analyzing Spotify listening history with more detailed insights than the standard Spotify Wrapped. The project consists of:
 
 1. **Data ingestion pipeline**: Loads Spotify listening history JSON exports into a normalized DuckDB database
 2. **Spotify API integration**: Fetches track metadata, artist info, album details, and genres with local caching
@@ -51,32 +51,32 @@ pre-commit run --all-files
 
 ### CLI Commands
 
-The project provides a `bsw` CLI tool (defined in src/cli.py):
+The project provides a `slopify` CLI tool (defined in src/cli.py):
 
 ```bash
 # Initialize database schema
-uv run bsw init-db --db data/db/music.db --ddl DDL.sql
+uv run slopify init-db --db data/db/music.db --ddl DDL.sql
 
 # Ingest listening history from Spotify export JSON files
-uv run bsw ingest-history --user-id <user-id> --history-dir data/<user>/listening_history --db data/db/music.db --apply-ddl
+uv run slopify ingest-history --user-id <user-id> --history-dir data/<user>/listening_history --db data/db/music.db --apply-ddl
 
 # Populate track metadata (ISRC, duration, explicit flag)
-uv run bsw ingest-track-metadata --db data/db/music.db
+uv run slopify ingest-track-metadata --db data/db/music.db
 
 # Populate album information
-uv run bsw ingest-track-albums --db data/db/music.db
+uv run slopify ingest-track-albums --db data/db/music.db
 
 # Populate artist information and bridge tables
-uv run bsw ingest-track-artists --db data/db/music.db
+uv run slopify ingest-track-artists --db data/db/music.db
 
 # Load artist genre evidence from cache
-uv run bsw ingest-artist-genres --db data/db/music.db
+uv run slopify ingest-artist-genres --db data/db/music.db
 
 # Link artists to canonical genres
-uv run bsw link-artist-genres --db data/db/music.db
+uv run slopify link-artist-genres --db data/db/music.db
 
 # Populate tracks from cached album data
-uv run bsw ingest-tracks-from-albums --db data/db/music.db
+uv run slopify ingest-tracks-from-albums --db data/db/music.db
 ```
 
 ### Dashboard

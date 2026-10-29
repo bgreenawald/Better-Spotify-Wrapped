@@ -140,6 +140,7 @@ def create_app() -> Dash:
     # Initialize Dash app with external Bootstrap stylesheet
     app = Dash(
         __name__,
+        title="Slopify Wrapped",
         assets_folder=str(assets_path),
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )

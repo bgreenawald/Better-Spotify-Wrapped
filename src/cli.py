@@ -1,4 +1,4 @@
-"""Simple CLI for Better Spotify Wrapped tasks.
+"""Simple CLI for Slopify Wrapped tasks.
 
 Provides an `ingest-history` command to load Spotify listening history into
 the normalized DuckDB schema (see DDL.sql).
@@ -41,7 +41,7 @@ def _maybe_apply_ddl(db_path: Path, ddl_path: Path) -> None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def main() -> None:
-    """Better Spotify Wrapped CLI."""
+    """Slopify Wrapped CLI."""
 
 
 @main.command("init-db")
@@ -137,7 +137,7 @@ def ingest_history(
     """Load listening history JSON files into `fact_plays`.
 
     Example:
-      bsw ingest-history --user-id egreenawald \
+      slopify ingest-history --user-id egreenawald \
         --db data/db/music.db \
         --history-dir data/egreenawald/listening_history \
         --apply-ddl

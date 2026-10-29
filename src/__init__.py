@@ -1,1 +1,1 @@
-"""Better Spotify Wrapped package."""
+"""Slopify Wrapped package."""

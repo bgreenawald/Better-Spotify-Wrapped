@@ -80,7 +80,7 @@ def create_layout(df: pd.DataFrame) -> Component:
                                 html.Div(
                                     [
                                         html.H1(
-                                            "Spotify Listening History",
+                                            "Slopify Wrapped",
                                             className="dashboard-title",
                                         ),
                                         html.Div(

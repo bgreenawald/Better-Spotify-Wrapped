@@ -1,4 +1,4 @@
-# Ruff configuration for Better Spotify Wrapped
+# Ruff configuration for Slopify Wrapped
 
 # Target Python 3.10+
 target-version = "py310"

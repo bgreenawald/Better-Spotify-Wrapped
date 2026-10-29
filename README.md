@@ -1,4 +1,4 @@
-# Better Spotify Wrapped
+# Slopify Wrapped
 
 A tool for analyzing Spotify listening history with more detailed insights than the standard Spotify Wrapped.
 
@@ -42,7 +42,7 @@ The JSON files should follow Spotify's export format with fields like:
 If this is your first time setting up the database:
 
 ```bash
-uv run bsw init-db --db data/db/music.db --ddl DDL.sql
+uv run slopify init-db --db data/db/music.db --ddl DDL.sql
 ```
 
 ### Step 3: Ingest Listening History
@@ -50,7 +50,7 @@ uv run bsw init-db --db data/db/music.db --ddl DDL.sql
 Load the JSON files into the database:
 
 ```bash
-uv run bsw ingest-history \
+uv run slopify ingest-history \
   --user-id <your-user-id> \
   --history-dir data/<your-user-id>/listening_history \
   --db data/db/music.db
@@ -59,7 +59,7 @@ uv run bsw ingest-history \
 If you need to initialize the schema and ingest in one command:
 
 ```bash
-uv run bsw ingest-history \
+uv run slopify ingest-history \
   --user-id <your-user-id> \
   --history-dir data/<your-user-id>/listening_history \
   --db data/db/music.db \
@@ -74,23 +74,23 @@ After ingesting the basic play history, enrich the tracks with metadata from the
 
 ```bash
 # Populate ISRC, duration, and explicit flag
-uv run bsw ingest-track-metadata --db data/db/music.db
+uv run slopify ingest-track-metadata --db data/db/music.db
 
 # Populate album information
-uv run bsw ingest-track-albums --db data/db/music.db
+uv run slopify ingest-track-albums --db data/db/music.db
 
 # Populate artist information
-uv run bsw ingest-track-artists --db data/db/music.db
+uv run slopify ingest-track-artists --db data/db/music.db
 ```
 
 ### Step 5: Load Genre Information
 
 ```bash
 # Load artist genre evidence from cached API responses
-uv run bsw ingest-artist-genres --db data/db/music.db
+uv run slopify ingest-artist-genres --db data/db/music.db
 
 # Link artists to canonical genres
-uv run bsw link-artist-genres --db data/db/music.db
+uv run slopify link-artist-genres --db data/db/music.db
 ```
 
 ### Step 6: (Optional) Load Additional Tracks from Albums
@@ -98,7 +98,7 @@ uv run bsw link-artist-genres --db data/db/music.db
 If you want to see all tracks from albums you've listened to (not just the ones you played):
 
 ```bash
-uv run bsw ingest-tracks-from-albums --db data/db/music.db
+uv run slopify ingest-tracks-from-albums --db data/db/music.db
 ```
 
 ### Complete Example
@@ -111,20 +111,20 @@ mkdir -p data/jane.smith/listening_history
 cp ~/Downloads/my_spotify_data/Streaming_History_Audio_*.json data/jane.smith/listening_history/
 
 # 2. Initialize DB and ingest history
-uv run bsw ingest-history \
+uv run slopify ingest-history \
   --user-id jane.smith \
   --history-dir data/jane.smith/listening_history \
   --db data/db/music.db \
   --apply-ddl
 
 # 3. Enrich with Spotify API metadata
-uv run bsw ingest-track-metadata --db data/db/music.db && \
-uv run bsw ingest-track-albums --db data/db/music.db && \
-uv run bsw ingest-track-artists --db data/db/music.db
+uv run slopify ingest-track-metadata --db data/db/music.db && \
+uv run slopify ingest-track-albums --db data/db/music.db && \
+uv run slopify ingest-track-artists --db data/db/music.db
 
 # 4. Load genre information
-uv run bsw ingest-artist-genres --db data/db/music.db && \
-uv run bsw link-artist-genres --db data/db/music.db
+uv run slopify ingest-artist-genres --db data/db/music.db && \
+uv run slopify link-artist-genres --db data/db/music.db
 ```
 
 ### Environment Setup for API Enrichment
@@ -142,14 +142,14 @@ Get credentials by creating an app at [Spotify Developer Dashboard](https://deve
 
 | Command | Description |
 |---------|-------------|
-| `bsw init-db` | Initialize database schema from DDL.sql |
-| `bsw ingest-history` | Load listening history JSON into fact_plays |
-| `bsw ingest-track-metadata` | Populate ISRC, duration_ms, explicit |
-| `bsw ingest-track-albums` | Populate album_id and dim_albums |
-| `bsw ingest-track-artists` | Populate dim_artists and bridge_track_artists |
-| `bsw ingest-artist-genres` | Load artist genre evidence from cache |
-| `bsw link-artist-genres` | Link artists to canonical genres |
-| `bsw ingest-tracks-from-albums` | Load tracks from cached album data |
+| `slopify init-db` | Initialize database schema from DDL.sql |
+| `slopify ingest-history` | Load listening history JSON into fact_plays |
+| `slopify ingest-track-metadata` | Populate ISRC, duration_ms, explicit |
+| `slopify ingest-track-albums` | Populate album_id and dim_albums |
+| `slopify ingest-track-artists` | Populate dim_artists and bridge_track_artists |
+| `slopify ingest-artist-genres` | Load artist genre evidence from cache |
+| `slopify link-artist-genres` | Link artists to canonical genres |
+| `slopify ingest-tracks-from-albums` | Load tracks from cached album data |
 
 All commands support `--limit` to cap the number of records processed and `--cache-dir` to override the API cache location.
 

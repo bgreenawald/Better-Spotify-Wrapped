@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/`: core ingestion, metrics, API helpers, and the `bsw` CLI entry point.
+- `src/`: core ingestion, metrics, API helpers, and the `slopify` CLI entry point.
 - `dashboard/`: Dash app, callbacks, layouts, and static assets in `dashboard/assets/`.
 - `tests/`: pytest suite (unit tests plus Dash E2E checks).
 - `data/`, `resources/`, `tmp/`: local data artifacts and working files (typically untracked).
@@ -9,8 +9,8 @@
 
 ## Build, Test, and Development Commands
 - `uv sync --dev`: install dependencies from `pyproject.toml`/`uv.lock`.
-- `uv run bsw init-db --db data/db/music.db`: initialize a DuckDB file with `DDL.sql`.
-- `uv run bsw ingest-history --user-id <uuid> --history-dir data/<user>/listening_history`: ingest Spotify JSON history into `fact_plays`.
+- `uv run slopify init-db --db data/db/music.db`: initialize a DuckDB file with `DDL.sql`.
+- `uv run slopify ingest-history --user-id <uuid> --history-dir data/<user>/listening_history`: ingest Spotify JSON history into `fact_plays`.
 - `uv run python dashboard/application.py`: run the Dash app locally.
 - `pytest`: run all tests in `tests/` (`pytest -k <pattern>` for a subset).
 

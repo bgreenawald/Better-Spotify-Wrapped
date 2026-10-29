@@ -1,5 +1,5 @@
 [project]
-name = "better-spotify-wrapped"
+name = "slopify-wrapped"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bsw = "src.cli:main"
+slopify = "src.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
