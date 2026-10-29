@@ -6,10 +6,12 @@ ci:
     [pre-commit.ci] auto fixes from pre-commit hooks
 
     for more information, see https://pre-commit.ci
+  # pre-commit.ci has no uv, so the local pytest hook cannot run there.
+  skip: [pytest]
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.10
+    rev: v0.12.12
     hooks:
       - id: ruff
         name: ruff-lint
@@ -27,5 +29,3 @@ repos:
         always_run: false
         files: \.py$
         stages: [pre-commit]
-        ci:
-          skip: true

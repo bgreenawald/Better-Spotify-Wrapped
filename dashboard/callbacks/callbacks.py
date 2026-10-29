@@ -1402,7 +1402,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
                 "borderColor": "#444444" if is_dark else "#cccccc",
                 "style": {"color": "#e0e0e0" if is_dark else "#000000"},
-                "formatter": "function(){var ta=(this.point.custom&&this.point.custom.top_artists)?('<br/>Top Artists: '+this.point.custom.top_artists):'';return this.point.name+'<br/>Plays: '+this.point.value+ta;}",
+                # "Tagged plays", not "Plays": an artist carrying three genre
+                # tags contributes a play to all three wedges, so these values
+                # sum to more than the number of plays.
+                "formatter": "function(){var ta=(this.point.custom&&this.point.custom.top_artists)?('<br/>Top Artists: '+this.point.custom.top_artists):'';return this.point.name+'<br/>Tagged plays: '+this.point.value+ta;}",
             },
             "series": [
                 {

@@ -77,7 +77,9 @@ def get_most_played_tracks(
             )
             SELECT p.track_artist, p.track_name, p.artist, p.artist_id,
                    p.play_count,
-                   (p.play_count::DOUBLE / NULLIF(t.total_plays, 0)) AS percentage
+                   -- 0-100, matching every other metric that returns a
+                   -- 'percentage' column (artists, genres, trends).
+                   ROUND((p.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage
             FROM plays p CROSS JOIN totals t
             ORDER BY p.play_count DESC, p.track_artist
             {lim}
@@ -559,6 +561,12 @@ def get_top_artist_genres(
     Returns:
         pd.DataFrame: Genres sorted by frequency with columns:
             'genre', 'play_count', 'percentage', 'top_artists'.
+
+        `play_count` counts a play once for every genre tag on its primary
+        artist, so an artist tagged with three genres contributes to three
+        rows. The column therefore sums to more than the number of plays.
+        `percentage` is a share of that genre-tagged total -- not of plays --
+        so it sums to 100%.
     """
 
     use_duckdb = (con is not None) or (db_path is not None)
@@ -650,8 +658,16 @@ def get_top_artist_genres(
             if out.empty:
                 return pd.DataFrame(columns=["genre", "play_count", "percentage", "top_artists"])
 
-            # Add percentage column based on total_tracked (preserves original behavior)
-            out["percentage"] = (out["play_count"] / total_tracked * 100).round(2)
+            # A play is counted once per genre tag on its artist, so the genre
+            # counts deliberately sum to more than the number of plays. Dividing
+            # them by the raw play total mixed two different universes and made
+            # the percentages sum to ~244%. Use the genre-count total instead, so
+            # each value is a share of all genre tag attributions and the column
+            # sums to 100%.
+            genre_total = int(out["play_count"].sum())
+            out["percentage"] = (
+                (out["play_count"] / genre_total * 100).round(2) if genre_total else 0.0
+            )
             result = out[["genre", "play_count", "percentage", "top_artists"]]
             return result.sort_values(["play_count", "genre"], ascending=[False, True])
         finally:
