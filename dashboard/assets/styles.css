@@ -1,6 +1,10 @@
 /* General styles */
 :root {
     --spotify-green: #1DB954;
+    /* White on #1DB954 is 2.59:1, which fails WCAG AA (needs 4.5:1).
+       Use this darker green wherever white text sits on a green fill.
+       It measures 5.44:1. */
+    --spotify-green-accessible: #127a36;
     --bg: #f5f6fa;
     --text: #222;
     --muted: #667;
@@ -8,6 +12,7 @@
 
 .dark-theme {
     --spotify-green: #1DB954; /* keep brand color constant */
+    --spotify-green-accessible: #127a36;
     --bg: #121212;
     --text: #e0e0e0;
     --muted: #aaaaaa;
@@ -37,7 +42,7 @@ body {
 
 /* Header styles */
 .dashboard-header {
-    background-color: var(--spotify-green);  /* Spotify green */
+    background-color: var(--spotify-green-accessible);  /* AA-contrast green */
     color: white;
     padding: 20px 0;
     margin-bottom: 0px;
@@ -147,8 +152,8 @@ body {
 
 /* Button styles */
 .global-settings-button {
-    --bs-btn-bg: var(--spotify-green);
-    --bs-btn-border-color: var(--spotify-green);
+    --bs-btn-bg: var(--spotify-green-accessible);
+    --bs-btn-border-color: var(--spotify-green-accessible);
     --bs-btn-hover-bg: #269a4f;
     --bs-btn-hover-border-color: #269a4f;
 }
@@ -178,7 +183,7 @@ body {
 .dash-table-container .export:hover,
 .dash-table-container a.export:hover,
 .dash-table-container button.export:hover {
-    background: var(--spotify-green);
+    background: var(--spotify-green-accessible);
     color: #fff;
     border-color: var(--spotify-green);
     box-shadow: 0 2px 6px rgba(29, 185, 84, 0.25);
@@ -213,7 +218,7 @@ body {
 .dark-theme .dash-table-container .export:hover,
 .dark-theme .dash-table-container a.export:hover,
 .dark-theme .dash-table-container button.export:hover {
-    background: var(--spotify-green);
+    background: var(--spotify-green-accessible);
     color: #fff;
 }
 
@@ -342,7 +347,7 @@ body.dark-theme {
 }
 
 .dark-theme .Select-option.is-selected {
-    background-color: var(--spotify-green) !important;
+    background-color: var(--spotify-green-accessible) !important;
 }
 
 .dark-theme .DateInput_input {
@@ -368,7 +373,7 @@ body.dark-theme {
 }
 
 .dark-theme .rc-slider-track {
-    background-color: var(--spotify-green) !important;
+    background-color: var(--spotify-green-accessible) !important;
 }
 
 .dark-theme .rc-slider-rail {
@@ -377,7 +382,7 @@ body.dark-theme {
 
 .dark-theme .rc-slider-handle {
     border-color: var(--spotify-green) !important;
-    background-color: var(--spotify-green) !important;
+    background-color: var(--spotify-green-accessible) !important;
 }
 
 .dark-theme .tab {
@@ -426,7 +431,7 @@ body.dark-theme {
 .radio-group .radio-pill-label:has(input[type="radio"].radio-pill:checked) {
     border-color: var(--spotify-green);
     color: #fff;
-    background: var(--spotify-green);
+    background: var(--spotify-green-accessible);
 }
 .radio-group .radio-pill-label:has(input[type="radio"].radio-pill:focus-visible) {
     outline: 2px solid var(--spotify-green);

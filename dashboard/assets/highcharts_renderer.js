@@ -159,6 +159,24 @@ window.dash_clientside.highcharts = (function () {
     });
   }
 
+  // The Highcharts accessibility module is not vendored, so give the
+  // container an accessible name at least. Without this a chart is an
+  // unlabelled <div> to a screen reader.
+  function describeForScreenReaders(targetId, options) {
+    try {
+      var el = document.getElementById(targetId);
+      if (!el) return;
+      var title = (options.title && options.title.text) || '';
+      var count = Array.isArray(options.series) ? options.series.length : 0;
+      var kind = (options.chart && options.chart.type) || 'chart';
+      el.setAttribute('role', 'img');
+      el.setAttribute(
+        'aria-label',
+        (title ? title + '. ' : '') + kind + ' with ' + count + ' data series.'
+      );
+    } catch (e) {}
+  }
+
   function destroyChart(containerId) {
     var prev = chartRegistry[containerId];
     if (prev && typeof prev.destroy === 'function') {
@@ -187,6 +205,7 @@ window.dash_clientside.highcharts = (function () {
         options = Highcharts.merge(options, currentThemeOptions);
       }
       applyLineDashStyles(options);
+      describeForScreenReaders(targetId, options);
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
       console.error('Error rendering chart:', e);

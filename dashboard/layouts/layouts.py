@@ -91,21 +91,40 @@ def create_layout(df: pd.DataFrame) -> Component:
                                                     checked=False,
                                                     size="md",
                                                     color="green",
-                                                    onLabel="☀️",
-                                                    offLabel="🌙",
+                                                    # checked == dark, so the ON
+                                                    # label is the moon. These were
+                                                    # the wrong way round: the sun
+                                                    # showed while dark was active.
+                                                    onLabel="🌙",
+                                                    offLabel="☀️",
                                                     className="theme-toggle-switch",
                                                     persistence=True,
                                                     persistence_type="local",
+                                                    # Icon-only control; name it for
+                                                    # screen readers.
+                                                    **{"aria-label": "Toggle dark mode"},
                                                 ),
                                                 # Global settings hamburger toggle (moved into header)
-                                                dbc.Button(
-                                                    html.Span("☰"),
+                                                # html.Button rather than
+                                                # dbc.Button: dbc validates its
+                                                # props and rejects aria-*, and
+                                                # this control is icon-only, so it
+                                                # needs an accessible name. The
+                                                # Bootstrap classes keep the
+                                                # styling identical.
+                                                html.Button(
+                                                    html.Span("☰", **{"aria-hidden": "true"}),
                                                     id="collapse-button",
                                                     title="Global settings",
-                                                    className="header-settings-button",
-                                                    color="light",
-                                                    size="sm",
+                                                    className=(
+                                                        "btn btn-light btn-sm "
+                                                        "header-settings-button"
+                                                    ),
                                                     n_clicks=0,
+                                                    **{
+                                                        "aria-label": "Show global filters",
+                                                        "aria-controls": "collapse",
+                                                    },
                                                 ),
                                             ],
                                             className="theme-toggle-container",

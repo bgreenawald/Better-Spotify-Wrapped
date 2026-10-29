@@ -163,6 +163,29 @@ def _month_categories(months: pd.Series) -> list[str]:
     return [str(p) for p in span]
 
 
+def _empty_chart(message: str) -> dict:
+    """Chart options that render an explicit "nothing here" state.
+
+    Returning None left the previously rendered chart on screen, so a filter
+    that matched nothing looked like stale data rather than an empty result.
+
+    Args:
+        message: Short explanation to show in the plot area.
+
+    Returns:
+        A minimal Highcharts options dict with no series.
+    """
+    return {
+        "chart": {"height": 300},
+        "title": {"text": message, "style": {"fontSize": "14px", "fontWeight": "normal"}},
+        "credits": {"enabled": False},
+        "legend": {"enabled": False},
+        "xAxis": {"visible": False},
+        "yAxis": {"visible": False},
+        "series": [],
+    }
+
+
 def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     """Register all Dash callbacks for the listening dashboard.
 
@@ -722,10 +745,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # so the values below are only defaults and need not branch on it.
         is_dark = False
         if not data or "top_tracks" not in data:
-            return None
+            return _empty_chart("No track data for this selection")
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
         if df.empty:
-            return None
+            return _empty_chart("No track data for this selection")
         dff = df.head(10)
         y_vals = dff["track_name"].astype(str).tolist()
         y_ticktext = _wrap_or_truncate_labels(y_vals)
@@ -1102,10 +1125,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # so the values below are only defaults and need not branch on it.
         is_dark = False
         if not data or "top_artists" not in data:
-            return None
+            return _empty_chart("No artist data for this selection")
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
         if df.empty:
-            return None
+            return _empty_chart("No artist data for this selection")
         dff = df.head(10)
         labels = dff["artist"].astype(str).tolist()
         ticktext = _wrap_or_truncate_labels(labels)
@@ -1183,17 +1206,17 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # so the values below are only defaults and need not branch on it.
         is_dark = False
         if not data or "top_albums" not in data:
-            return None
+            return _empty_chart("No album data for this selection")
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
         if df.empty:
-            return None
+            return _empty_chart("No album data for this selection")
 
         # Sort by album_score (already sorted, but ensure)
         if "album_score" in df.columns:
             df_sorted = df.sort_values("album_score", ascending=False)
         else:
             # Fallback if album_score not available
-            return None
+            return _empty_chart("No albums met the minimum track count")
 
         dff = df_sorted.head(10)
         labels = dff["album_name"].astype(str).tolist()
@@ -1349,7 +1372,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # so the values below are only defaults and need not branch on it.
         is_dark = False
         if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
-            return None
+            return _empty_chart("No genre data for this selection")
         # Prefer precomputed hierarchical rows when available
         if "top_genres_sunburst" in data:
             sb = pd.read_json(StringIO(data["top_genres_sunburst"]), orient="split")
@@ -1357,7 +1380,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             # Fallback: derive rows from flat top_genres + taxonomy
             df = pd.read_json(StringIO(data["top_genres"]), orient="split")
             if df.empty:
-                return None
+                return _empty_chart("No genre data for this selection")
             try:
                 con = get_db_connection()
                 edges = con.execute(
@@ -1402,7 +1425,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             sb = pd.DataFrame(rows)
 
         if sb.empty:
-            return None
+            return _empty_chart("No genre data for this selection")
 
         def slug(s: str) -> str:
             return (s or "").lower().replace(" ", "-")
@@ -1508,10 +1531,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # so the values below are only defaults and need not branch on it.
         is_dark = False
         if not data or "daily_counts" not in data:
-            return None
+            return _empty_chart("No daily play data for this selection")
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
         if df.empty:
-            return None
+            return _empty_chart("No daily play data for this selection")
 
         # Convert to line chart: aggregate by date and show top song play count per day
         # Also track all top songs (ties) for each day

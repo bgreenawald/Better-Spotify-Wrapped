@@ -17,7 +17,11 @@ def create_year_dropdown(df: pd.DataFrame) -> html.Div:
     years = sorted(df["ts"].dt.year.unique())
     return html.Div(
         [
-            html.Label("Select Year", className="filter-label"),
+            html.Label(
+                "Select Year",
+                className="filter-label",
+                htmlFor="year-dropdown",
+            ),
             dcc.Dropdown(
                 id="year-dropdown",
                 options=[{"label": str(year), "value": year} for year in years],
@@ -61,7 +65,11 @@ def create_global_settings() -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label("Select Excluded Artists", className="filter-label"),
+                            html.Label(
+                                "Select Excluded Artists",
+                                className="filter-label",
+                                htmlFor="excluded-artists-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="excluded-artists-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -77,7 +85,11 @@ def create_global_settings() -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label("Select Excluded Genres", className="filter-label"),
+                            html.Label(
+                                "Select Excluded Genres",
+                                className="filter-label",
+                                htmlFor="excluded-genres-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="excluded-genres-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -98,7 +110,11 @@ def create_global_settings() -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label("Select Excluded Albums", className="filter-label"),
+                            html.Label(
+                                "Select Excluded Albums",
+                                className="filter-label",
+                                htmlFor="excluded-albums-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="excluded-albums-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -114,7 +130,11 @@ def create_global_settings() -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label("Select Excluded Tracks", className="filter-label"),
+                            html.Label(
+                                "Select Excluded Tracks",
+                                className="filter-label",
+                                htmlFor="excluded-tracks-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="excluded-tracks-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -135,7 +155,15 @@ def create_global_settings() -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label("Exclude December", className="filter-label"),
+                            html.Label(
+                                "Exclude December (holiday-music skew)",
+                                className="filter-label",
+                                htmlFor="exclude-december",
+                                title=(
+                                    "December is dominated by holiday music, which "
+                                    "distorts yearly top lists. On by default."
+                                ),
+                            ),
                             dcc.RadioItems(
                                 id="exclude-december",
                                 options=[
@@ -154,7 +182,15 @@ def create_global_settings() -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label("Remove Incognito", className="filter-label"),
+                            html.Label(
+                                "Hide private-session plays",
+                                className="filter-label",
+                                htmlFor="remove-incognito",
+                                title=(
+                                    "Plays recorded during a Spotify private session. "
+                                    "Hidden by default."
+                                ),
+                            ),
                             dcc.RadioItems(
                                 id="remove-incognito",
                                 options=[
@@ -336,7 +372,11 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label("Select Genres", className="filter-label"),
+                            html.Label(
+                                "Select Genres",
+                                className="filter-label",
+                                htmlFor="genre-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="genre-filter-dropdown",
                                 # Options are populated dynamically from tab-2-data
@@ -379,7 +419,11 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Label("Number of Top Genres", className="filter-label"),
+                            html.Label(
+                                "Number of Top Genres",
+                                className="filter-label",
+                                htmlFor="top-genres-slider",
+                            ),
                             dcc.Slider(
                                 id="top-genres-slider",
                                 min=3,
@@ -396,7 +440,11 @@ def create_genre_trends_layout(_df: pd.DataFrame) -> html.Div:
                     ),
                     html.Div(
                         [
-                            html.Label("Display Type", className="filter-label"),
+                            html.Label(
+                                "Display Type",
+                                className="filter-label",
+                                htmlFor="genre-display-type-radio",
+                            ),
                             dcc.RadioItems(
                                 id="genre-display-type-radio",
                                 options=[
@@ -435,7 +483,11 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                 [
                     html.Div(
                         [
-                            html.Label("Select Artists", className="filter-label"),
+                            html.Label(
+                                "Select Artists",
+                                className="filter-label",
+                                htmlFor="artist-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="artist-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -456,7 +508,11 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                 [
                     html.Div(
                         [
-                            html.Label("Number of Top Artists", className="filter-label"),
+                            html.Label(
+                                "Number of Top Artists",
+                                className="filter-label",
+                                htmlFor="top-artist-slider",
+                            ),
                             dcc.Slider(
                                 id="top-artist-slider",
                                 min=3,
@@ -473,7 +529,11 @@ def create_artist_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                     ),
                     html.Div(
                         [
-                            html.Label("Display Type", className="filter-label"),
+                            html.Label(
+                                "Display Type",
+                                className="filter-label",
+                                htmlFor="artist-display-type-radio",
+                            ),
                             dcc.RadioItems(
                                 id="artist-display-type-radio",
                                 options=[
@@ -516,7 +576,11 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                 [
                     html.Div(
                         [
-                            html.Label("Select Tracks", className="filter-label"),
+                            html.Label(
+                                "Select Tracks",
+                                className="filter-label",
+                                htmlFor="track-filter-dropdown",
+                            ),
                             dcc.Dropdown(
                                 id="track-filter-dropdown",
                                 # Options populated via server-side search callback
@@ -537,7 +601,11 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                 [
                     html.Div(
                         [
-                            html.Label("Number of Top Tracks", className="filter-label"),
+                            html.Label(
+                                "Number of Top Tracks",
+                                className="filter-label",
+                                htmlFor="top-track-slider",
+                            ),
                             dcc.Slider(
                                 id="top-track-slider",
                                 min=3,
@@ -554,7 +622,11 @@ def create_track_trends_layout(df: pd.DataFrame) -> html.Div:  # noqa: ARG001
                     ),
                     html.Div(
                         [
-                            html.Label("Display Type", className="filter-label"),
+                            html.Label(
+                                "Display Type",
+                                className="filter-label",
+                                htmlFor="track-display-type-radio",
+                            ),
                             dcc.RadioItems(
                                 id="track-display-type-radio",
                                 options=[
@@ -593,7 +665,11 @@ def create_monthly_trend_filter() -> html.Div:
 
     return html.Div(
         [
-            html.Label("Select Metric", className="filter-label"),
+            html.Label(
+                "Select Metric",
+                className="filter-label",
+                htmlFor="metric-dropdown",
+            ),
             dcc.Dropdown(
                 id="metric-dropdown",
                 options=options,
