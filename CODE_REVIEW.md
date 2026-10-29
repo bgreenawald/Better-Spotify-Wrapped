@@ -2,7 +2,23 @@
 
 **Last updated:** 2026-10-29 against `690f11c`.
 
-> **Fix progress (2026-10-29, through `2df309f`).** Resolved: **P0 #1–#4**, **P1 #5–#8**, the P1 repo-posture items, and from P2 ingest: `DATA_DIR`, the retry/backoff defects, and the missing `logging.basicConfig`. The `CLAUDE.md` corrections are done too, so it no longer misleads agent sessions. Tests went 7 → 32. Still open and highest-value: **#9** (`get_top_albums`), **#10** (UTC bucketing), **#11** (averages), **#12**/**#13** (ranks and name keying), `slopify status`, and the performance and UX sections.
+> **Fix progress (2026-10-29, through `57ee31a`).** Resolved: **P0 #1-#4**,
+> **P1 #5-#11**, the P1 repo-posture items, the 318 MB startup frame, and from
+> P2 ingest: `DATA_DIR`, the retry/backoff defects, zero-ingest-looks-like-success
+> and the missing `logging.basicConfig`. `CLAUDE.md` is corrected, the dead-code
+> list is deleted, and `slopify status` closes the operability gap. Tests went
+> 7 -> 82.
+>
+> Two defects were found that this review did not record: the album cache had the
+> same unreachable-writer problem as the artist cache (P0 #2 covered artists
+> only), and the album fuzzy dedup was order-dependent and non-transitive,
+> silently discarding whole albums' play data.
+>
+> Still open, highest-value first: **#12**/**#13** (rank and tie semantics, name
+> keying), **#14** (zero-fill, Venn caps, no diversity measure), the error-swallowing
+> cleanup now that logging works, the remaining performance items (the 21 MB
+> `dcc.Store` payload, the regex-in-join, pandas round-trips), the UX section, and
+> `callbacks.py`'s 2,482-line closure.
 
 This is the single, current review doc for the project. It merges:
 
@@ -161,7 +177,7 @@ Grepping `src/`, `dashboard/`, and `tests/`:
 
 Decide per table: populate it, or delete it from `DDL.sql`. Right now `DDL.sql`, `CLAUDE.md`, and `TASK.md` all described a mood/rollup system that did not exist — actively misleading, including to future agents reading `CLAUDE.md`.
 
-### 9. `get_top_albums` credits plays to the wrong albums — **[Jun #10 (threshold only), New (the rest)]**
+### 9. `get_top_albums` credits plays to the wrong albums — **[Jun #10 (threshold only), New (the rest) — FIXED `b2ba91d`]**
 
 Plays are matched on `(track_name, primary_artist)` (`metrics.py:368`), so **every** album containing a same-named track gets full credit — compilations, deluxe editions, Greatest Hits. The function's comment (`metrics.py:299`) promises singles are summed with the album version, but `albums_in_scope` (`:332`) is built only from albums of *played* track IDs, so a single's plays are credited only if a different track on that album was also played.
 
@@ -176,11 +192,11 @@ Further defects in the same function:
 
 Consider stripping edition suffixes (`(Deluxe)`, `(Remastered)`, `(Taylor's Version)`) and matching on `fuzz.ratio`, and extracting the MQPC math into a pure, testable function.
 
-### 10. Everything is bucketed in UTC — **[New]**
+### 10. Everything is bucketed in UTC — **[New — FIXED `6183f21`]**
 
 `played_at` is naive UTC (`db_ingest.py:70`). All day/month bucketing, "Most Active Day", `unique_days`, and `exclude_december` are UTC. Late-evening US listening lands on the next day; plays near a month boundary land in the wrong month. Nothing converts to local time. Either store a local timestamp or convert at query time, and say which in the UI.
 
-### 11. Averages use three different denominators — **[Jun #15 + New]**
+### 11. Averages use three different denominators — **[Jun #15 + New — FIXED `6183f21`]**
 
 - `trends.py:94` divides by **days in the calendar month**, so first/current partial months always read low. *(June #15.)*
 - Wrapped's `avg_daily_hours` (`callbacks.py:~650`) divides by **days with any listening**, which overstates. *(New.)*
@@ -246,8 +262,8 @@ The file is also **broken as a seed**: it re-declares `CREATE TABLE dim_users` w
 - **`DATA_DIR` is required for DB-only commands** — **[New]**. The `SpotifyDataCollector` constructor raises `ValueError` if unset (`api.py:78`) and creates the directory — but `DATA_DIR` is only *used* by dead code (`load_api_data`, `__main__`). The README's env section lists only the two Spotify keys, so a new user's `ingest-track-metadata` fails on a variable they were never told to set.
 - **`populate_track_artists` has no transaction and drops indexes** — **[Jun #11 + New]**. June flagged the whole-table scans into Python sets (`api.py:914-921`: existing artists, all track IDs, and the entire `bridge_track_artists` table) while every other populate function uses SQL anti-joins. **[New]**: there is also no `BEGIN`/`COMMIT` (`api.py:911-984`), and indexes are dropped (`:949`) and recreated **only on the success path** — so a mid-insert failure leaves the database without indexes and does not tell the user. Recreate in `finally`. June also asked whether the DuckDB ART workaround is still needed on ≥1.3; worth re-testing and removing if stale.
 - **Retry/backoff defects** — **[Jun #9 + New]**. A 429 consumes one of the 3 `max_retries` attempts *and* sleeps `Retry-After`, so three 429s exhaust the budget even though the circuit breaker implies you want to continue after cooldown. The adaptive delay only ever increases (`api.py:235`) and never decays, so one bad patch leaves the collector at up to 5 s/request for the rest of the process. `_check_request_budget` (`api.py:168`) is a soft cap under `max_workers > 1`. **[New]**: the **rate-limit lock is held while sleeping** (`api.py:162`), serializing every worker — so `max_workers > 1` buys nothing; three 429s trigger a 300 s sleep and *then* the batch is lost anyway at `:318`; `int(e.headers.get("Retry-After"))` is unbounded and crashes on a missing header; and the `except Exception` at `:311` retries non-API errors including the `TypeError` from #3. *(Note: June's claim that the terminal `raise SpotifyException(429, …)` misreports non-429 exhaustion does not hold — non-429 `SpotifyException`s re-raise immediately — but the 429 labelling is still misleading.)*
-- **Zero-ingest looks like success** — **[New]**. If every batch fails (bad credentials, no network), the populate functions return 0 and the CLI exits **0** with "Updated rows: 0". Credentials are validated lazily, so a wrong secret surfaces as a per-batch `logging.error` rather than one actionable message up front.
-- **`logging.basicConfig` is never called** — **[New]**. Every `logging.info` in the codebase is discarded and warnings print as bare lines. There is no `--verbose`. This compounds June #3: even the handlers that *do* log are invisible.
+- **Zero-ingest looks like success** — **[New — FIXED `4eb03bc`]**. If every batch fails (bad credentials, no network), the populate functions return 0 and the CLI exits **0** with "Updated rows: 0". Credentials are validated lazily, so a wrong secret surfaces as a per-batch `logging.error` rather than one actionable message up front.
+- **`logging.basicConfig` is never called** — **[New — FIXED `0bb2ab5`]**. Every `logging.info` in the codebase is discarded and warnings print as bare lines. There is no `--verbose`. This compounds June #3: even the handlers that *do* log are invisible.
 - **Dedupe key granularity** — **[Jun #18]**. Plays are deduped on `(user_id, track_id, played_at)` at second resolution (`db_ingest.py:~261` uses `timespec="seconds"`; anti-join at `:378`). Two legitimate plays of one track inside one second merge — effectively impossible in practice, but `ts` is the lynchpin across re-ingests of overlapping export files and deserves a comment. The idempotency claim at `README.md:69` is **accurate**.
 - **`offline_timestamp` is always NULL** — **[New]**. The export supplies an epoch int, `_to_timestamp` ignores ints, and the column is dropped at `db_ingest.py:332`.
 - **Stale comments** — **[New]**. `api.py:555` and `:1049` reference a UNIQUE constraint on `track_isrc` that `DDL.sql` does not have. ISRC dedupe drops legitimate duplicates, so those tracks stay NULL and are re-selected every run.
@@ -272,7 +288,7 @@ June raised two performance concerns (#12, #14). Measurement shows one is the si
 
 The real costs are at process and network boundaries:
 
-- **318 MB resident** — **[Jun #12, quantified]**. `application.py:154` loads the entire enriched plays table into pandas at startup, and `layouts.py` plus the preset callbacks use it only for `user_id` lists and `ts.min()/max()`. Replace with `SELECT user_id, MIN(ts), MAX(ts) FROM fact_plays GROUP BY 1`. **This is the single biggest easy win.**
+- **318 MB resident** — **[Jun #12, quantified — FIXED `844b8b1`: 303.6 MB/525,043 rows -> 0.01 MB/86 rows]**. `application.py:154` loads the entire enriched plays table into pandas at startup, and `layouts.py` plus the preset callbacks use it only for `user_id` lists and `ts.min()/max()`. Replace with `SELECT user_id, MIN(ts), MAX(ts) FROM fact_plays GROUP BY 1`. **This is the single biggest easy win.**
 - **~21 MB of JSON per filter change** — **[Jun #12, quantified]**. `daily_counts` with `top_only=False` is 458,748 rows → 21.5 MB serialized, shipped to the browser inside a single `dcc.Store` (`callbacks.py:661-666`, six DataFrames as nested JSON-in-JSON) and re-parsed with `pd.read_json` by 5–6 renderers on every refresh. **[New]**: because `theme-store` is an Input to each server renderer, **flipping dark mode re-runs all of it**. Fix: drop `theme_data` from the server Inputs (the clientside renderer already calls `applyTheme`), and move the payload to a server-side cache keyed by the filter hash, storing only the key in `dcc.Store`.
 - **7.9 GB / 517,278 files** in `data/api/cache` — **[New]**. One pretty-printed (`indent=4`) JSON file per ID. `_get_cached_ids` globs all 517k files on **every call**, and `fetch_tracks` returns every cached dict for every requested ID (`api.py:335`), holding gigabytes in memory per command. Compact JSON — or better, a single DuckDB/Parquet cache table — would shrink this by an order of magnitude and give atomicity (#4) and negative caching (#3) for free.
 - **A regex in a join condition defeats `idx_artist_genres_artist`** — **[New]**: `REGEXP_REPLACE(TRIM(ag.artist_id), '.*:', '')` (`metrics.py:966`, `:974`; `preprocessing.py:359`, `:380`) runs per row and blocks the index. Normalize the ID once at ingest.
@@ -371,7 +387,9 @@ This works only because `_base_plays_sql` happens to emit exactly one `WHERE` fi
 
 `application.py:150-159`: if `get_db_connection()` raises, the `finally` calls `conn.close()` on a never-bound name — a `NameError` hidden by `contextlib.suppress(Exception)`. Initialize `conn = None` before the `try` and guard with `if conn is not None`. The same shape recurs in several callbacks (see Performance).
 
-### Dead code — **[Jun #7 + New]**
+### Dead code — **[Jun #7 + New — FIXED `57ee31a`]**
+
+> Deleting this list required adding `fetch-album-cache` first: `load_api_data` and the `__main__` block were the only callers of `fetch_albums`, and `ingest-tracks-from-albums` reads that cache. The album cache had the same unreachable-writer defect as the artist cache.
 
 `load_api_data`, `SpotifyData`, `_list_to_dict`, `get_rate_limit_status`, and the `__main__` block, which duplicates `load_api_data` almost line-for-line (`api.py:460, 247, 1536`) — **but see P0 #2 before deleting**; `_upsert_track`, `_insert_play`, `SPOTIFY_TRACK_NAMESPACE` (`db_ingest.py:103, 135, 41`, ~95 lines of superseded row-at-a-time code); `_circuit_breaker_triggered_at` (written, never read); `populate_missing_track_isrcs` + `populate_duration_and_explicit` and their `ingest-isrcs` / `ingest-duration-explicit` commands (superseded by `populate_track_metadata`).
 
@@ -432,7 +450,7 @@ Also **[Jun #20]**: `conftest.py:8` runs Chrome/webdriver setup as an **autouse 
 - **No type checker and no coverage.** Nothing in `pyproject.toml`, CI, or the hooks runs mypy/pyright/ty, and `.gitignore` has coverage entries nothing produces. Ruff has no `D` rules, so the (good) Google-style docstring consistency is unenforced. **[New]**
 - **No `.env.example`** despite two required secrets. Undocumented env vars in active use: `DATA_DIR`, `MUSIC_DB`, `SPOTIFY_API_CACHE_DIR`, `SPOTIFY_API_RATE_DELAY`, `ENVIRONMENT`, plus `LLM_PROVIDER`, `GEMINI_MODEL`, `OPENAI_MODEL`, `GOOGLE_API_KEY`, `OPENAI_API_KEY` for `llm/`. (The real `.env` is correctly gitignored and absent from git history.) **[New]**
 - **`pyproject.toml` hygiene** — **[Jun #19 + New]**. `description = "Add your description here"` is still the placeholder; no license, authors, classifiers, or URLs. Dependency audit by grep: `pyinstaller` — **zero imports anywhere**, remove; `webdriver-manager` — only `tests/conftest.py`, move to dev; `openai` + `google-genai` — only `llm/`, move to an optional extra; `openpyxl` — never imported but needed implicitly by `pandas.to_excel` in `src/wrapped.py:36`, so keep it and declare why; `highcharts-core` (dev) — imported by no Python, remove. No *missing* direct deps (June wondered about `plotly`; it is unused — the charts are Highcharts). Also: both `pytest.ini` and a potential `[tool.pytest.ini_options]` — keep one.
-- **Add a `slopify status` (or `doctor`) command** — **[New]**. Nothing today verifies an ingest worked: no row counts, no orphan `fact_plays.track_id` check, no count of tracks missing metadata or bridge rows. Combined with "zero-ingest exits 0," a new user cannot distinguish a successful run from a totally failed one. **This is the largest operability gap after P0.**
+- **Add a `slopify status` (or `doctor`) command** — **[New — DONE `4eb03bc`]**. Nothing today verifies an ingest worked: no row counts, no orphan `fact_plays.track_id` check, no count of tracks missing metadata or bridge rows. Combined with "zero-ingest exits 0," a new user cannot distinguish a successful run from a totally failed one. **This is the largest operability gap after P0.**
 - **Add a `slopify pipeline` command** running the documented sequence with `--dry-run`, `--skip-api`, `--force-refresh`, `--workers`, and a closing status summary. The 8-step manual sequence is the main onboarding friction once P0 is fixed. `--limit` also means different things per command (tracks vs JSON files). **[New]**
 - **Repo hygiene is clean** — **[Jun #21, FIXED]**. `data.zip`, `tmp.zip`, and `egg-info` are gone; `temp.ipynb` and `genre_taxonomy_results.json` exist but are gitignored and untracked. Nothing build, cache, zip, database, notebook, or `.env` is tracked, in the tree or in history. `git ls-files` and `git status` now work (June could not run them). Fixed by commit `a79e113` — **the only one of the 22 findings resolved.** Minor leftovers: `llm/all_subgenres.txt` (48 KB) is tracked generated data that probably belongs in the gitignored `resources/`; the stale `slopify_wrapped.egg-info` directory is gitignored but still on disk; and `data/api/cache` at 7.9 GB / 517k inodes deserves a README note about disk cost.
 
