@@ -24,6 +24,7 @@ from dashboard.components.filters import (
 )
 from dashboard.conn import get_db_connection
 from dashboard.layouts.layouts import create_layout
+from src.metrics.utils import local_ts_sql
 
 # Configure logging
 logging.basicConfig(
@@ -38,88 +39,49 @@ should_override = os.environ.get("ENVIRONMENT", "") in ["local", "dev", "develop
 load_dotenv(override=should_override)
 
 
-def _load_base_dataframe(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Load a minimal, UI-compatible DataFrame from the preloaded database.
+def _load_layout_bounds(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Load just what the layout needs to build its filter controls.
 
-    Returns columns used by filters and existing metrics code paths to avoid
-    changing downstream logic before full migration to SQL-backed queries.
+    The layout uses only three things from this frame: the set of user ids,
+    the overall min/max timestamp for the date pickers, and the distinct years
+    for the year dropdown. It previously received the entire enriched plays
+    table -- 525k rows and ~318 MB resident -- to answer those three
+    questions.
+
+    Returning two rows per (user, year) is enough: the global min and max are
+    exact, every year is present, and every user appears.
+
+    Args:
+        conn: Open DuckDB connection.
+
+    Returns:
+        A small DataFrame with `user_id` and `ts` columns.
     """
-    sql = """
-        WITH plays AS (
-            SELECT
-                ve.user_id AS user_id,
-                ve.played_at AS ts,
-                ve.duration_ms AS ms_played,
-                ve.reason_start,
-                ve.reason_end,
-                ve.skipped,
-                ve.incognito_mode,
-                ve.track_id,
-                ve.track_name AS master_metadata_track_name,
-                REGEXP_REPLACE(TRIM(ve.artist_id), '.*:', '') AS artist_id,
-                ve.artist_name AS master_metadata_album_artist_name,
-                ve.album_name AS master_metadata_album_album_name
-            FROM v_plays_enriched ve
-        ), artist_genres_agg AS (
-            -- Build formatted artist genres as "Child (Parent1, Parent2)" when parents exist;
-            -- otherwise just the genre name. De-duplicate labels per artist.
-            WITH parent_map AS (
-                SELECT gh.child_genre_id,
-                       STRING_AGG(DISTINCT pg.name, ', ' ORDER BY pg.name) AS parent_names
-                FROM genre_hierarchy gh
-                JOIN dim_genres pg ON pg.genre_id = gh.parent_genre_id
-                WHERE COALESCE(pg.active, TRUE)
-                GROUP BY gh.child_genre_id
-            ), labels AS (
-                SELECT DISTINCT COALESCE(TRIM(REGEXP_REPLACE(ag.artist_id, '.*:', '')), '') AS artist_id,
-                       CASE
-                           WHEN COALESCE(pm.parent_names, '') = '' THEN g.name
-                           ELSE (g.name || ' (' || pm.parent_names || ')')
-                       END AS label
-                FROM artist_genres ag
-                JOIN dim_genres g ON g.genre_id = ag.genre_id
-                LEFT JOIN parent_map pm ON pm.child_genre_id = g.genre_id
-                WHERE COALESCE(g.active, TRUE)
-            )
-            SELECT artist_id, list(label) AS artist_genres
-            FROM labels
-            GROUP BY artist_id
-        )
-        SELECT p.*, aga.artist_genres
-        FROM plays p
-        LEFT JOIN artist_genres_agg aga ON aga.artist_id = p.artist_id
+    local_ts = local_ts_sql("played_at")
+    sql = f"""
+        SELECT user_id,
+               EXTRACT(year FROM {local_ts}) AS yr,
+               MIN({local_ts}) AS min_ts,
+               MAX({local_ts}) AS max_ts
+        FROM fact_plays
+        GROUP BY user_id, yr
+        ORDER BY user_id, yr
     """
-    df = conn.execute(sql).df()
-    if not df.empty:
-        # Synthesize legacy fields expected by callbacks/filters
-        df["spotify_track_uri"] = df["track_id"].apply(
-            lambda x: f"spotify:track:{x}" if pd.notna(x) else None
+    agg = conn.execute(sql).df()
+    if agg.empty:
+        return pd.DataFrame(
+            {"user_id": pd.Series(dtype=str), "ts": pd.Series(dtype="datetime64[ns]")}
         )
-        # No podcast episodes in DB-backed path; provide NaNs for compatibility
-        df["episode_name"] = pd.NA
-        # Ensure genres column is present and normalize nulls to empty tuples for consistency
-        if "artist_genres" not in df.columns:
-            df["artist_genres"] = [() for _ in range(len(df))]
-        else:
 
-            def _to_tuple(v):
-                try:
-                    if v is None:
-                        return ()
-                    if isinstance(v, list | tuple | set):
-                        return tuple(v)
-                    # Handle numpy arrays or other iterables (exclude strings/dicts)
-                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
-                        return tuple(v)
-                except Exception:
-                    pass
-                return ()
-
-            df["artist_genres"] = df["artist_genres"].apply(_to_tuple)
-        # Ensure ts is datetime
-        df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
-        # End normalization
-    return df
+    rows = pd.concat(
+        [
+            agg[["user_id", "min_ts"]].rename(columns={"min_ts": "ts"}),
+            agg[["user_id", "max_ts"]].rename(columns={"max_ts": "ts"}),
+        ],
+        ignore_index=True,
+    )
+    rows["ts"] = pd.to_datetime(rows["ts"], errors="coerce")
+    return rows.dropna(subset=["ts"]).reset_index(drop=True)
 
 
 def create_app() -> Dash:
@@ -151,7 +113,7 @@ def create_app() -> Dash:
     # Build base DataFrame from DB for current UI
     try:
         conn = get_db_connection()
-        history_df = _load_base_dataframe(conn)
+        history_df = _load_layout_bounds(conn)
     except Exception:
         logger.exception("Error reading from DuckDB:")
         raise
