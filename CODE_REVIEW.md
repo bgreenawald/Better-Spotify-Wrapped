@@ -2,26 +2,48 @@
 
 **Last updated:** 2026-10-29 against `690f11c`.
 
-> **Fix progress (2026-10-29, through `ef1aa64`).** Resolved: **P0 #1-#4**,
-> **P1 #5-#13**, the P1 repo-posture items, the 318 MB startup frame, the dead-code
-> list, the Venn total cap from #14, and from P2 ingest: `DATA_DIR`, the
-> retry/backoff defects, zero-ingest-looks-like-success and the missing
-> `logging.basicConfig`. `CLAUDE.md` is corrected and `slopify status` closes the
-> operability gap. Tests went 7 -> 92.
+> **Fix progress (2026-10-29, through `d0b3f49`).** Every finding in this
+> document has been addressed except the items listed as deliberately deferred
+> below. Resolved: **all P0**, **all P1 (#5-#14)**, the P2 ingest, performance,
+> and dashboard-UX sections, the accessibility items, the code-structure items
+> (connection handling, the `WHERE` injection, the unbound `conn`, dead code,
+> error swallowing), and the docs/tooling section. Tests went **7 -> 128**,
+> covering the ingest pipeline, which previously had none.
 >
-> Three defects were found that this review did not record: the album cache had
-> the same unreachable-writer problem as the artist cache (P0 #2 covered artists
-> only); the album fuzzy dedup was order-dependent and non-transitive, silently
-> discarding whole albums' play data; and the Venn totals were clamped to
-> `CONSIDER_LIMITS`, so the diagram drew three equal circles whatever the data.
+> **Five defects were found that this review did not record:**
+> 1. The album cache had the same unreachable-writer problem as the artist
+>    cache (P0 #2 covered artists only), so `ingest-tracks-from-albums` had no
+>    input on a fresh install.
+> 2. The album fuzzy dedup was order-dependent and non-transitive, silently
+>    discarding whole albums' play data.
+> 3. The Venn totals were clamped to `CONSIDER_LIMITS`, so the diagram drew
+>    three equal circles whatever the data (the real pair reads 5,990 shared).
+> 4. Both populate paths deduplicated ISRC updates against a UNIQUE constraint
+>    `DDL.sql` does not have, so only one release per recording ever got its
+>    ISRC written.
+> 5. `uv run python dashboard/application.py`, the documented way to run the
+>    dashboard in both README and CLAUDE.md, had never worked.
 >
-> Still open, highest-value first: the rest of **#14** (zero-fill, no diversity
-> measure, duration weighting, minimum-plays threshold), the error-swallowing
-> cleanup now that logging works, the remaining performance items (the 21 MB
-> `dcc.Store` payload, the regex-in-join, pandas round-trips,
-> `v_primary_artist_per_track`), the whole UX section, and `callbacks.py`'s
-> 2,482-line closure. Also still name-keyed by design: the artist and track
-> *trend* series, since the Trends dropdowns pass names as values.
+> **One correction to this review:** the suggested `#158a3e` for WCAG contrast
+> measures 4.43:1, still under the 4.5 threshold. `#127a36` (5.44:1) is used.
+>
+> **Deliberately deferred, with reasons:**
+> - Artist and track *trend series* remain keyed by display name: the Trends
+>   dropdowns pass names as their option values, so re-keying them changes a UI
+>   contract and belongs with the `callbacks.py` split.
+> - Splitting `callbacks.py` (still ~2,400 lines) into modules, and the
+>   remaining duplication (the 7 search callbacks, the 2 date-preset machines,
+>   the 3 trend callbacks). Mechanical, large, and best done as its own change.
+> - The 21 MB `dcc.Store` payload still ships to the browser; the theme-flip
+>   re-render that made it hurt most is fixed, but moving it to a server-side
+>   cache is a separate piece of work.
+> - A type checker: a trial mypy run gave 31 errors across 6 files and cannot
+>   run over `dashboard/` without package-base fixes. It needs its own pass.
+> - The **P3 "New visuals"** section is a list of enhancements, not defects;
+>   none are implemented. The data and metrics they need are now in place, and
+>   `get_listening_diversity_by_month` delivers #9 (Shannon entropy) already.
+> - `llm/all_subgenres.txt` (46 KB of tracked generated data) and the vendored
+>   Highcharts licensing posture are left for a decision by the owner.
 
 This is the single, current review doc for the project. It merges:
 
