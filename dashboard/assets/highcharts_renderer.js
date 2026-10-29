@@ -254,7 +254,18 @@ window.dash_clientside.highcharts = (function () {
         options.plotOptions.series.point = options.plotOptions.series.point || {};
         options.plotOptions.series.point.events = options.plotOptions.series.point.events || {};
         options.plotOptions.series.point.events.click = function () {
-          try { window.__SOCIAL_SELECTED_REGION = (this && this.name_key) ? this.name_key : (this && this.name ? this.name : null); } catch (ex) {}
+          // set_props writes the store directly. This used to stash the value
+          // on window and let a dcc.Interval poll for it every 600ms, forever,
+          // including while the user was on another tab.
+          try {
+            var key = (this && this.name_key) ? this.name_key
+                    : (this && this.name ? this.name : null);
+            if (window.dash_clientside && window.dash_clientside.set_props) {
+              window.dash_clientside.set_props('social-selected-region', { data: key });
+            } else {
+              window.__SOCIAL_SELECTED_REGION = key;  // pre-2.17 fallback
+            }
+          } catch (ex) {}
         };
         chartRegistry[el.id] = Highcharts.chart(el.id, options);
       } catch (e) {}

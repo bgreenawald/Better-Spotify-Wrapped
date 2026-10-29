@@ -395,7 +395,6 @@ def create_tab_social_layout(df: pd.DataFrame) -> Component:
                         },
                         type="default",
                     ),
-                    dcc.Interval(id="social-venn-poll", interval=600, n_intervals=0),
                     html.Div(id="social-region-lists"),
                 ],
                 className="card",

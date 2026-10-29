@@ -1071,9 +1071,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         cap = consider_caps.get(mode, 10)
         note = html.Div(
             (
-                "Note: Social regions use per‑mode consideration caps "
-                f"(Tracks 250, Artists 100, Genres 50). Totals are capped by the current mode's cap (now {cap}); "
-                "lists show up to 10 items. Less‑specific regions exclude only items already selected in more‑specific regions."
+                "Note: region totals are exact. Ranking considers the top "
+                f"{cap} items for this mode (Tracks 250, Artists 100, Genres 50) "
+                "and the lists show up to 10. Less-specific regions exclude "
+                "items already shown in a more-specific one."
             ),
             className="card-subtitle",
         )
@@ -1088,12 +1089,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Input("social-venn-options", "data"),
         Input("main-tabs", "value"),
         State("social-venn-container", "id"),
-        prevent_initial_call=False,
-    )
-    app.clientside_callback(
-        ClientsideFunction(namespace="social", function_name="get_selected_region"),
-        Output("social-selected-region", "data"),
-        Input("social-venn-poll", "n_intervals"),
         prevent_initial_call=False,
     )
 
