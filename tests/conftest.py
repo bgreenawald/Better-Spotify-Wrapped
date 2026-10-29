@@ -1,19 +1,26 @@
 import os
+from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
-def setup_chrome_environment(tmp_path_factory):
+def setup_chrome_environment(tmp_path_factory) -> Path | None:
     """Set up Chrome profile and ChromeDriver for test session.
 
     This fixture automatically runs for all tests and ensures that:
     1. Each test session uses a unique Chrome profile directory
     2. The correct ChromeDriver version is available (when not in CI)
+
+    In CI there is no browser to drive, so setup is skipped and None is
+    returned. It must not call ``pytest.skip`` here: this fixture is
+    session-scoped and autouse, so skipping would cascade to every test in
+    the suite rather than just the browser-driven ones.
     """
-    # Check if running in CI environment and skip Chrome setup if so
+    # No browser available in CI; the only test that needs one is already
+    # marked to skip there.
     if os.getenv("CI"):
-        pytest.skip("Skipping Chrome setup in CI environment")
+        return None
 
     # Create isolated Chrome profile
     chrome_data_dir = tmp_path_factory.mktemp("chrome_profile")

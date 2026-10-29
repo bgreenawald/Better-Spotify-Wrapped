@@ -15,4 +15,4 @@ def dash_app():
 def test_app_starts(dash_duo, dash_app):
     dash_duo.start_server(dash_app)
     dash_duo.wait_for_element(".dashboard-title", timeout=10)
-    assert dash_duo.find_element(".dashboard-title").text == "Spotify Listening History"
+    assert dash_duo.find_element(".dashboard-title").text == "Slopify Wrapped"

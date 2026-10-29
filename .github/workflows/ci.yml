@@ -36,6 +36,3 @@ jobs:
 
       - name: Run tests
         run: uv run python -m pytest tests/ -v
-        env:
-          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
