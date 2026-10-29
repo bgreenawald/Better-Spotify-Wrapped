@@ -97,7 +97,9 @@ def display_timezone() -> str:
             name = link.split("zoneinfo/", 1)[1]
             ZoneInfo(name)
             return name
-    except Exception:
+    except (OSError, ValueError, KeyError):
+        # No /etc/localtime, or it names a zone this platform lacks; try the
+        # interpreter's own view next.
         pass
 
     try:
@@ -105,7 +107,7 @@ def display_timezone() -> str:
         if name:
             ZoneInfo(name)
             return name
-    except Exception:
+    except (ValueError, KeyError):
         pass
     return "UTC"
 

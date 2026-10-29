@@ -1,4 +1,5 @@
 import contextlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from src.metrics.albums import (
     is_album_sized,
 )
 from src.metrics.utils import column_exists, extract_track_id
+
+logger = logging.getLogger(__name__)
 
 
 def get_most_played_tracks(
@@ -867,7 +870,9 @@ def get_most_played_artists(
                     if not genres_map.empty:
                         res = res.merge(genres_map, on="artist_id", how="left")
         except Exception:
-            pass
+            # Genres are decoration on this result, so keep the rows -- but say
+            # so, since a silent miss here reads as "my genres disappeared".
+            logger.warning("Could not attach artist genres", exc_info=True)
         # Fallback to input-mapped genres if still missing
         if "artist_genres" not in res.columns:
             try:
@@ -887,7 +892,7 @@ def get_most_played_artists(
                     m["artist_id"] = m["artist_id"].fillna("").astype(str)
                     res = res.merge(m, on=["artist", "artist_id"], how="left")
             except Exception:
-                pass
+                logger.warning("Could not attach artist genres from the input frame", exc_info=True)
         # Normalize column to list for downstream formatting
         if "artist_genres" not in res.columns:
             res["artist_genres"] = [[] for _ in range(len(res))]
@@ -901,8 +906,8 @@ def get_most_played_artists(
                         return list(v)
                     if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
                         return list(v)
-                except Exception:
-                    pass
+                except (TypeError, ValueError):
+                    pass  # Not iterable after all; fall through to the default.
                 return []
 
             res["artist_genres"] = res["artist_genres"].apply(_to_list)

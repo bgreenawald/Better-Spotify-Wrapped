@@ -1269,11 +1269,16 @@ def populate_tracks_from_cached_albums(
 
     rows: list[tuple[str, str, str | None, int | None, bool | None]] = []
     albums_scanned = 0
+    unreadable = 0
     for path in album_files:
         try:
             with open(path, encoding="utf-8") as f:
                 album = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            # Counted, not silently skipped: a corrupt cache otherwise just
+            # looks like a smaller catalogue.
+            unreadable += 1
+            logging.warning("Skipping unreadable album cache file %s: %s", path.name, e)
             continue
         albums_scanned += 1
         aid = album.get("id")
@@ -1357,6 +1362,8 @@ def populate_tracks_from_cached_albums(
         )
 
         conn.execute("COMMIT;")
+        if unreadable:
+            logging.warning("%d album cache file(s) were unreadable and skipped", unreadable)
         return {
             "albums_scanned": int(albums_scanned),
             "tracks_inserted": int(tracks_to_insert),
@@ -1524,11 +1531,14 @@ def populate_artist_genre_evidence_from_cache(
     now = pd.Timestamp.utcnow().to_pydatetime().replace(tzinfo=None, microsecond=0)
     rows: list[tuple[str, str, str, str, str, float, str]] = []
     artists_scanned = 0
+    unreadable = 0
     for path in files:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            unreadable += 1
+            logging.warning("Skipping unreadable artist cache file %s: %s", path.name, e)
             continue
         artists_scanned += 1
         aid = data.get("id")
@@ -1601,6 +1611,8 @@ def populate_artist_genre_evidence_from_cache(
         )
 
         conn.execute("COMMIT;")
+        if unreadable:
+            logging.warning("%d artist cache file(s) were unreadable and skipped", unreadable)
         return {"artists_scanned": int(artists_scanned), "rows_inserted": int(to_insert)}
     finally:
         conn.close()
@@ -1681,11 +1693,14 @@ def populate_artist_genres_from_cache(
     artists_scanned = 0
     unmapped_tags = 0
     artists_missing_dim = 0
+    unreadable = 0
     for path in files:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            unreadable += 1
+            logging.warning("Skipping unreadable artist cache file %s: %s", path.name, e)
             continue
         aid = data.get("id")
         genres = data.get("genres") or []
@@ -1762,6 +1777,8 @@ def populate_artist_genres_from_cache(
         )
 
         conn.execute("COMMIT;")
+        if unreadable:
+            logging.warning("%d artist cache file(s) were unreadable and skipped", unreadable)
         return {
             "artists_scanned": int(artists_scanned),
             "links_inserted": int(to_insert),

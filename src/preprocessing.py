@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import logging
 from collections.abc import Iterable, Sequence
 
 import duckdb
 import pandas as pd
 
 from src.metrics.utils import inclusive_end_bound, local_ts_sql
+
+logger = logging.getLogger(__name__)
 
 
 def filter_songs(
@@ -400,8 +403,8 @@ def get_filtered_plays(
                         return tuple(v)
                     if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
                         return tuple(v)
-                except Exception:
-                    pass
+                except (TypeError, ValueError):
+                    pass  # Not iterable after all; fall through to the default.
                 return ()
 
             df["artist_genres"] = df["artist_genres"].apply(_to_tuple)

@@ -145,13 +145,13 @@ def _fmt_genres(g):
     try:
         if hasattr(g, "__iter__") and not isinstance(g, str | bytes | dict):
             return ", ".join(map(str, list(g)))
-    except Exception:
-        pass
+    except (TypeError, ValueError):
+        pass  # Not iterable after all; try the scalar paths below.
     try:
         if pd.isna(g):
             return ""
-    except Exception:
-        pass
+    except (TypeError, ValueError):
+        pass  # isna rejects some containers; treat as a value.
     if isinstance(g, str):
         return g
     return str(g) if g is not None else ""
@@ -1441,12 +1441,12 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                                 ta_str = ", ".join([str(x) for x in seq[:5]])
                             elif ta is not None:
                                 ta_str = str(ta)
-                        except Exception:
-                            pass
+                        except (TypeError, ValueError):
+                            pass  # Leave top_artists off this wedge.
                     if ta_str:
                         point["custom"] = {"top_artists": ta_str}
-                except Exception:
-                    pass
+                except (TypeError, ValueError, KeyError):
+                    pass  # Tooltip extra only; the wedge still renders.
             data_points.append(point)
         return {
             "chart": {"height": 450, "backgroundColor": "#1e1e1e" if is_dark else "white"},
