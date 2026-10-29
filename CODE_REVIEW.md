@@ -145,7 +145,7 @@ June noted the base-plays filter is implemented three times. The new finding is 
 
 So Wrapped includes skipped plays that Social excludes, and an exclusion typed in different case works on one tab and not another. Collapse to one SQL builder.
 
-### 8. Half the schema is dead; the rollups are never populated — **[New, Verified — FIXED `aa8e5df`]**
+### 8. Half the schema is dead; the rollups are never populated — **[New, Verified — FIXED `2c64a23`]**
 
 > Resolved by deletion, per table. Removed from `DDL.sql`: the mood half (`dim_moods`, `map_mood`, `track_moods`) — no code and no data source, since Spotify audio features are never fetched; `track_genres` — read by two guarded fallbacks, never written, so neither could fire; and the four `agg_*` rollups — no writer, no reader, and a monthly aggregate off `fact_plays` measures ~4ms. The 74-line dead `track_genres` fallback in `metrics.py` and the dead branch in `preprocessing.py` are gone, the stale empty `track_artists` was dropped from the live DB, and `DDL.sql` now declares exactly the 13 objects the live database has. A test asserts that set so the schema cannot drift back.
 
@@ -425,7 +425,7 @@ Also **[Jun #20]**: `conftest.py:8` runs Chrome/webdriver setup as an **autouse 
 - **No screenshots.** For a dashboard project, 3–4 images at the top of the README would do more for comprehension than the entire CLI reference table — and `AGENTS.md:30` already requires a screenshot for UI PRs. **[New]**
 - **No quickstart without data.** No sample or fixture dataset, and `SEED.sql` seeds users with zero plays, so a new user cannot see anything work before a 30-day Spotify export arrives. A tiny synthetic fixture would double as the test fixture the suite needs. **[New]**
 - **`AGENTS.md` and `CLAUDE.md` overlap and disagree** (UUID vs slug, different command lists). Consolidate to one; make the other a pointer. **[New]**
-- **`TASK.md` is a historical migration plan presented as current.** **[FIXED `aa8e5df`: moved to `docs/TASK.md` with a superseded header.]** It references `music_schema_proposed.sql`, `genres_taxonomy.yaml`, and `moods_taxonomy.yaml` — **none of which exist** — and weighs Streamlit vs Next.js options never taken. Archive under `docs/` with a "superseded" header, or delete. **[New]**
+- **`TASK.md` is a historical migration plan presented as current.** **[FIXED `2c64a23`: moved to `docs/TASK.md` with a superseded header.]** It references `music_schema_proposed.sql`, `genres_taxonomy.yaml`, and `moods_taxonomy.yaml` — **none of which exist** — and weighs Streamlit vs Next.js options never taken. Archive under `docs/` with a "superseded" header, or delete. **[New]**
 - **`.pre-commit-config-ci.yaml` is inert** — **[New, Verified]**. pre-commit.ci reads a `ci:` block *inside* `.pre-commit-config.yaml`; it does not read a separate file by that name. `autofix_prs` and `autoupdate_schedule` are currently no-ops. Move those keys into the real config and delete the file.
 - **Version drift** — **[New, Verified]**. Pre-commit pins ruff `v0.12.10`; `uv.lock` resolves `0.12.12`. No Dependabot or Renovate. CI never runs pre-commit, so hooks and CI can drift independently.
 - **Python version mismatch** — **[New, Verified]**. Local dev is **3.13.11**; the CI matrix is `3.10`–`3.12`. The interpreter you actually develop on is never tested, and there is no `.python-version`. The CI `push` trigger also still lists a stale `code-quality` branch.
