@@ -184,6 +184,10 @@ The project uses a `.env` file with the following keys:
 - `DATA_DIR`: Optional, legacy only. Base directory for user data (e.g., `data/ben.greenawald`), read by `src/wrapped.py` and the legacy export helpers. The `ingest-*` commands do not need it.
 - `MUSIC_DB`: Path to DuckDB database (default: `data/db/music.db`)
 - `SPOTIFY_API_CACHE_DIR`: Override for API cache directory (default: `data/api/cache`)
+- `DISPLAY_TIMEZONE`: IANA zone used to bucket plays by day/month (default: the
+  machine's local zone; `UTC` groups by UTC days). `fact_plays.played_at` is
+  stored as naive UTC and converted at query time in `get_filtered_plays` and
+  `social.py`, so all tabs share one basis.
 - `ENVIRONMENT`: Dashboard only (`dashboard/application.py`, `dashboard/conn.py`): set to "local", "dev", "development", or "test" to let `.env` override existing env vars. `src/api/api.py` and `src/api/utils.py` call `load_dotenv(override=True)` unconditionally, so CLI runs always let `.env` clobber shell env vars
 
 ### API Caching

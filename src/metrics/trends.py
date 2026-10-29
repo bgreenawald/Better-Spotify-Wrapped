@@ -81,17 +81,34 @@ def get_listening_time_by_month(
                        COUNT(DISTINCT artist) AS unique_artists
                 FROM base
                 GROUP BY 1
+            ), bounds AS (
+                SELECT MIN(CAST(ts AS DATE)) AS first_day,
+                       MAX(CAST(ts AS DATE)) AS last_day
+                FROM {rel}
             ), days AS (
-                SELECT month,
-                       CAST(EXTRACT(day FROM (date_trunc('month', strptime(month || '-01', '%Y-%m-%d'))
-                              + INTERVAL 1 MONTH - INTERVAL 1 DAY)) AS INTEGER) AS days_in_month
-                FROM monthly
+                -- Days of this month that actually fall inside the observed
+                -- range. Dividing by the full calendar month made the first
+                -- and current months read low, since only part of them is
+                -- covered by the data.
+                SELECT m.month,
+                       CAST(DATE_DIFF('day',
+                           GREATEST(
+                               CAST(strptime(m.month || '-01', '%Y-%m-%d') AS DATE),
+                               b.first_day
+                           ),
+                           LEAST(
+                               CAST(strptime(m.month || '-01', '%Y-%m-%d') AS DATE)
+                                   + INTERVAL 1 MONTH - INTERVAL 1 DAY,
+                               b.last_day
+                           )
+                       ) + 1 AS INTEGER) AS days_observed
+                FROM monthly m CROSS JOIN bounds b
             )
             SELECT m.month,
                    m.unique_tracks,
                    m.unique_artists,
                    ROUND(m.ms_played / (1000.0 * 60.0 * 60.0), 2) AS total_hours,
-                   ROUND((m.ms_played / (1000.0 * 60.0 * 60.0)) / NULLIF(d.days_in_month, 0), 2) AS avg_hours_per_day
+                   ROUND((m.ms_played / (1000.0 * 60.0 * 60.0)) / NULLIF(d.days_observed, 0), 2) AS avg_hours_per_day
             FROM monthly m
             JOIN days d USING (month)
             ORDER BY m.month

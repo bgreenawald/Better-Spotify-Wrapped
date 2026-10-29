@@ -645,15 +645,24 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             total_hours = total_ms / MS_PER_HOUR
             unique_tracks = filtered["master_metadata_track_name"].nunique()
             unique_artists = filtered["master_metadata_album_artist_name"].nunique()
-            unique_days = filtered["ts"].dt.date.nunique()
-            avg_daily_hours = total_hours / unique_days if unique_days > 0 else 0.0
-            daily_ms = filtered.groupby(filtered["ts"].dt.date)["ms_played"].sum()
+            # Two denominators, each labelled, because they answer different
+            # questions and used to be conflated: the Trends tab divided by
+            # calendar days while this divided by days with any listening, so
+            # two "average per day" figures on one dashboard disagreed.
+            dates = filtered["ts"].dt.date
+            active_days = dates.nunique()
+            span_days = (dates.max() - dates.min()).days + 1 if active_days else 0
+            avg_per_calendar_day = total_hours / span_days if span_days > 0 else 0.0
+            avg_per_active_day = total_hours / active_days if active_days > 0 else 0.0
+            daily_ms = filtered.groupby(dates)["ms_played"].sum()
             most_active_day = daily_ms.idxmax().strftime("%Y-%m-%d") if not daily_ms.empty else "—"
             stats_summary = {
                 "Total Listening Time": f"{format_stat(total_hours)} hours",
                 "Unique Tracks": format_stat(unique_tracks),
                 "Unique Artists": format_stat(unique_artists),
-                "Average Daily Listening Time": f"{format_stat(avg_daily_hours)} hours",
+                "Average per Day": f"{format_stat(avg_per_calendar_day)} hours",
+                "Average per Day Listened": f"{format_stat(avg_per_active_day)} hours",
+                "Days Listened": f"{format_stat(active_days)} of {format_stat(span_days)}",
                 "Most Active Day": most_active_day,
             }
 
@@ -1947,7 +1956,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             "total_hours": "Total Listening Hours",
             "unique_tracks": "Unique Tracks",
             "unique_artists": "Unique Artists",
-            "avg_hours_per_day": "Average Hours per Day",
+            "avg_hours_per_day": "Avg Hours per Day (observed days in month)",
         }
         title = f"Monthly {labels[selected_metric]}"
         cats = monthly["month"].astype(str).tolist()

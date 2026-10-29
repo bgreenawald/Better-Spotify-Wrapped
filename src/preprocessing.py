@@ -8,7 +8,7 @@ import duckdb
 import pandas as pd
 
 from src.api.api import SpotifyData
-from src.metrics.utils import inclusive_end_bound
+from src.metrics.utils import inclusive_end_bound, local_ts_sql
 
 
 def add_api_data(
@@ -268,16 +268,21 @@ def get_filtered_plays(
         except Exception:
             return False
 
+    # played_at is stored as naive UTC. Bucketing and filtering both happen in
+    # display-local time, so a late-evening play is not pushed into the next
+    # day, month or year. DISPLAY_TIMEZONE=UTC restores the old behavior.
+    local_ts = local_ts_sql("p.played_at")
+
     filters = ["p.user_id = ?"]
     params: list[object] = [user_id]
     if s_date is not None:
-        filters.append("p.played_at >= ?")
+        filters.append(f"{local_ts} >= ?")
         params.append(s_date)
     if e_date is not None:
-        filters.append("p.played_at <= ?")
+        filters.append(f"{local_ts} <= ?")
         params.append(inclusive_end_bound(e_date))
     if exclude_december:
-        filters.append("EXTRACT(month FROM p.played_at) <> 12")
+        filters.append(f"EXTRACT(month FROM {local_ts}) <> 12")
     # Require duration_ms > 0, excluding NULLs
     filters.append("COALESCE(p.duration_ms, 0) > 0")
     filters.append("COALESCE(p.reason_start, 'unknown') <> 'unknown'")
@@ -343,7 +348,7 @@ def get_filtered_plays(
     sql = f"""
         WITH plays AS (
             SELECT
-                p.played_at AS ts,
+                {local_ts} AS ts,
                 p.duration_ms AS ms_played,
                 p.reason_start,
                 p.reason_end,

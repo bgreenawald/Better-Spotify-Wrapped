@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from src.metrics.utils import inclusive_end_bound
+from src.metrics.utils import inclusive_end_bound, local_ts_sql
 
 Mode = Literal["tracks", "artists", "genres"]
 
@@ -59,7 +59,7 @@ def _base_plays_sql(
         "COALESCE(p.reason_end, 'unknown') <> 'unknown'",
     ]
     if exclude_december:
-        filters.append("EXTRACT(MONTH FROM p.played_at) <> 12")
+        filters.append(f"EXTRACT(MONTH FROM {local_ts_sql('p.played_at')}) <> 12")
     if remove_incognito:
         filters.append("COALESCE(p.incognito_mode, FALSE) = FALSE")
 
@@ -259,10 +259,10 @@ def compute_social_regions(
     params: list[Any] = []
     date_clause = ""
     if start is not None:
-        date_clause += " AND p.played_at >= ?"
+        date_clause += f" AND {local_ts_sql('p.played_at')} >= ?"
         params.append(pd.to_datetime(start).to_pydatetime())
     if end is not None:
-        date_clause += " AND p.played_at <= ?"
+        date_clause += f" AND {local_ts_sql('p.played_at')} <= ?"
         params.append(inclusive_end_bound(end).to_pydatetime())
 
     has_genre_hierarchy = False

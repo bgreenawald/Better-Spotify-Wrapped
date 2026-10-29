@@ -15,6 +15,16 @@ from src.preprocessing import get_filtered_plays
 DDL_PATH = Path(__file__).resolve().parents[1] / "DDL.sql"
 
 
+@pytest.fixture(autouse=True)
+def _utc_display(monkeypatch: pytest.MonkeyPatch):
+    """Pin display time to UTC.
+
+    These tests check the range boundary itself, so they must not depend on
+    the host's timezone. Local-time bucketing has its own tests.
+    """
+    monkeypatch.setenv("DISPLAY_TIMEZONE", "UTC")
+
+
 @pytest.fixture
 def con(tmp_path: Path):
     """A DuckDB connection with the real schema and a handful of plays."""
