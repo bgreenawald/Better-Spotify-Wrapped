@@ -119,7 +119,10 @@ def create_app() -> Dash:
     # (Tab 2 only mounts one selected chart at a time)
     app.config.suppress_callback_exceptions = True
 
-    # Build base DataFrame from DB for current UI
+    # Read the layout's bounds. conn is bound before the try, so a failure in
+    # get_db_connection() cannot reach the finally with the name unbound -- that
+    # raised NameError, which contextlib.suppress then hid.
+    conn = None
     try:
         conn = get_db_connection()
         history_df = _load_layout_bounds(conn)
@@ -127,8 +130,9 @@ def create_app() -> Dash:
         logger.exception("Error reading from DuckDB:")
         raise
     finally:
-        with contextlib.suppress(Exception):
-            conn.close()
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
 
     # Initialize app layout and register callbacks
     logger.info("Initializing layout and callbacks...")

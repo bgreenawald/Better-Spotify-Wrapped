@@ -1,5 +1,8 @@
+import contextlib
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -53,3 +56,24 @@ def get_db_connection() -> duckdb.DuckDBPyConnection:
     except Exception as e:
         logger.error("Failed to connect to DuckDB database: %s", e)
         raise
+
+
+@contextmanager
+def db_cursor() -> Iterator[duckdb.DuckDBPyConnection]:
+    """Yield a read-only DuckDB connection and always close it.
+
+    Replaces the hand-written `con = get_db_connection()` / `try` /
+    `finally: con.close()` block that appeared ~15 times in the callbacks.
+    Several of those opened the connection inside the `try`, so a failure to
+    connect reached the `finally` with the name unbound and raised NameError
+    on top of the real error.
+
+    Yields:
+        An open connection, closed when the block exits.
+    """
+    con = get_db_connection()
+    try:
+        yield con
+    finally:
+        with contextlib.suppress(Exception):
+            con.close()

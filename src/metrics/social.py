@@ -49,7 +49,29 @@ def _base_plays_sql(
     rel_albums: str,
     rel_genres: str,
     has_genre_hierarchy: bool,
+    date_clause: str = "",
 ) -> str:
+    """Build the base plays CTE.
+
+    Args:
+        users_rel: Temp relation holding the user ids.
+        exclude_december: Drop December plays.
+        remove_incognito: Drop private-session plays.
+        rel_tracks: Temp relation of excluded track names, or "".
+        rel_artists: Temp relation of excluded artist names, or "".
+        rel_albums: Temp relation of excluded album names, or "".
+        rel_genres: Temp relation of excluded genre names, or "".
+        has_genre_hierarchy: Whether genre_hierarchy is available.
+        date_clause: Extra predicates, each already prefixed with " AND ",
+            holding one positional parameter per placeholder. Passed in rather
+            than string-replaced into the finished SQL: the caller used to do
+            .replace("WHERE ", ..., 1), which worked only because this function
+            happened to emit exactly one WHERE first, and any refactor would
+            have silently dropped the date filter and misaligned the params.
+
+    Returns:
+        The "WITH base AS (...)" prefix.
+    """
     # Build optional WHERE fragments
     filters = [
         f"p.user_id IN (SELECT val FROM {users_rel})",
@@ -123,7 +145,7 @@ def _base_plays_sql(
         "  SELECT p.user_id, p.track_id, p.played_at\n"
         "  FROM fact_plays p\n"
         f"  {joins_sql}\n"
-        f"  WHERE {where_clause}\n"
+        f"  WHERE {where_clause}{date_clause}\n"
         ")\n"
     )
 
@@ -303,7 +325,8 @@ def compute_social_regions(
         rel_albums=rel_albums,
         rel_genres=rel_genres,
         has_genre_hierarchy=has_genre_hierarchy,
-    ).replace("WHERE ", f"WHERE 1=1{date_clause} AND ", 1)
+        date_clause=date_clause,
+    )
 
     ranks = _ranks_sql(
         mode,

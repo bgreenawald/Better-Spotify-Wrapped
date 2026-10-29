@@ -1,4 +1,6 @@
-import contextlib
+import hashlib
+import logging
+import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from io import StringIO
@@ -16,7 +18,7 @@ from dashboard.components.filters import (
     create_track_trends_layout,
 )
 from dashboard.components.graphs import create_daily_top_playcount_grid
-from dashboard.conn import get_db_connection
+from dashboard.conn import db_cursor
 from src.metrics.metrics import (
     get_most_played_artists,
     get_most_played_tracks,
@@ -33,27 +35,37 @@ from src.metrics.trends import (
 )
 from src.preprocessing import get_filtered_plays
 
+logger = logging.getLogger(__name__)
+
 
 class SimpleLRUCache:
-    """Very small, in-process LRU cache for DataFrames keyed by strings."""
+    """Very small, in-process LRU cache for DataFrames keyed by strings.
+
+    Guarded by a lock: Dash under gunicorn or waitress serves callbacks from a
+    thread pool, so two requests can interleave a get and a set and corrupt the
+    OrderedDict. The lock is far cheaper than the queries it protects.
+    """
 
     def __init__(self, maxsize: int = 20):
         self.maxsize = maxsize
         self._store: OrderedDict[str, pd.DataFrame] = OrderedDict()
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> pd.DataFrame | None:
-        if key in self._store:
-            val = self._store.pop(key)
-            self._store[key] = val
-            return val
-        return None
+        with self._lock:
+            if key in self._store:
+                val = self._store.pop(key)
+                self._store[key] = val
+                return val
+            return None
 
     def set(self, key: str, value: pd.DataFrame) -> None:
-        if key in self._store:
-            self._store.pop(key)
-        self._store[key] = value
-        if len(self._store) > self.maxsize:
-            self._store.popitem(last=False)
+        with self._lock:
+            if key in self._store:
+                self._store.pop(key)
+            self._store[key] = value
+            if len(self._store) > self.maxsize:
+                self._store.popitem(last=False)
 
 
 # Lightweight in-process LRU caches for expensive, DuckDB-backed computations
@@ -94,7 +106,10 @@ def _make_filter_cache_key(
         _to_tuple(excluded_artists),
         _to_tuple(excluded_albums),
     )
-    return "|".join([";".join(p) for p in parts])
+    # Hash a repr of the whole tuple rather than joining on "|" and ";": a
+    # track actually named "a;b" could otherwise collide with two tracks named
+    # "a" and "b", silently serving one filter's results for another.
+    return hashlib.sha256(repr(parts).encode("utf-8")).hexdigest()
 
 
 def _make_wrapped_cache_key(
@@ -109,15 +124,17 @@ def _make_wrapped_cache_key(
 ) -> str:
     parts = (
         str(user_id or ""),
-        f"year:{selected_year}" if selected_year else "year:",
-        f"exdec:{bool(exclude_december)}",
-        f"rm_incog:{bool(remove_incognito)}",
-        "tracks:" + ",".join(sorted(map(str, excluded_tracks or []))),
-        "artists:" + ",".join(sorted(map(str, excluded_artists or []))),
-        "albums:" + ",".join(sorted(map(str, excluded_albums or []))),
-        "genres:" + ",".join(sorted(map(str, excluded_genres or []))),
+        selected_year,
+        bool(exclude_december),
+        bool(remove_incognito),
+        tuple(sorted(map(str, excluded_tracks or []))),
+        tuple(sorted(map(str, excluded_artists or []))),
+        tuple(sorted(map(str, excluded_albums or []))),
+        tuple(sorted(map(str, excluded_genres or []))),
     )
-    return "|".join(parts)
+    # Hashed for the same reason as _make_filter_cache_key: a name containing
+    # the separator could otherwise collide with a different filter set.
+    return hashlib.sha256(repr(parts).encode("utf-8")).hexdigest()
 
 
 def _fmt_genres(g):
@@ -270,8 +287,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT DISTINCT ve.artist_name AS name "
                     "FROM v_plays_enriched ve "
@@ -281,9 +297,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -302,8 +315,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT DISTINCT ve.album_name AS name "
                     "FROM v_plays_enriched ve "
@@ -313,9 +325,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -334,8 +343,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT name, COALESCE(level, 0) AS level "
                     "FROM dim_genres "
@@ -350,9 +358,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                     {"label": f"{n} (L{lvl})", "value": n}
                     for n, lvl in zip(names, levels, strict=False)
                 ]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -371,8 +376,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT DISTINCT ve.track_name AS name "
                     "FROM v_plays_enriched ve "
@@ -382,9 +386,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -403,8 +404,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT DISTINCT ve.artist_name AS name "
                     "FROM v_plays_enriched ve "
@@ -414,9 +414,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 )
                 df_opt = con.execute(sql, [user_id, search]).df()
                 options = [{"label": n, "value": n} for n in df_opt["name"].tolist()]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -435,8 +432,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         options: list[dict] = []
         # Require at least 3 characters to search
         if len(search) >= 3:
-            con = get_db_connection()
-            try:
+            with db_cursor() as con:
                 sql = (
                     "SELECT DISTINCT (ve.track_name || ' - ' || ve.artist_name) AS track_artist "
                     "FROM v_plays_enriched ve "
@@ -447,9 +443,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 df_opt = con.execute(sql, [user_id, search, search]).df()
                 vals = df_opt["track_artist"].tolist()
                 options = [{"label": v, "value": v} for v in vals]
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
         return _merge_selected(options, selected_values)
 
     @app.callback(
@@ -631,8 +624,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             # No context; leave store unchanged to avoid clearing graphs
             raise PreventUpdate
 
-        con = get_db_connection()
-        try:
+        with db_cursor() as con:
             filtered = get_filtered_plays(
                 con,
                 user_id=user_id,
@@ -721,9 +713,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 "daily_counts": daily_counts.to_json(date_format="iso", orient="split"),
                 "stats_summary": stats_summary,
             }
-        finally:
-            with contextlib.suppress(Exception):
-                con.close()
 
     # Per-figure callbacks (Wrapped)
 
@@ -876,8 +865,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             end_date = pd.to_datetime(date_range_value[1]) if date_range_value[1] else None
 
         # Compute with DuckDB backend
-        con = get_db_connection()
-        try:
+        with db_cursor() as con:
             kwargs = {
                 "con": con,
                 "users": users,
@@ -895,9 +883,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             if (mode or "tracks") == "genres":
                 kwargs["hide_parent_genres"] = bool(hide_parent_genres)
             out = compute_social_regions(**kwargs)
-        finally:
-            with contextlib.suppress(Exception):
-                con.close()
         return out
 
     # Show/hide Social genre parent toggle depending on mode
@@ -1381,8 +1366,7 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             df = pd.read_json(StringIO(data["top_genres"]), orient="split")
             if df.empty:
                 return _empty_chart("No genre data for this selection")
-            try:
-                con = get_db_connection()
+            with db_cursor() as con:
                 edges = con.execute(
                     """
                     SELECT p.name AS parent, c.name AS child
@@ -1394,9 +1378,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 parents = con.execute(
                     "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
                 ).df()
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
 
             parents_set = {str(x).strip() for x in parents["name"]} if not parents.empty else set()
             child_to_parents: dict[str, list[str]] = {}
@@ -1878,8 +1859,10 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         if not user_id:
             # Without a user context, trends are undefined in DB-backed path
             raise PreventUpdate
-        con = get_db_connection()
-        try:
+        # One `with`, so the connection is released even if a metric raises.
+        # The hand-rolled version closed it on two paths and leaked on any
+        # other, and could reach a close with `con` unbound.
+        with db_cursor() as con:
             if not date_range or len(date_range) != 2:
                 raise PreventUpdate
             start_date, end_date = date_range
@@ -1895,55 +1878,55 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
                 excluded_albums=excluded_albums,
                 excluded_genres=excluded_genres,
             )
-        except Exception:
-            with contextlib.suppress(Exception):
-                con.close()
-            raise
-        data_out: dict[str, str] = {}
-        # Compute-on-demand by selected chart to reduce work
-        if selection == "listening":
-            monthly_stats = get_listening_time_by_month(filtered, con=con)
-            data_out["monthly_stats"] = monthly_stats.to_json(date_format="iso", orient="split")
-        elif selection == "artists":
-            artist_trends = get_artist_trends(filtered, con=con)
-            overall_artists = get_most_played_artists(filtered, con=con)
-            data_out["artist_trends"] = artist_trends.to_json(date_format="iso", orient="split")
-            data_out["overall_artists"] = overall_artists.to_json(date_format="iso", orient="split")
-        elif selection == "tracks":
-            track_trends = get_track_trends(filtered, con=con)
-            overall_tracks = get_most_played_tracks(filtered, con=con)
-            data_out["track_trends"] = track_trends.to_json(date_format="iso", orient="split")
-            data_out["overall_tracks"] = overall_tracks.to_json(date_format="iso", orient="split")
-        elif selection == "genres":
-            # Cache heavy DuckDB-backed computations keyed by filter signature
-            key = _make_filter_cache_key(
-                user_id,
-                start_date,
-                end_date,
-                exclude_december,
-                remove_incognito,
-                excluded_tracks,
-                excluded_genres,
-                excluded_artists,
-                excluded_albums,
-            )
-            genre_trends_df = _GENRE_TRENDS_CACHE.get(key)
-            if genre_trends_df is None:
-                # Use existing connection to avoid setup overhead
-                genre_trends_df = get_genre_trends(filtered, con=con)
-                _GENRE_TRENDS_CACHE.set(key, genre_trends_df)
-            overall_genres_df = _OVERALL_GENRES_CACHE.get(key)
-            if overall_genres_df is None:
-                overall_genres_df = get_top_artist_genres(filtered, con=con)
-                _OVERALL_GENRES_CACHE.set(key, overall_genres_df)
-            data_out["genre_trends"] = genre_trends_df.to_json(date_format="iso", orient="split")
-            data_out["overall_genres"] = overall_genres_df.to_json(
-                date_format="iso", orient="split"
-            )
+            data_out: dict[str, str] = {}
+            # Compute-on-demand by selected chart to reduce work
+            if selection == "listening":
+                monthly_stats = get_listening_time_by_month(filtered, con=con)
+                data_out["monthly_stats"] = monthly_stats.to_json(date_format="iso", orient="split")
+            elif selection == "artists":
+                artist_trends = get_artist_trends(filtered, con=con)
+                overall_artists = get_most_played_artists(filtered, con=con)
+                data_out["artist_trends"] = artist_trends.to_json(date_format="iso", orient="split")
+                data_out["overall_artists"] = overall_artists.to_json(
+                    date_format="iso", orient="split"
+                )
+            elif selection == "tracks":
+                track_trends = get_track_trends(filtered, con=con)
+                overall_tracks = get_most_played_tracks(filtered, con=con)
+                data_out["track_trends"] = track_trends.to_json(date_format="iso", orient="split")
+                data_out["overall_tracks"] = overall_tracks.to_json(
+                    date_format="iso", orient="split"
+                )
+            elif selection == "genres":
+                # Cache heavy DuckDB-backed computations keyed by filter signature
+                key = _make_filter_cache_key(
+                    user_id,
+                    start_date,
+                    end_date,
+                    exclude_december,
+                    remove_incognito,
+                    excluded_tracks,
+                    excluded_genres,
+                    excluded_artists,
+                    excluded_albums,
+                )
+                genre_trends_df = _GENRE_TRENDS_CACHE.get(key)
+                if genre_trends_df is None:
+                    # Use existing connection to avoid setup overhead
+                    genre_trends_df = get_genre_trends(filtered, con=con)
+                    _GENRE_TRENDS_CACHE.set(key, genre_trends_df)
+                overall_genres_df = _OVERALL_GENRES_CACHE.get(key)
+                if overall_genres_df is None:
+                    overall_genres_df = get_top_artist_genres(filtered, con=con)
+                    _OVERALL_GENRES_CACHE.set(key, overall_genres_df)
+                data_out["genre_trends"] = genre_trends_df.to_json(
+                    date_format="iso", orient="split"
+                )
+                data_out["overall_genres"] = overall_genres_df.to_json(
+                    date_format="iso", orient="split"
+                )
 
-        with contextlib.suppress(Exception):
-            con.close()
-        return data_out
+            return data_out
 
     @app.callback(
         Output("genre-options-store", "data"),
@@ -1972,17 +1955,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             return opts
         # Fallback: load distinct genres from dim_genres (fast query)
         try:
-            con = get_db_connection()
-            genres_df = con.execute("SELECT name, level FROM dim_genres ORDER BY name").df()
+            with db_cursor() as con:
+                genres_df = con.execute("SELECT name, level FROM dim_genres ORDER BY name").df()
             genres = genres_df["name"].dropna().astype(str).tolist()
-            opts = [{"label": g.title(), "value": g} for g in genres]
-            return opts
+            return [{"label": g.title(), "value": g} for g in genres]
         except Exception:
-            # If DB unavailable, leave empty options
+            logger.warning("Could not load genre options from dim_genres", exc_info=True)
             return dash.no_update
-        finally:
-            with contextlib.suppress(Exception):
-                con.close()
 
     # Mirror the genre hide-level0 radio into a store that always exists
     @app.callback(
@@ -2093,22 +2072,21 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Optionally remove level-0 (parent) genres from both datasets
         if hide_level0:
             try:
-                con = get_db_connection()
-                lvl0 = con.execute(
-                    "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
-                ).df()
+                with db_cursor() as con:
+                    lvl0 = con.execute(
+                        "SELECT name FROM dim_genres WHERE level = 0 AND COALESCE(active, TRUE)"
+                    ).df()
                 if not lvl0.empty:
                     lvl0_set = set(lvl0["name"].astype(str).tolist())
                     trends = trends[~trends["genre"].isin(lvl0_set)]
                     overall = overall[~overall["genre"].isin(lvl0_set)]
-                    # If user had selected any level-0 genres, drop them
+                    # If the user had selected any level-0 genres, drop them
                     if selected_genres:
                         selected_genres = [g for g in selected_genres if g not in lvl0_set]
             except Exception:
-                pass
-            finally:
-                with contextlib.suppress(Exception):
-                    con.close()
+                # Parent-genre hiding is cosmetic; keep the chart rather than
+                # failing it, but say so instead of swallowing silently.
+                logger.warning("Could not hide level-0 genres", exc_info=True)
 
         # Choose y-axis field
         if display_type == "percentage":
