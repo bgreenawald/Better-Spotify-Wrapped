@@ -2,23 +2,26 @@
 
 **Last updated:** 2026-10-29 against `690f11c`.
 
-> **Fix progress (2026-10-29, through `57ee31a`).** Resolved: **P0 #1-#4**,
-> **P1 #5-#11**, the P1 repo-posture items, the 318 MB startup frame, and from
-> P2 ingest: `DATA_DIR`, the retry/backoff defects, zero-ingest-looks-like-success
-> and the missing `logging.basicConfig`. `CLAUDE.md` is corrected, the dead-code
-> list is deleted, and `slopify status` closes the operability gap. Tests went
-> 7 -> 82.
+> **Fix progress (2026-10-29, through `ef1aa64`).** Resolved: **P0 #1-#4**,
+> **P1 #5-#13**, the P1 repo-posture items, the 318 MB startup frame, the dead-code
+> list, the Venn total cap from #14, and from P2 ingest: `DATA_DIR`, the
+> retry/backoff defects, zero-ingest-looks-like-success and the missing
+> `logging.basicConfig`. `CLAUDE.md` is corrected and `slopify status` closes the
+> operability gap. Tests went 7 -> 92.
 >
-> Two defects were found that this review did not record: the album cache had the
-> same unreachable-writer problem as the artist cache (P0 #2 covered artists
-> only), and the album fuzzy dedup was order-dependent and non-transitive,
-> silently discarding whole albums' play data.
+> Three defects were found that this review did not record: the album cache had
+> the same unreachable-writer problem as the artist cache (P0 #2 covered artists
+> only); the album fuzzy dedup was order-dependent and non-transitive, silently
+> discarding whole albums' play data; and the Venn totals were clamped to
+> `CONSIDER_LIMITS`, so the diagram drew three equal circles whatever the data.
 >
-> Still open, highest-value first: **#12**/**#13** (rank and tie semantics, name
-> keying), **#14** (zero-fill, Venn caps, no diversity measure), the error-swallowing
+> Still open, highest-value first: the rest of **#14** (zero-fill, no diversity
+> measure, duration weighting, minimum-plays threshold), the error-swallowing
 > cleanup now that logging works, the remaining performance items (the 21 MB
-> `dcc.Store` payload, the regex-in-join, pandas round-trips), the UX section, and
-> `callbacks.py`'s 2,482-line closure.
+> `dcc.Store` payload, the regex-in-join, pandas round-trips,
+> `v_primary_artist_per_track`), the whole UX section, and `callbacks.py`'s
+> 2,482-line closure. Also still name-keyed by design: the artist and track
+> *trend* series, since the Trends dropdowns pass names as values.
 
 This is the single, current review doc for the project. It merges:
 
@@ -204,7 +207,7 @@ Consider stripping edition suffixes (`(Deluxe)`, `(Remastered)`, `(Taylor's Vers
 
 Also: `get_most_played_tracks` returns `percentage` as a 0–1 fraction (`metrics.py:80`) while artists, genres and trends return 0–100.
 
-### 12. Rank and tie semantics are inconsistent — **[New]**
+### 12. Rank and tie semantics are inconsistent — **[New — FIXED `ef1aa64`]**
 
 - `DENSE_RANK() OVER (… ORDER BY play_count DESC, genre)` (`trends.py:216`, `:463`) uses a unique tiebreaker, so it behaves like `ROW_NUMBER` and ties never share a rank.
 - Artist trends use a pandas dense rank with true ties (`trends.py:371`).
@@ -212,14 +215,14 @@ Also: `get_most_played_tracks` returns `percentage` as a 0–1 fraction (`metric
 - "Top" lists `ORDER BY play_count DESC, name` + `LIMIT` silently cut ties at the boundary (`metrics.py:82`, `:940`).
 - `get_playcount_by_day(top_only=True)` breaks ties alphabetically with no indication a tie occurred.
 
-### 13. Entities are keyed by display name, not ID — **[New]**
+### 13. Entities are keyed by display name, not ID — **[New — FIXED `ef1aa64`]**
 
 Tracks, artists and `unique_tracks` are grouped by name (`metrics.py:68`, `:931`; `trends.py:80`, `:310`). Two different songs named "Intro" by one artist merge; renamed artists split. Social ranks by `track_id` (`social.py:138`), so the same song released as a single and as an album track is **two** entities in the social view and **one** in Wrapped.
 
 ### 14. Other statistical quality issues — **[New]**
 
 - **Missing months are not zero-filled.** Artist, track and genre trends emit only months with plays, so line charts interpolate over silent months.
-- **Social "totals" are capped.** `social.py:586` caps every Venn total at `CONSIDER_LIMITS` (250/100/50), so a pair sharing 800 tracks displays 250. June #22 asked for a comment; the display is misleading regardless.
+- **Social "totals" are capped.** **[FIXED `ef1aa64`: uncapped; the cap now governs only how many items are ranked and listed.]** `social.py:586` caps every Venn total at `CONSIDER_LIMITS` (250/100/50), so a pair sharing 800 tracks displays 250. June #22 asked for a comment; the display is misleading regardless.
 - **No diversity or concentration measure exists** — no entropy, Gini, HHI, top-N share, or repeat rate — despite `docs/TASK.md` calling for entropy. Shannon entropy is cheap: `-SUM(p*ln p)` over per-artist play share.
 - **Play counts are unweighted by duration.** A 31-second play counts the same as a full one, while `avg_duration_min` is shown alongside; the mean includes truncated plays, and no completion rate is computed.
 - **No minimum-plays threshold**, so a month with 3 plays can rank a genre #1.
