@@ -73,6 +73,10 @@ uv run slopify ingest-track-artists --db data/db/music.db
 # (must run after ingest-track-artists and before ingest-artist-genres)
 uv run slopify fetch-artist-cache --db data/db/music.db
 
+# Fetch album JSONs into the local cache
+# (must run after ingest-track-albums and before ingest-tracks-from-albums)
+uv run slopify fetch-album-cache --db data/db/music.db
+
 # Load artist genre evidence from cache
 uv run slopify ingest-artist-genres --db data/db/music.db
 

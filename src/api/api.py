@@ -1,11 +1,9 @@
-import argparse
 import json
 import logging
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,21 +16,6 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
 load_dotenv(override=True)
-
-
-@dataclass
-class SpotifyData:
-    """Container for Spotify API data: tracks, artists, and albums.
-
-    Attributes:
-        tracks: Mapping from track ID to track data.
-        artists: Mapping from artist ID to artist data.
-        albums: Mapping from album ID to album data.
-    """
-
-    tracks: dict[str, dict[str, Any]]
-    artists: dict[str, dict[str, Any]]
-    albums: dict[str, dict[str, Any]]
 
 
 class SpotifyDataCollector:
@@ -102,7 +85,6 @@ class SpotifyDataCollector:
         # Rate limiting state for request counting and circuit breaker
         self._request_timestamps: list[float] = []
         self._consecutive_rate_limits: int = 0
-        self._circuit_breaker_triggered_at: float = 0.0
 
     def _setup_cache_directories(self) -> None:
         """Create cache subdirectories for tracks, artists, and albums."""
@@ -292,7 +274,6 @@ class SpotifyDataCollector:
             time.sleep(self._CIRCUIT_BREAKER_COOLDOWN)
             with self._request_lock:
                 self._consecutive_rate_limits = 0
-                self._circuit_breaker_triggered_at = time.time()
 
     def _handle_rate_limit_hit(self) -> None:
         """Track rate limit hits and adaptively increase delay.
@@ -323,28 +304,6 @@ class SpotifyDataCollector:
                 self._rate_limit_delay = max(
                     self._baseline_rate_limit_delay, self._rate_limit_delay / 1.1
                 )
-
-    def get_rate_limit_status(self) -> dict[str, Any]:
-        """Return current rate limiting status for monitoring. Thread-safe.
-
-        Returns:
-            Dictionary containing:
-                - requests_in_last_30s: Number of requests in the last 30 seconds
-                - current_delay: Current delay between requests in seconds
-                - consecutive_rate_limits: Number of consecutive 429 errors
-                - circuit_breaker_active: Whether the circuit breaker is triggered
-        """
-        with self._request_lock:
-            now = time.time()
-            cutoff = now - 30
-            recent_requests = len([t for t in self._request_timestamps if t > cutoff])
-            return {
-                "requests_in_last_30s": recent_requests,
-                "current_delay": self._rate_limit_delay,
-                "consecutive_rate_limits": self._consecutive_rate_limits,
-                "circuit_breaker_active": self._consecutive_rate_limits
-                >= self._CIRCUIT_BREAKER_THRESHOLD,
-            }
 
     def _parse_retry_after(self, exc: SpotifyException, attempt: int) -> float:
         """Read a bounded wait from a 429's Retry-After header.
@@ -605,49 +564,6 @@ class SpotifyDataCollector:
             self._ALBUM_BATCH_SIZE,
             lambda batch: self.spotify_client.albums(batch)["albums"],
         )
-
-
-def _list_to_dict(items: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
-    """Convert a list of dicts into a dict keyed by a specified field.
-
-    Args:
-        items: List of dictionaries.
-        key: The key to index dictionaries by.
-
-    Returns:
-        A dict mapping item[key] to the item dict.
-    """
-    return {item[key]: item for item in items}
-
-
-def load_api_data() -> SpotifyData:
-    """Load all Spotify data using ID files and the data collector.
-
-    Reads track, artist, and album ID files, fetches their data, and returns
-    a SpotifyData object containing dicts of the fetched data.
-    """
-    collector = SpotifyDataCollector()
-    # Read ID lists from files
-    track_file = collector.data_dir / "track_ids.txt"
-    artist_file = collector.data_dir / "artist_ids.txt"
-    album_file = collector.data_dir / "album_ids.txt"
-
-    with open(track_file, encoding="utf-8") as f:
-        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-    with open(artist_file, encoding="utf-8") as f:
-        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-    with open(album_file, encoding="utf-8") as f:
-        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-
-    tracks = collector.fetch_tracks(track_ids)
-    artists = collector.fetch_artists(artist_ids)
-    albums = collector.fetch_albums(album_ids)
-
-    return SpotifyData(
-        tracks=_list_to_dict(tracks, "id"),
-        artists=_list_to_dict(artists, "id"),
-        albums=_list_to_dict(albums, "id"),
-    )
 
 
 def populate_missing_track_isrcs(
@@ -1484,6 +1400,70 @@ def fetch_artist_cache(
     }
 
 
+def fetch_album_cache(
+    *,
+    db_path: str | Path,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+    max_workers: int = 1,
+) -> dict[str, int]:
+    """Fetch and cache Spotify album JSONs for every album in `dim_albums`.
+
+    This fills `cache_dir/albums/`, which
+    :func:`populate_tracks_from_cached_albums` then reads. Like the artist
+    cache, nothing reachable from the CLI used to write it, so
+    `ingest-tracks-from-albums` had no input on a fresh install.
+
+    Args:
+        db_path: Path to DuckDB database file.
+        client_id: Spotify Client ID (falls back to env `SPOTIFY_CLIENT_ID`).
+        client_secret: Spotify Client Secret (falls back to env `SPOTIFY_CLIENT_SECRET`).
+        cache_dir: Optional cache directory override.
+        limit: Optional cap on the number of albums to fetch.
+        max_workers: Concurrent worker threads for API requests.
+
+    Returns:
+        Counts: {"albums_in_db": n, "already_cached": c, "fetched": f}.
+    """
+    collector = SpotifyDataCollector(
+        client_id=client_id,
+        client_secret=client_secret,
+        cache_dir=cache_dir,
+        max_workers=max_workers,
+    )
+
+    conn = duckdb.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT album_id FROM dim_albums WHERE album_id IS NOT NULL").fetchall()
+    finally:
+        conn.close()
+
+    album_ids = [r[0] for r in rows if r[0]]
+    total = len(album_ids)
+    if limit is not None:
+        album_ids = album_ids[: max(0, int(limit))]
+
+    already = collector._get_cached_ids("albums")
+    to_fetch = [a for a in album_ids if a not in already]
+    cached_count = len(album_ids) - len(to_fetch)
+
+    if not to_fetch:
+        logging.info("All %d requested albums are already cached", len(album_ids))
+        return {"albums_in_db": total, "already_cached": cached_count, "fetched": 0}
+
+    before = len(collector._get_cached_ids("albums"))
+    collector.fetch_albums(to_fetch)
+    after = len(collector._get_cached_ids("albums"))
+
+    return {
+        "albums_in_db": total,
+        "already_cached": cached_count,
+        "fetched": after - before,
+    }
+
+
 def populate_artist_genre_evidence_from_cache(
     *,
     db_path: str | Path,
@@ -1759,42 +1739,3 @@ def populate_artist_genres_from_cache(
         }
     finally:
         conn.close()
-
-
-if __name__ == "__main__":
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Fetch Spotify data and cache it")
-    parser.add_argument("--save", action="store_true", help="Save fetched data to CSV files")
-    args = parser.parse_args()
-
-    # Initialize collector
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-    collector = SpotifyDataCollector(client_id, client_secret)
-
-    # Load ID lists
-    with open(collector.data_dir / "track_ids.txt", encoding="utf-8") as f:
-        track_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-    with open(collector.data_dir / "artist_ids.txt", encoding="utf-8") as f:
-        artist_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-    with open(collector.data_dir / "album_ids.txt", encoding="utf-8") as f:
-        album_ids = [s for line in f if (s := line.strip()) and not s.startswith("#")]
-
-    # Fetch data
-    print("Fetching tracks...")
-    tracks = collector.fetch_tracks(track_ids)
-    print("Fetching artists...")
-    artists = collector.fetch_artists(artist_ids)
-    print("Fetching albums...")
-    albums = collector.fetch_albums(album_ids)
-
-    # Save data to CSV if requested
-    if args.save:
-        tracks_df = pd.DataFrame(tracks)
-        tracks_df.to_csv(collector.data_dir / "tracks.csv", index=False)
-
-        artists_df = pd.DataFrame(artists)
-        artists_df.to_csv(collector.data_dir / "artists.csv", index=False)
-
-        albums_df = pd.DataFrame(albums)
-        albums_df.to_csv(collector.data_dir / "albums.csv", index=False)

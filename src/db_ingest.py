@@ -38,9 +38,6 @@ class IngestResult:
     existing_tracks: int
 
 
-SPOTIFY_TRACK_NAMESPACE = uuid.NAMESPACE_URL  # preserved for backward compat if needed
-
-
 def _extract_spotify_track_id(uri: str | None) -> str | None:
     if not uri:
         return None
@@ -98,103 +95,6 @@ def _ensure_user(conn: duckdb.DuckDBPyConnection, user_id: str) -> None:
             "INSERT INTO dim_users (user_id) VALUES (?)",
             [user_id],
         )
-
-
-def _upsert_track(
-    conn: duckdb.DuckDBPyConnection, *, track_spotify_id: str, track_name: str | None
-) -> bool:
-    """Insert a row into `dim_tracks` if it does not already exist.
-
-    Returns True if a new row was inserted; False if it already existed.
-    """
-    # Spotify track ID is the primary key
-    track_id = track_spotify_id
-    # Ensure a non-null track_name to satisfy NOT NULL constraint
-    safe_name = (
-        track_name
-        if (track_name is not None and str(track_name).strip())
-        else f"spotify:{track_spotify_id}"
-    )
-    exists = conn.execute(
-        "SELECT 1 FROM dim_tracks WHERE track_id = ? LIMIT 1",
-        [track_id],
-    ).fetchone()
-    if exists:
-        return False
-    conn.execute(
-        """
-        INSERT INTO dim_tracks (
-            track_id, track_name, album_id, duration_ms, explicit
-        ) VALUES (?, ?, NULL, NULL, NULL)
-        """,
-        [track_id, safe_name],
-    )
-    return True
-
-
-def _insert_play(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    user_id: str,
-    track_spotify_id: str,
-    played_at_iso: str,
-    device_type: str | None,
-    duration_ms: int | None,
-) -> bool:
-    # Spotify ID is the track_id (no transformation)
-    track_id = track_spotify_id
-    play_id = str(uuid.uuid4())
-    exists = conn.execute(
-        "SELECT 1 FROM fact_plays WHERE user_id = ? AND track_id = ? AND played_at = ? LIMIT 1",
-        [user_id, track_id, played_at_iso],
-    ).fetchone()
-    if exists:
-        return False
-    conn.execute(
-        """
-        INSERT INTO fact_plays (
-            play_id,
-            user_id,
-            track_id,
-            played_at,
-            context_type,
-            context_id,
-            device_type,
-            duration_ms,
-            conn_country,
-            ip_addr,
-            reason_start,
-            reason_end,
-            shuffle,
-            skipped,
-            offline,
-            offline_timestamp,
-            incognito_mode
-        ) VALUES (
-            ?, ?, ?, ?,
-            NULL, NULL,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        )
-        """,
-        [
-            play_id,
-            user_id,
-            track_id,
-            played_at_iso,
-            device_type,
-            duration_ms,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ],
-    )
-    return True
 
 
 def load_history_into_fact_plays(

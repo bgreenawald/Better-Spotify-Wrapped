@@ -7,49 +7,7 @@ from collections.abc import Iterable, Sequence
 import duckdb
 import pandas as pd
 
-from src.api.api import SpotifyData
 from src.metrics.utils import inclusive_end_bound, local_ts_sql
-
-
-def add_api_data(
-    history_df: pd.DataFrame,
-    api_data: SpotifyData,
-) -> pd.DataFrame:
-    """Add Spotify track, album, artist IDs, and genres to listening history.
-
-    Extracts track ID from the Spotify URI, maps it to album and artist IDs
-    from the API data, and adds the artist's genres.
-
-    Args:
-        history_df (pd.DataFrame): Listening history with a
-            'spotify_track_uri' column.
-        api_data (SpotifyData): Spotify API data containing 'tracks' and
-            'artists' mappings.
-
-    Returns:
-        pd.DataFrame: Updated DataFrame with 'track_id', 'album_id',
-            'artist_id', and 'artist_genres' columns added.
-    """
-    # Extract track ID from the Spotify URI (everything after the last colon)
-    history_df["track_id"] = history_df["spotify_track_uri"].str.rsplit(":", n=1).str[-1]
-
-    # Build mapping from track ID to album and artist IDs
-    track_to_album = {track_id: info["album"]["id"] for track_id, info in api_data.tracks.items()}
-    track_to_artist = {
-        track_id: info["artists"][0]["id"] for track_id, info in api_data.tracks.items()
-    }
-
-    # Map album_id and artist_id columns
-    history_df["album_id"] = history_df["track_id"].map(track_to_album)
-    history_df["artist_id"] = history_df["track_id"].map(track_to_artist)
-
-    # Build mapping from artist ID to genres
-    artist_to_genres = {
-        artist_id: tuple(data["genres"]) for artist_id, data in api_data.artists.items()
-    }
-    history_df["artist_genres"] = history_df["artist_id"].map(artist_to_genres)
-
-    return history_df
 
 
 def filter_songs(

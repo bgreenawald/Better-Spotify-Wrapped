@@ -13,6 +13,7 @@ import click
 import duckdb
 
 from .api.api import (
+    fetch_album_cache,
     fetch_artist_cache,
     populate_artist_genre_evidence_from_cache,
     populate_artist_genres_from_cache,
@@ -367,6 +368,54 @@ def ingest_track_artists(db_path: Path, limit: int | None, cache_dir: Path | Non
 
     click.echo(
         f"Inserted artists: {counts['artists_inserted']} | Bridges inserted: {counts['bridges_inserted']}"
+    )
+
+
+@main.command("fetch-album-cache")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=Path("data/db/music.db"),
+    show_default=True,
+    help="Path to DuckDB database file.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Optional cap on number of albums to fetch.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override cache directory (defaults env SPOTIFY_API_CACHE_DIR or data/api/cache).",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Concurrent worker threads for API requests.",
+)
+def fetch_album_cache_cmd(
+    db_path: Path, limit: int | None, cache_dir: Path | None, workers: int
+) -> None:
+    """Fetch album JSONs from Spotify into the local cache.
+
+    Run this after `ingest-track-albums` and before
+    `ingest-tracks-from-albums`, which reads the cache this command fills.
+    """
+    counts = fetch_album_cache(
+        db_path=db_path,
+        cache_dir=str(cache_dir) if cache_dir else None,
+        limit=limit,
+        max_workers=workers,
+    )
+    click.echo(
+        f"Albums in DB: {counts['albums_in_db']} | "
+        f"Already cached: {counts['already_cached']} | Fetched: {counts['fetched']}"
     )
 
 
