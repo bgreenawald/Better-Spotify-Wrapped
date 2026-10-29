@@ -7,7 +7,16 @@ Updated to use preloaded DuckDB data rather than loading JSON/API at runtime.
 import contextlib
 import logging
 import os
+import sys
 from pathlib import Path
+
+# Running this file directly (`python dashboard/application.py`, the command
+# both README and CLAUDE.md document) puts dashboard/ on sys.path rather than
+# the repository root, so `import dashboard...` below failed with
+# ModuleNotFoundError. Put the root on the path first so the documented
+# command works; `python -m dashboard.application` was unaffected.
+if __name__ == "__main__" and __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc  # type: ignore

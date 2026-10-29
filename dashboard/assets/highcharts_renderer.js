@@ -74,6 +74,8 @@ window.dash_clientside.highcharts = (function () {
     });
   }
 
+  var currentThemeOptions = null;
+
   function applyTheme(themeData) {
     if (!window.Highcharts) return;
     var isDark = !!(themeData && themeData.dark === true);
@@ -124,6 +126,11 @@ window.dash_clientside.highcharts = (function () {
       },
       credits: { enabled: false }
     };
+    // Remembered so renderChart can merge it OVER the server's options.
+    // Highcharts gives an explicit per-chart option precedence over a global
+    // one, so a colour baked into the server payload would otherwise survive a
+    // theme switch and leave a white chart in dark mode.
+    currentThemeOptions = opts;
     try { window.Highcharts.setOptions(opts); } catch (e) {}
   }
 
@@ -150,6 +157,10 @@ window.dash_clientside.highcharts = (function () {
       // Revive any function-like strings in options (e.g., tooltip.formatter)
       options = reviveFunctions(options);
       window.BSW_ENABLE_EVAL = wasEnabled;
+      // Theme wins over whatever the server baked in.
+      if (currentThemeOptions && Highcharts.merge) {
+        options = Highcharts.merge(options, currentThemeOptions);
+      }
       chartRegistry[targetId] = Highcharts.chart(targetId, options);
     } catch (e) {
       console.error('Error rendering chart:', e);

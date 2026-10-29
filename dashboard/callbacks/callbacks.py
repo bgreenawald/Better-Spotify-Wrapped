@@ -706,15 +706,21 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("top-tracks-options", "data"),
-        [Input("tab-1-data", "data"), Input("theme-store", "data")],
+        # theme-store is deliberately NOT an Input here: the clientside
+        # renderer applies the theme and merges it over these options, so a
+        # dark-mode flip must not re-run this server callback (it would
+        # re-parse the whole filter payload and rebuild every chart).
+        [Input("tab-1-data", "data")],
     )
-    def render_top_tracks_figure(data, theme_data):
+    def render_top_tracks_figure(data):
         """Build Highcharts options for Most Played Tracks and store them.
 
         The actual rendering happens clientside into the 'top-tracks-container'.
         """
         # Still leverage theme to choose minor axes/grid defaults when needed
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "top_tracks" not in data:
             return None
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
@@ -886,12 +892,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         Output("social-region-lists", "children"),
         Input("social-data", "data"),
         Input("social-selected-region", "data"),
-        Input("theme-store", "data"),
     )
-    def render_social(data, selected_region, theme_data):
+    def render_social(data, selected_region):
         from dash import html
 
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or data.get("error"):
             msg = data.get("error") if data else "Select 2–3 users to compare."
             return None, html.Div(msg)
@@ -1084,10 +1091,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("top-artists-options", "data"),
-        [Input("tab-1-data", "data"), Input("theme-store", "data")],
+        # theme-store is deliberately NOT an Input here: the clientside
+        # renderer applies the theme and merges it over these options, so a
+        # dark-mode flip must not re-run this server callback (it would
+        # re-parse the whole filter payload and rebuild every chart).
+        [Input("tab-1-data", "data")],
     )
-    def render_top_artists_figure(data, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
+    def render_top_artists_figure(data):
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "top_artists" not in data:
             return None
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
@@ -1159,10 +1172,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("top-albums-options", "data"),
-        [Input("tab-1-data", "data"), Input("theme-store", "data")],
+        # theme-store is deliberately NOT an Input here: the clientside
+        # renderer applies the theme and merges it over these options, so a
+        # dark-mode flip must not re-run this server callback (it would
+        # re-parse the whole filter payload and rebuild every chart).
+        [Input("tab-1-data", "data")],
     )
-    def render_top_albums_figure(data, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
+    def render_top_albums_figure(data):
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "top_albums" not in data:
             return None
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
@@ -1319,10 +1338,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("top-genres-options", "data"),
-        [Input("tab-1-data", "data"), Input("theme-store", "data")],
+        # theme-store is deliberately NOT an Input here: the clientside
+        # renderer applies the theme and merges it over these options, so a
+        # dark-mode flip must not re-run this server callback (it would
+        # re-parse the whole filter payload and rebuild every chart).
+        [Input("tab-1-data", "data")],
     )
-    def render_top_genres_figure(data, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
+    def render_top_genres_figure(data):
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
             return None
         # Prefer precomputed hierarchical rows when available
@@ -1472,10 +1497,16 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
 
     @app.callback(
         Output("daily-song-heatmap-options", "data"),
-        [Input("tab-1-data", "data"), Input("theme-store", "data")],
+        # theme-store is deliberately NOT an Input here: the clientside
+        # renderer applies the theme and merges it over these options, so a
+        # dark-mode flip must not re-run this server callback (it would
+        # re-parse the whole filter payload and rebuild every chart).
+        [Input("tab-1-data", "data")],
     )
-    def render_daily_heatmap(data, theme_data):
-        is_dark = bool(theme_data and theme_data.get("dark"))
+    def render_daily_heatmap(data):
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "daily_counts" not in data:
             return None
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
@@ -1957,12 +1988,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         [
             Input("metric-dropdown", "value"),
             Input("tab-2-data", "data"),
-            Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
         prevent_initial_call=False,
     )
-    def update_trend_dashboard(selected_metric, data, theme_data, selection):
+    def update_trend_dashboard(selected_metric, data, selection):
         """Render monthly line chart for the selected metric.
 
         Uses a default (light) theme; a separate restyle-only callback
@@ -1971,7 +2001,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Only run when the Listening chart is mounted
         if selection != "listening":
             raise PreventUpdate
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "monthly_stats" not in data:
             raise PreventUpdate
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
@@ -2010,14 +2042,13 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("top-genres-slider", "value"),
             Input("genre-display-type-radio", "value"),
             Input("tab-2-data", "data"),
-            Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
             Input("genre-hide-level0-store", "data"),
         ],
         prevent_initial_call=False,
     )
     def update_genre_trends_graph(
-        selected_genres, top_n, display_type, data, theme_data, selection, hide_level0_store
+        selected_genres, top_n, display_type, data, selection, hide_level0_store
     ):
         """Update genre trends line chart and summary table.
 
@@ -2027,7 +2058,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Only run when the Genres chart is mounted
         if selection != "genres":
             raise PreventUpdate
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "genre_trends" not in data or "overall_genres" not in data:
             raise PreventUpdate
         hide_level0 = bool(hide_level0_store)
@@ -2139,14 +2172,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("top-artist-slider", "value"),
             Input("artist-display-type-radio", "value"),
             Input("tab-2-data", "data"),
-            Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
         prevent_initial_call=False,
     )
-    def update_artist_trends_graph(
-        selected_artists, top_n, display_type, data, theme_data, selection
-    ):
+    def update_artist_trends_graph(selected_artists, top_n, display_type, data, selection):
         """Update artist trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
@@ -2155,7 +2185,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Only run when the Artists chart is mounted
         if selection != "artists":
             raise PreventUpdate
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "artist_trends" not in data or "overall_artists" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["artist_trends"]), orient="split")
@@ -2270,14 +2302,11 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
             Input("top-track-slider", "value"),
             Input("track-display-type-radio", "value"),
             Input("tab-2-data", "data"),
-            Input("theme-store", "data"),
             Input("tab-2-chart-selector", "value"),
         ],
         prevent_initial_call=False,
     )
-    def update_track_trends_graph(
-        selected_tracks, top_n, display_type, data, theme_data, selection
-    ):
+    def update_track_trends_graph(selected_tracks, top_n, display_type, data, selection):
         """Update track trends line chart and summary table.
 
         Uses a default (light) theme; a restyle-only callback updates
@@ -2286,7 +2315,9 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
         # Only run when the Tracks chart is mounted
         if selection != "tracks":
             raise PreventUpdate
-        is_dark = bool(theme_data and theme_data.get("dark"))
+        # The clientside renderer merges the active theme over these options,
+        # so the values below are only defaults and need not branch on it.
+        is_dark = False
         if not data or "track_trends" not in data or "overall_tracks" not in data:
             raise PreventUpdate
         trends = pd.read_json(StringIO(data["track_trends"]), orient="split")
