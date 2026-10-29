@@ -160,6 +160,11 @@ That is the full set of 13 objects. Genre data comes from `artist_genres` only. 
 
 **src/metrics/metrics.py**:
 - Core metrics calculations for listening patterns
+- Entities are keyed by identity, not display name: recordings by
+  `dim_tracks.track_isrc` (falling back to `track_id`, then the title) and
+  artists by `artist_id`. ISRC is what makes a song released as both a
+  single and an album track one entity. Ranks are dense, so genuine ties
+  share a rank.
 - Functions operate on pandas DataFrames loaded from database
 
 **src/metrics/social.py**:

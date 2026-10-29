@@ -10,7 +10,7 @@ from src.metrics.albums import (
     compute_album_score,
     is_album_sized,
 )
-from src.metrics.utils import extract_track_id
+from src.metrics.utils import column_exists, extract_track_id
 
 
 def get_most_played_tracks(
@@ -52,13 +52,18 @@ def get_most_played_tracks(
 
     try:
         # Work on a reduced view; exclude artist_genres here to avoid object dtype issues in DuckDB
-        df = filtered_df[
-            [
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-                "artist_id",
-            ]
-        ].copy()
+        cols = [
+            "master_metadata_track_name",
+            "master_metadata_album_artist_name",
+            "artist_id",
+        ]
+        if "track_id" in filtered_df.columns:
+            cols.append("track_id")
+        df = filtered_df[cols].copy()
+        if "track_id" not in df.columns:
+            df["track_id"] = filtered_df.get("spotify_track_uri", pd.Series(dtype=str)).apply(
+                extract_track_id
+            )
 
         rel = "df_tracks_in"
         with contextlib.suppress(Exception):
@@ -66,26 +71,59 @@ def get_most_played_tracks(
         con.register(rel, df)
 
         lim = f"LIMIT {int(limit)}" if (limit is not None and limit > 0) else ""
+        # Tracks are keyed by recording, not by display name. ISRC identifies a
+        # recording across releases, so a song issued as a single and on an
+        # album is one entity, while two different songs that share a name and
+        # an artist stay separate. On the live data 14,560 ISRCs span more than
+        # one track_id (up to 9 releases of one recording), and 10,892
+        # (name, artist) pairs cover more than one recording -- so keying by
+        # either track_id or name alone is wrong in a different direction.
+        # The 9% of tracks without an ISRC fall back to their track_id.
+        # ISRC lives in dim_tracks. When the schema is not attached (a bare
+        # connection holding only the registered frame), fall back to track_id
+        # and then to the title, so the function still works.
+        has_tracks = column_exists(con, "dim_tracks", "track_isrc")
+        isrc_join = "LEFT JOIN dim_tracks dt ON dt.track_id = p.track_id" if has_tracks else ""
+        recording_key = (
+            "COALESCE(NULLIF(TRIM(dt.track_isrc), ''), p.track_id, p.master_metadata_track_name)"
+            if has_tracks
+            else "COALESCE(p.track_id, p.master_metadata_track_name)"
+        )
         sql = f"""
-            WITH plays AS (
+            WITH keyed AS (
                 SELECT
-                    (master_metadata_track_name || ' - ' || master_metadata_album_artist_name) AS track_artist,
-                    master_metadata_track_name AS track_name,
-                    master_metadata_album_artist_name AS artist,
-                    COALESCE(artist_id, '') AS artist_id,
-                    COUNT(*) AS play_count
-                FROM {rel}
-                GROUP BY 1,2,3,4
+                    {recording_key} AS recording_key,
+                    p.master_metadata_track_name AS track_name,
+                    p.master_metadata_album_artist_name AS artist,
+                    COALESCE(p.artist_id, '') AS artist_id
+                FROM {rel} p
+                {isrc_join}
+            ), plays AS (
+                SELECT
+                    recording_key,
+                    COUNT(*) AS play_count,
+                    -- A recording can carry slightly different titles across
+                    -- releases; show the most frequent spelling.
+                    MODE(track_name) AS track_name,
+                    MODE(artist) AS artist,
+                    MODE(artist_id) AS artist_id
+                FROM keyed
+                WHERE recording_key IS NOT NULL
+                GROUP BY 1
             ), totals AS (
                 SELECT SUM(play_count) AS total_plays FROM plays
             )
-            SELECT p.track_artist, p.track_name, p.artist, p.artist_id,
+            SELECT (p.track_name || ' - ' || p.artist) AS track_artist,
+                   p.track_name, p.artist, p.artist_id,
                    p.play_count,
                    -- 0-100, matching every other metric that returns a
                    -- 'percentage' column (artists, genres, trends).
-                   ROUND((p.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage
+                   ROUND((p.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage,
+                   -- Dense, so a tie at the LIMIT boundary is visible rather
+                   -- than silently cut.
+                   DENSE_RANK() OVER (ORDER BY p.play_count DESC) AS rank
             FROM plays p CROSS JOIN totals t
-            ORDER BY p.play_count DESC, p.track_artist
+            ORDER BY p.play_count DESC, track_artist
             {lim}
         """
         res = con.execute(sql).df()
@@ -723,13 +761,18 @@ def get_most_played_artists(
         close_conn = True
 
     try:
-        df = filtered_df[
-            [
-                "master_metadata_album_artist_name",
-                "master_metadata_track_name",
-                "artist_id",
-            ]
-        ].copy()
+        acols = [
+            "master_metadata_album_artist_name",
+            "master_metadata_track_name",
+            "artist_id",
+        ]
+        if "track_id" in filtered_df.columns:
+            acols.append("track_id")
+        df = filtered_df[acols].copy()
+        if "track_id" not in df.columns:
+            df["track_id"] = filtered_df.get("spotify_track_uri", pd.Series(dtype=str)).apply(
+                extract_track_id
+            )
 
         rel = "df_artist_in"
         with contextlib.suppress(Exception):
@@ -737,20 +780,47 @@ def get_most_played_artists(
         con.register(rel, df)
 
         lim = f"LIMIT {int(limit)}" if (limit is not None and limit > 0) else ""
+        # Keyed by artist_id, not by display name: an artist who changed name
+        # used to appear as two rows, and two artists sharing a name as one.
+        # Rows with no artist_id fall back to the name so they are still
+        # counted. unique_tracks counts distinct recordings (ISRC) rather than
+        # distinct titles, to match how tracks are keyed.
+        has_tracks_a = column_exists(con, "dim_tracks", "track_isrc")
+        isrc_join_a = "LEFT JOIN dim_tracks dt ON dt.track_id = p.track_id" if has_tracks_a else ""
+        recording_key_a = (
+            "COALESCE(NULLIF(TRIM(dt.track_isrc), ''), p.track_id, p.master_metadata_track_name)"
+            if has_tracks_a
+            else "COALESCE(p.track_id, p.master_metadata_track_name)"
+        )
         sql = f"""
-            WITH stats AS (
+            WITH keyed AS (
                 SELECT
-                    master_metadata_album_artist_name AS artist,
-                    COALESCE(artist_id, '') AS artist_id,
+                    CASE
+                        WHEN COALESCE(TRIM(p.artist_id), '') <> ''
+                            THEN 'id:' || TRIM(p.artist_id)
+                        ELSE 'name:' || COALESCE(p.master_metadata_album_artist_name, '')
+                    END AS artist_key,
+                    p.master_metadata_album_artist_name AS artist,
+                    COALESCE(p.artist_id, '') AS artist_id,
+                    {recording_key_a} AS recording_key
+                FROM {rel} p
+                {isrc_join_a}
+            ), stats AS (
+                SELECT
+                    artist_key,
+                    MODE(artist) AS artist,
+                    MODE(artist_id) AS artist_id,
                     COUNT(*) AS play_count,
-                    COUNT(DISTINCT master_metadata_track_name) AS unique_tracks
-                FROM {rel}
-                GROUP BY 1,2
+                    COUNT(DISTINCT recording_key) AS unique_tracks
+                FROM keyed
+                GROUP BY 1
             ), totals AS (
                 SELECT SUM(play_count) AS total_plays FROM stats
             )
             SELECT s.artist, s.artist_id, s.play_count, s.unique_tracks,
-                   ROUND((s.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage
+                   ROUND((s.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage,
+                   -- Dense, so a tie at the LIMIT boundary is visible.
+                   DENSE_RANK() OVER (ORDER BY s.play_count DESC) AS rank
             FROM stats s CROSS JOIN totals t
             ORDER BY s.play_count DESC, s.artist
             {lim}

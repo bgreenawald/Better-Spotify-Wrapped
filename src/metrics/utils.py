@@ -148,3 +148,54 @@ def _quote_tz(zone: str) -> str:
     except Exception as exc:
         raise ValueError(f"Invalid DISPLAY_TIMEZONE {zone!r}") from exc
     return zone
+
+
+def table_exists(con: Any, name: str) -> bool:
+    """Whether a table or view is present in the connected database.
+
+    Several metrics can use the normalized schema when it is there (to key
+    entities by ISRC, say) but must still work against a bare connection
+    holding only a registered DataFrame.
+
+    Args:
+        con: DuckDB connection.
+        name: Unqualified table or view name.
+
+    Returns:
+        True when the object exists and can be queried.
+    """
+    try:
+        row = con.execute(
+            "SELECT 1 FROM duckdb_tables() WHERE LOWER(table_name) = LOWER(?) "
+            "UNION ALL SELECT 1 FROM duckdb_views() WHERE LOWER(view_name) = LOWER(?) LIMIT 1",
+            [name, name],
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def column_exists(con: Any, table: str, column: str) -> bool:
+    """Whether a table exists and has the given column.
+
+    Checking the table alone is not enough: a caller may attach a reduced
+    `dim_tracks` that lacks `track_isrc`, and referencing a missing column
+    fails at bind time.
+
+    Args:
+        con: DuckDB connection.
+        table: Unqualified table or view name.
+        column: Column name to look for.
+
+    Returns:
+        True when both the object and the column are present.
+    """
+    try:
+        row = con.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE LOWER(table_name) = LOWER(?) AND LOWER(column_name) = LOWER(?) LIMIT 1",
+            [table, column],
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from src.metrics.utils import inclusive_end_bound, local_ts_sql
+from src.metrics.utils import column_exists, inclusive_end_bound, local_ts_sql
 
 Mode = Literal["tracks", "artists", "genres"]
 
@@ -127,24 +127,42 @@ def _base_plays_sql(
     )
 
 
-def _ranks_sql(mode: Mode, *, hide_parent_genres: bool = False) -> str:
+def _ranks_sql(mode: Mode, *, hide_parent_genres: bool = False, has_isrc: bool = False) -> str:
     """Return the CTEs for per-user counts and ranks, prefixed with a comma.
+
+    Ranks are dense and share a value on a genuine tie. This matters because
+    `joint_rank` is the mean of a region's per-user ranks: while the window
+    carried an alphabetical tiebreaker, two entities on the same play count
+    got different ranks, so the cross-user ordering followed the alphabet
+    rather than listening. Display order still breaks ties by name, but that
+    happens when sorting rows, not when assigning the rank.
 
     Must follow immediately after "WITH base AS (...)".
     """
+    track_entity_id = (
+        "COALESCE(NULLIF(TRIM(t.track_isrc), ''), t.track_id)" if has_isrc else "t.track_id"
+    )
     if mode == "tracks":
         return "".join(
             [
                 ",\n",
+                # Keyed by recording (ISRC, falling back to track_id) so the
+                # same song reaches the overlap as one entity however it was
+                # released. Keying by track_id meant two users who both played
+                # a song -- one from the single, one from the album -- did not
+                # register as sharing it, and the same song counted twice in
+                # Wrapped's terms.
                 "counts AS (\n",
-                "  SELECT b.user_id, t.track_id AS entity_id, t.track_name AS entity_name, COUNT(*) AS play_count\n",
+                f"  SELECT b.user_id, {track_entity_id} AS entity_id,\n",
+                "         MODE(t.track_name) AS entity_name,\n",
+                "         COUNT(*) AS play_count\n",
                 "  FROM base b\n",
                 "  JOIN dim_tracks t ON t.track_id = b.track_id\n",
-                "  GROUP BY 1,2,3\n",
+                "  GROUP BY 1,2\n",
                 "),\n",
                 "ranks AS (\n",
                 "  SELECT user_id, entity_id, entity_name, play_count,\n",
-                "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC, entity_name ASC) AS rnk\n",
+                "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC) AS rnk\n",
                 "  FROM counts\n",
                 ")\n",
             ]
@@ -166,7 +184,7 @@ def _ranks_sql(mode: Mode, *, hide_parent_genres: bool = False) -> str:
                 "),\n",
                 "ranks AS (\n",
                 "  SELECT user_id, entity_id, entity_name, play_count,\n",
-                "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC, entity_name ASC) AS rnk\n",
+                "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC) AS rnk\n",
                 "  FROM counts\n",
                 ")\n",
             ]
@@ -196,7 +214,7 @@ def _ranks_sql(mode: Mode, *, hide_parent_genres: bool = False) -> str:
             "),\n",
             "ranks AS (\n",
             "  SELECT user_id, entity_id, entity_name, play_count,\n",
-            "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC, entity_name ASC) AS rnk\n",
+            "         DENSE_RANK() OVER (PARTITION BY user_id ORDER BY play_count DESC) AS rnk\n",
             "  FROM counts\n",
             ")\n",
         ]
@@ -286,7 +304,11 @@ def compute_social_regions(
         has_genre_hierarchy=has_genre_hierarchy,
     ).replace("WHERE ", f"WHERE 1=1{date_clause} AND ", 1)
 
-    ranks = _ranks_sql(mode, hide_parent_genres=hide_parent_genres)
+    ranks = _ranks_sql(
+        mode,
+        hide_parent_genres=hide_parent_genres,
+        has_isrc=column_exists(con, "dim_tracks", "track_isrc"),
+    )
 
     # Per-user play counts in the filtered base
     counts_sql = base + "SELECT user_id, COUNT(*) AS plays FROM base GROUP BY 1;"
@@ -366,7 +388,7 @@ def compute_social_regions(
             ),
             ranked AS (
               SELECT user_id, genre_id, artist_id, artist_name, play_count,
-                     DENSE_RANK() OVER (PARTITION BY user_id, genre_id ORDER BY play_count DESC, artist_name ASC) AS rnk
+                     DENSE_RANK() OVER (PARTITION BY user_id, genre_id ORDER BY play_count DESC) AS rnk
               FROM genre_artist
             )
             SELECT user_id, genre_id, artist_id, artist_name, play_count, rnk FROM ranked
@@ -584,9 +606,11 @@ def compute_social_regions(
         if isinstance(v, list) and len(v) > limit_per_region:
             regions[k] = v[:limit_per_region]
 
-    # Cap totals per region by the mode's consideration limit
-    for k in list(totals.keys()):
-        totals[k] = min(int(totals[k]), consider_k_mode)
+    # Totals are the true Venn region sizes and are deliberately NOT capped.
+    # They were previously clamped to CONSIDER_LIMITS, so a pair sharing 6,781
+    # recordings displayed 250 -- the cap governs how many items are ranked and
+    # listed, which is a display concern, not how many exist.
+    totals = {k: int(v) for k, v in totals.items()}
 
     return {
         "users": users,

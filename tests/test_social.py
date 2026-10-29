@@ -150,3 +150,47 @@ def test_social_artists_and_genres():
         assert genres["regions"]["u1_u2"] == []
     finally:
         con.close()
+
+
+def test_venn_totals_are_not_capped_at_the_consider_limit():
+    """Totals are the real region sizes, not the ranking cap.
+
+    They were clamped to CONSIDER_LIMITS, so every region of a heavy listener
+    displayed the same number (250 for tracks) and the Venn drew equal circles
+    regardless of the actual overlap.
+    """
+    import duckdb
+
+    from src.metrics.social import CONSIDER_LIMITS, compute_social_regions
+
+    con = duckdb.connect(":memory:")
+    try:
+        _setup_duckdb_with_minimal_schema(con)
+
+        limit = CONSIDER_LIMITS["tracks"]
+        n = limit + 40  # Comfortably past the old cap.
+        for i in range(n):
+            tid = f"t{i}"
+            con.execute("INSERT INTO dim_tracks VALUES (?, ?, NULL)", [tid, f"Song {i}"])
+            # Both users play every track, so the shared region is all of them.
+            for user in ("u1", "u2"):
+                con.execute(
+                    "INSERT INTO fact_plays VALUES (?, ?, ?, false, false, 200000, "
+                    "'clickrow', 'trackdone')",
+                    [user, tid, pd.Timestamp("2024-06-01 10:00:00")],
+                )
+
+        out = compute_social_regions(
+            con=con,
+            users=["u1", "u2"],
+            start=pd.Timestamp("2024-01-01"),
+            end=pd.Timestamp("2024-12-31"),
+            mode="tracks",
+            exclude_december=False,
+        )
+    finally:
+        con.close()
+
+    shared = out["totals"]["u1_u2"]
+    assert shared == n, f"expected the true {n}, got {shared}"
+    assert shared > limit, "the cap should no longer bound the reported total"

@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.metrics.utils import column_exists
+
 from .utils import extract_track_id
 
 
@@ -54,31 +56,49 @@ def get_listening_time_by_month(
         close_conn = True
 
     try:
-        df = filtered_df[
-            [
-                "ts",
-                "ms_played",
-                "master_metadata_track_name",
-                "master_metadata_album_artist_name",
-            ]
-        ].copy()
+        mcols = [
+            "ts",
+            "ms_played",
+            "master_metadata_track_name",
+            "master_metadata_album_artist_name",
+        ]
+        for extra in ("track_id", "artist_id"):
+            if extra in filtered_df.columns:
+                mcols.append(extra)
+        df = filtered_df[mcols].copy()
+        for extra in ("track_id", "artist_id"):
+            if extra not in df.columns:
+                df[extra] = None
         rel = "df_monthly_in"
         with contextlib.suppress(Exception):
             con.unregister(rel)
         con.register(rel, df)
 
+        has_tracks = column_exists(con, "dim_tracks", "track_isrc")
+        isrc_join = "LEFT JOIN dim_tracks dt ON dt.track_id = p.track_id" if has_tracks else ""
+        recording_key = (
+            "COALESCE(NULLIF(TRIM(dt.track_isrc), ''), p.track_id, p.master_metadata_track_name)"
+            if has_tracks
+            else "COALESCE(p.track_id, p.master_metadata_track_name)"
+        )
         sql = f"""
             WITH base AS (
-                SELECT strftime(ts, '%Y-%m') AS month,
-                       ms_played,
-                       master_metadata_track_name AS track,
-                       master_metadata_album_artist_name AS artist
-                FROM {rel}
+                -- Counted by identity, not by display name: distinct
+                -- recordings (ISRC, falling back to track_id) and distinct
+                -- artist ids. Counting distinct names merged two different
+                -- songs sharing a title and split an artist who was renamed.
+                SELECT strftime(p.ts, '%Y-%m') AS month,
+                       p.ms_played,
+                       {recording_key} AS recording_key,
+                       COALESCE(NULLIF(TRIM(p.artist_id), ''),
+                                p.master_metadata_album_artist_name) AS artist_key
+                FROM {rel} p
+                {isrc_join}
             ), monthly AS (
                 SELECT month,
                        SUM(ms_played) AS ms_played,
-                       COUNT(DISTINCT track) AS unique_tracks,
-                       COUNT(DISTINCT artist) AS unique_artists
+                       COUNT(DISTINCT recording_key) AS unique_tracks,
+                       COUNT(DISTINCT artist_key) AS unique_artists
                 FROM base
                 GROUP BY 1
             ), bounds AS (
@@ -230,7 +250,11 @@ def get_genre_trends(
                    CAST(gm.play_count AS BIGINT) AS play_count,
                    ROUND((gm.play_count::DOUBLE / NULLIF(mt.total_plays, 0)) * 100, 2) AS percentage,
                    COALESCE(t2.top_artists, '') AS top_artists,
-                   DENSE_RANK() OVER (PARTITION BY gm.month ORDER BY gm.play_count DESC, gm.genre) AS rank
+                   -- Dense rank with no tiebreaker in the window, so genuinely
+                   -- tied entities share a rank. Adding a unique tiebreaker here
+                   -- made DENSE_RANK behave exactly like ROW_NUMBER, so ties
+                   -- never shared a rank and the order was alphabetical.
+                   DENSE_RANK() OVER (PARTITION BY gm.month ORDER BY gm.play_count DESC) AS rank
             FROM genre_month gm
             JOIN monthly_totals mt USING (month)
             LEFT JOIN top2 t2 ON t2.month = gm.month AND t2.genre = gm.genre
@@ -477,7 +501,11 @@ def get_track_trends(
                    m.play_count,
                    ROUND((m.play_count::DOUBLE / NULLIF(t.total_plays, 0)) * 100, 2) AS percentage,
                    (m.avg_duration_ms / (1000.0 * 60.0)) AS avg_duration_min,
-                   DENSE_RANK() OVER (PARTITION BY m.month ORDER BY m.play_count DESC, m.track_artist) AS rank
+                   -- Dense rank with no tiebreaker in the window, so genuinely
+                   -- tied entities share a rank. Adding a unique tiebreaker here
+                   -- made DENSE_RANK behave exactly like ROW_NUMBER, so ties
+                   -- never shared a rank and the order was alphabetical.
+                   DENSE_RANK() OVER (PARTITION BY m.month ORDER BY m.play_count DESC) AS rank
             FROM metrics m
             JOIN totals t USING (month)
             ORDER BY m.month, m.play_count DESC, m.track_artist
