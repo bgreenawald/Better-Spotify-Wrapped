@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import os
@@ -15,7 +16,12 @@ from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
-load_dotenv(override=True)
+# Only override existing environment variables in explicit local/test scenarios,
+# matching dashboard/application.py and dashboard/conn.py. An unconditional
+# override=True meant a CLI run always let .env win over the shell, so
+# `MUSIC_DB=other.db slopify status` quietly used the .env value instead.
+_should_override = os.environ.get("ENVIRONMENT", "") in ("local", "dev", "development", "test")
+load_dotenv(override=_should_override)
 
 
 class SpotifyDataCollector:
@@ -631,9 +637,14 @@ def populate_missing_track_isrcs(
     if not recs:
         return 0
 
-    # Deduplicate ISRCs to avoid UNIQUE constraint violations on dim_tracks.track_isrc
+    # Deduplicate on track_id, the actual primary key. This used to drop
+    # duplicates by ISRC, to avoid a UNIQUE constraint on dim_tracks.track_isrc
+    # that DDL.sql does not have -- so only one release per recording ever got
+    # its ISRC written. The others stayed NULL, were re-selected on every run,
+    # and (now that ISRC is the entity key) failed to merge with their siblings.
+    # One ISRC legitimately covers several track_ids: 14,560 of them here.
     df_isrc = pd.DataFrame(recs, columns=["track_id", "isrc"]).drop_duplicates(
-        subset=["isrc"], keep="first"
+        subset=["track_id"], keep="first"
     )
 
     # 4) Apply updates in a single transaction
@@ -1021,36 +1032,54 @@ def populate_track_artists(
                     "INSERT INTO dim_artists (artist_id, artist_name) VALUES (?, ?)", batch
                 )
 
-        # For bridge_track_artists: drop indexes, insert, recreate indexes
-        # This works around DuckDB ART index corruption during bulk inserts
+        # For bridge_track_artists: drop indexes, insert, recreate indexes.
+        # This works around DuckDB ART index corruption during bulk inserts.
         if new_bridges:
-            # Drop indexes temporarily
+            dropped_indexes = False
             try:
                 conn.execute("DROP INDEX IF EXISTS idx_bridge_track_role")
                 conn.execute("DROP INDEX IF EXISTS idx_bridge_artist_role")
+                dropped_indexes = True
             except Exception as e:
-                logging.warning(f"Failed to drop indexes (may not exist): {e}")
+                logging.warning("Failed to drop indexes (may not exist): %s", e)
 
-            # Insert in batches without indexes
-            bridge_batch_size = 5000  # Can use larger batches without indexes
-            for i in range(0, len(new_bridges), bridge_batch_size):
-                batch = new_bridges[i : i + bridge_batch_size]
-                conn.executemany(
-                    "INSERT INTO bridge_track_artists (track_id, artist_id, role) VALUES (?, ?, ?)",
-                    batch,
-                )
-
-            # Recreate indexes
             try:
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_bridge_track_role ON bridge_track_artists(track_id, role)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_bridge_artist_role ON bridge_track_artists(artist_id, role)"
-                )
-            except Exception as e:
-                logging.error(f"Failed to recreate indexes: {e}")
+                # One transaction, so a failure part-way through does not leave
+                # half the bridge rows behind.
+                conn.execute("BEGIN TRANSACTION")
+                bridge_batch_size = 5000  # Larger batches are fine without indexes
+                for i in range(0, len(new_bridges), bridge_batch_size):
+                    batch = new_bridges[i : i + bridge_batch_size]
+                    conn.executemany(
+                        "INSERT INTO bridge_track_artists (track_id, artist_id, role) "
+                        "VALUES (?, ?, ?)",
+                        batch,
+                    )
+                conn.execute("COMMIT")
+            except Exception:
+                with contextlib.suppress(Exception):
+                    conn.execute("ROLLBACK")
                 raise
+            finally:
+                # Recreated in `finally`, not on the success path only. A
+                # mid-insert failure used to return the database to the user
+                # with its bridge indexes still dropped, and say nothing.
+                if dropped_indexes:
+                    try:
+                        conn.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_bridge_track_role "
+                            "ON bridge_track_artists(track_id, role)"
+                        )
+                        conn.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_bridge_artist_role "
+                            "ON bridge_track_artists(artist_id, role)"
+                        )
+                    except Exception as e:
+                        logging.error(
+                            "Could not recreate bridge indexes; the database is left "
+                            "without them. Re-run `slopify init-db` to restore: %s",
+                            e,
+                        )
 
         return {
             "artists_inserted": artists_to_insert,
@@ -1125,13 +1154,15 @@ def populate_track_metadata(
 
     df_all = pd.DataFrame(recs, columns=["track_id", "track_isrc", "duration_ms", "explicit"])
 
-    # Deduplicate ISRCs to avoid UNIQUE constraint violations
+    # Deduplicate on track_id, the actual primary key. This used to drop
+    # duplicates by ISRC, to avoid a UNIQUE constraint on dim_tracks.track_isrc
+    # that DDL.sql does not have -- so only one release per recording ever got
+    # its ISRC written. The others stayed NULL, were re-selected on every run,
+    # and (now that ISRC is the entity key) failed to merge with their siblings.
+    # One ISRC legitimately covers several track_ids: 14,560 of them here.
     df_isrc = df_all.dropna(subset=["track_isrc"]).copy()
     if not df_isrc.empty:
-        # Keep first occurrence of each ISRC
-        df_isrc = df_isrc.sort_values("track_id").drop_duplicates(
-            subset=["track_isrc"], keep="first"
-        )
+        df_isrc = df_isrc.sort_values("track_id").drop_duplicates(subset=["track_id"], keep="first")
 
     # 4) Apply updates in a single transaction
     conn = duckdb.connect(str(db_path))

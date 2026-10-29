@@ -87,15 +87,15 @@ def _load_layout_bounds(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 def create_app() -> Dash:
     """Create and configure the Dash application.
 
-    Loads Spotify listening history and API data, merges them, sets up app
-    layout and callbacks, and returns the Dash app instance.
+    Reads the user ids and timestamp bounds the filters need, builds the
+    layout and registers the callbacks. It does not load play data: each
+    callback queries DuckDB for what it needs.
 
     Returns:
         Dash: Configured Dash application.
 
     Raises:
-        EnvironmentError: If DATA_DIR environment variable is not set.
-        Exception: Propagated from data loading operations.
+        Exception: Propagated from opening the database.
     """
     # Path to dashboard assets directory
     assets_path = Path(__file__).parent / "assets"

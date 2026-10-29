@@ -86,7 +86,7 @@ uv run slopify link-artist-genres --db data/db/music.db
 # Populate tracks from cached album data
 uv run slopify ingest-tracks-from-albums --db data/db/music.db
 
-# Narrower backfills of dim_tracks columns (see `uv run slopify --help` for all 11 commands)
+# Narrower backfills of dim_tracks columns (see `uv run slopify --help` for all 13 commands)
 uv run slopify ingest-isrcs --db data/db/music.db
 uv run slopify ingest-duration-explicit --db data/db/music.db
 ```
@@ -203,7 +203,7 @@ The project uses a `.env` file with the following keys:
   machine's local zone; `UTC` groups by UTC days). `fact_plays.played_at` is
   stored as naive UTC and converted at query time in `get_filtered_plays` and
   `social.py`, so all tabs share one basis.
-- `ENVIRONMENT`: Dashboard only (`dashboard/application.py`, `dashboard/conn.py`): set to "local", "dev", "development", or "test" to let `.env` override existing env vars. `src/api/api.py` and `src/api/utils.py` call `load_dotenv(override=True)` unconditionally, so CLI runs always let `.env` clobber shell env vars
+- `ENVIRONMENT`: set to "local", "dev", "development", or "test" to let `.env` override existing environment variables. Applied consistently in `dashboard/application.py`, `dashboard/conn.py`, `src/api/api.py` and `src/api/utils.py`, so a shell variable wins over `.env` unless you opt in
 
 ### API Caching
 

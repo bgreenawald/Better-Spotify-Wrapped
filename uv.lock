@@ -1674,7 +1674,6 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "spotipy" },
     { name = "tqdm" },
-    { name = "webdriver-manager" },
 ]
 
 [package.dev-dependencies]
@@ -1683,6 +1682,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "webdriver-manager" },
 ]
 
 [package.metadata]
@@ -1701,7 +1701,6 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.14.3" },
     { name = "spotipy", specifier = ">=2.24.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "webdriver-manager", specifier = ">=4.0.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -1710,6 +1709,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.12.10" },
+    { name = "webdriver-manager", specifier = ">=4.0.2" },
 ]
 
 [[package]]

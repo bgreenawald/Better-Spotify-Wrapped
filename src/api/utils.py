@@ -8,7 +8,12 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# Only override existing environment variables in explicit local/test scenarios,
+# matching dashboard/application.py and dashboard/conn.py. An unconditional
+# override=True meant a CLI run always let .env win over the shell, so
+# `MUSIC_DB=other.db slopify status` quietly used the .env value instead.
+_should_override = os.environ.get("ENVIRONMENT", "") in ("local", "dev", "development", "test")
+load_dotenv(override=_should_override)
 
 DATA_DIR = os.getenv("DATA_DIR")
 API_DATA_CACHE = Path("data/api/cache")

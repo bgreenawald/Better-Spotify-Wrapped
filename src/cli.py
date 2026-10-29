@@ -188,6 +188,15 @@ def ingest_history(
             ]
         )
     )
+    if res.skipped_episodes:
+        click.echo(f"Skipped {res.skipped_episodes} podcast episode row(s) (not modelled).")
+    if res.skipped_rows:
+        # Loud, because these rows are simply gone from the database.
+        click.echo(
+            f"WARNING: dropped {res.skipped_rows} row(s) with an unparseable timestamp "
+            "or no Spotify track URI. Re-run with -v for details.",
+            err=True,
+        )
 
 
 @main.command("ingest-isrcs")

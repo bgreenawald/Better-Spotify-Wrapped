@@ -15,6 +15,7 @@ Assumptions/Notes:
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,14 +33,40 @@ except Exception:  # pragma: no cover - defensive import
 
 @dataclass
 class IngestResult:
+    """Counts from one ingest run.
+
+    Attributes:
+        inserted_plays: Plays written to `fact_plays`.
+        deduped_plays: Rows already present, skipped by the anti-join.
+        inserted_tracks: New rows written to `dim_tracks`.
+        existing_tracks: Tracks already known.
+        skipped_rows: Export rows dropped before insert because they had an
+            unparseable timestamp or no usable Spotify track URI. Reported so a
+            silently lossy export is visible rather than just a lower total.
+        skipped_episodes: Podcast rows, which this table does not model.
+    """
+
     inserted_plays: int
     deduped_plays: int
     inserted_tracks: int
     existing_tracks: int
+    skipped_rows: int = 0
+    skipped_episodes: int = 0
 
 
 def _extract_spotify_track_id(uri: str | None) -> str | None:
-    if not uri:
+    """Extract a Spotify track ID from a URI or URL.
+
+    Args:
+        uri: A `spotify:track:ID` URI, an open.spotify.com track URL, or a
+            missing value. Non-strings (including NaN, which is truthy and
+            used to raise AttributeError here) return None.
+
+    Returns:
+        The track ID, or None if it cannot be parsed.
+    """
+    # NaN is truthy, so `if not uri` let it through to .startswith().
+    if not isinstance(uri, str) or not uri:
         return None
     # Accept both `spotify:track:ID` and `https://open.spotify.com/track/ID` forms
     if uri.startswith("spotify:track:"):
@@ -60,7 +87,12 @@ def _to_timestamp(ts: object) -> str | None:
     Returns:
         ISO 8601 string without timezone, or None if invalid.
     """
-    if ts is None:
+    # pd.NaT subclasses datetime.datetime but is not a pd.Timestamp, so it used
+    # to reach the datetime branch and come back as the *string* "NaT". That
+    # passed the caller's .notna() guard, reached the timestamp insert, and
+    # failed the single ingest transaction -- rolling back every good row with
+    # an unhelpful message.
+    if ts is None or (not isinstance(ts, str) and pd.isna(ts)):
         return None
     if isinstance(ts, pd.Timestamp):
         t = ts
@@ -168,6 +200,24 @@ def load_history_into_fact_plays(
         mask_tracks &= df["spotify_episode_uri"].isna()
     if "episode_name" in df.columns:
         mask_tracks &= df["episode_name"].isna()
+
+    # Count what is being dropped and why, so a lossy export is reportable.
+    unusable = int((~(df["spotify_track_id_only"].notna() & df["played_at_iso"].notna())).sum())
+    episode_mask = pd.Series(False, index=df.index)
+    if "spotify_episode_uri" in df.columns:
+        episode_mask |= df["spotify_episode_uri"].notna()
+    if "episode_name" in df.columns:
+        episode_mask |= df["episode_name"].notna()
+    skipped_episodes = int(episode_mask.sum())
+    # A row with no track id that is also an episode is counted as an episode.
+    skipped_rows = max(0, unusable - int((episode_mask & ~mask_tracks).sum()))
+    if skipped_rows:
+        logging.warning(
+            "Dropping %d export row(s) with an unparseable timestamp or no track URI",
+            skipped_rows,
+        )
+    if skipped_episodes:
+        logging.info("Skipping %d podcast episode row(s)", skipped_episodes)
 
     df_tracks = df.loc[mask_tracks].copy()
     # Remove within-batch dups after normalization
@@ -335,6 +385,8 @@ def load_history_into_fact_plays(
             deduped_plays=deduped_plays,
             inserted_tracks=inserted_tracks,
             existing_tracks=existing_tracks,
+            skipped_rows=skipped_rows,
+            skipped_episodes=skipped_episodes,
         )
     finally:
         conn.close()
