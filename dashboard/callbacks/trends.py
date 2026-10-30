@@ -94,12 +94,12 @@ def _summary_table(records: list[dict], columns: list[dict]) -> dash_table.DataT
 def _multi_line_options(title: str, cats: list[str], series: list[dict], y_title: str) -> dict:
     """Highcharts options for a multi-line trend chart.
 
-    The colours are light-theme defaults: the clientside renderer merges the
-    active theme over them, so they are not branched on dark mode here.
+    Carries no colours: the clientside renderer merges the active theme over
+    every chart (see `applyTheme` in `assets/highcharts_renderer.js`).
     """
     return {
-        "chart": {"type": "line", "height": 360, "backgroundColor": "white"},
-        "title": {"text": title, "style": {"color": "#000000"}},
+        "chart": {"type": "line", "height": 360},
+        "title": {"text": title},
         "credits": {"enabled": False},
         "xAxis": {"categories": cats, "title": {"text": "Month"}},
         "yAxis": {"title": {"text": y_title}},
@@ -391,9 +391,6 @@ def register(app: Dash, df: pd.DataFrame) -> None:
         # Only run when the Listening chart is mounted
         if selection != "listening":
             raise PreventUpdate
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or "monthly_stats" not in data:
             raise PreventUpdate
         monthly = pd.read_json(StringIO(data["monthly_stats"]), orient="split")
@@ -410,9 +407,8 @@ def register(app: Dash, df: pd.DataFrame) -> None:
             "chart": {
                 "type": "line",
                 "height": 360,
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
             },
-            "title": {"text": title, "style": {"color": "#e0e0e0" if is_dark else "#000000"}},
+            "title": {"text": title},
             "credits": {"enabled": False},
             "legend": {"enabled": False},
             "xAxis": {"categories": cats, "title": {"text": "Month"}},

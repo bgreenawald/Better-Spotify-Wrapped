@@ -102,9 +102,6 @@ def register(app: Dash) -> None:
         Input("social-selected-region", "data"),
     )
     def render_social(data, selected_region):
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or data.get("error"):
             msg = data.get("error") if data else "Select 2–3 users to compare."
             return None, html.Div(msg)
@@ -180,7 +177,6 @@ def register(app: Dash) -> None:
             "chart": {
                 "type": "venn",
                 "height": 380,
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
             },
             "title": {"text": None},
             "credits": {"enabled": False},

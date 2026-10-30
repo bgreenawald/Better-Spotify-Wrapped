@@ -42,11 +42,16 @@
 >   is identical (35 server + 10 clientside), the trend graphs give identical
 >   output on real data across 36 input combinations, and the new search and
 >   date-range tests pass against both the old and new code.
+> - **Since done:** the dead `is_dark = False` colour branches are gone from
+>   every figure callback; server options now carry no theme colours at all.
+>   Checked by hashing each chart's final rendered options in both themes
+>   before and after: 19 of 20 chart/theme pairs are identical. The 20th is a
+>   fix: the Venn renderer does not merge the theme over its options, so its
+>   baked-in `"white"` background won in dark mode and drew a white frame
+>   around the dark plot area. It is now dark.
 > - Still open from the refactor section: moving figure construction into pure
->   `dashboard/figures/` functions, and deleting the dead `is_dark = False`
->   branches left in the Wrapped and Social figure callbacks (the clientside
->   renderer already applies the theme; whether its theme options cover every
->   key those branches set needs checking first).
+>   `dashboard/figures/` functions. The Top Genres sunburst also still sends a
+>   seven-green `colors` list that the theme's palette always overrides.
 > - `update_tab_2_data` is not deterministic: the order of genres inside an
 >   artist's or track's genre list varies between identical calls (a list
 >   aggregate with no ORDER BY). Cosmetic, but it defeats output comparisons.

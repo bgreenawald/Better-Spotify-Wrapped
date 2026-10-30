@@ -179,10 +179,6 @@ def register(app: Dash) -> None:
 
         The actual rendering happens clientside into the 'top-tracks-container'.
         """
-        # Still leverage theme to choose minor axes/grid defaults when needed
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or "top_tracks" not in data:
             return empty_chart("No track data for this selection")
         df = pd.read_json(StringIO(data["top_tracks"]), orient="split")
@@ -215,9 +211,6 @@ def register(app: Dash) -> None:
                 "type": "bar",
                 "height": 440,
                 "marginLeft": left_margin,
-                # Subtle background differences based on theme
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
-                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
                 "style": {"fontFamily": "Segoe UI, sans-serif"},
             },
             "title": {"text": None},
@@ -228,15 +221,11 @@ def register(app: Dash) -> None:
                 "categories": y_ticktext,
                 "title": {"text": None},
                 "gridLineWidth": 0,
-                "labels": {
-                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
-                },
+                "labels": {"style": {"fontSize": "10px"}},
             },
             "yAxis": {
                 "title": {"text": "Play Count"},
                 "gridLineWidth": 1,
-                "gridLineColor": "#333" if is_dark else "#eee",
-                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "plotOptions": {
                 "series": {
@@ -244,7 +233,6 @@ def register(app: Dash) -> None:
                         "enabled": True,
                         "style": {
                             "textOutline": "none",
-                            "color": "#e0e0e0" if is_dark else "#000000",
                         },
                         "crop": False,
                         "overflow": "allow",
@@ -253,9 +241,6 @@ def register(app: Dash) -> None:
             },
             "tooltip": {
                 "useHTML": True,
-                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
-                "borderColor": "#444444" if is_dark else "#cccccc",
-                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 "pointFormat": "Track: {point.custom.track}<br/>Artist: {point.custom.artist}<br/>Plays: {point.y}",
             },
             "series": [
@@ -276,9 +261,6 @@ def register(app: Dash) -> None:
         [Input("tab-1-data", "data")],
     )
     def render_top_artists_figure(data):
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or "top_artists" not in data:
             return empty_chart("No artist data for this selection")
         df = pd.read_json(StringIO(data["top_artists"]), orient="split")
@@ -305,8 +287,6 @@ def register(app: Dash) -> None:
                 "type": "bar",
                 "height": 440,
                 "marginLeft": left_margin,
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
-                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
                 "style": {"fontFamily": "Segoe UI, sans-serif"},
             },
             "title": {"text": None},
@@ -315,15 +295,11 @@ def register(app: Dash) -> None:
             "colors": ["#1DB954"],
             "xAxis": {
                 "categories": ticktext,
-                "labels": {
-                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
-                },
+                "labels": {"style": {"fontSize": "10px"}},
             },
             "yAxis": {
                 "title": {"text": "Play Count"},
                 "gridLineWidth": 1,
-                "gridLineColor": "#333" if is_dark else "#eee",
-                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "plotOptions": {
                 "series": {
@@ -331,7 +307,6 @@ def register(app: Dash) -> None:
                         "enabled": True,
                         "style": {
                             "textOutline": "none",
-                            "color": "#e0e0e0" if is_dark else "#000000",
                         },
                         "crop": False,
                         "overflow": "allow",
@@ -340,9 +315,6 @@ def register(app: Dash) -> None:
             },
             "tooltip": {
                 "useHTML": True,
-                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
-                "borderColor": "#444444" if is_dark else "#cccccc",
-                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 "pointFormat": "Artist: {point.custom.artist}<br/>Unique Tracks: {point.custom.unique}<br/>Plays: {point.y}",
             },
             "series": [{"name": "Plays", "data": series_data}],
@@ -357,9 +329,6 @@ def register(app: Dash) -> None:
         [Input("tab-1-data", "data")],
     )
     def render_top_albums_figure(data):
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or "top_albums" not in data:
             return empty_chart("No album data for this selection")
         df = pd.read_json(StringIO(data["top_albums"]), orient="split")
@@ -425,8 +394,6 @@ def register(app: Dash) -> None:
                 "type": "bar",
                 "height": 440,
                 "marginLeft": left_margin,
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
-                "plotBackgroundColor": "#1e1e1e" if is_dark else "white",
                 "style": {"fontFamily": "Segoe UI, sans-serif"},
             },
             "title": {"text": None},
@@ -435,15 +402,11 @@ def register(app: Dash) -> None:
             "colors": ["#1DB954"],
             "xAxis": {
                 "categories": ticktext,
-                "labels": {
-                    "style": {"fontSize": "10px", "color": "#e0e0e0" if is_dark else "#000000"}
-                },
+                "labels": {"style": {"fontSize": "10px"}},
             },
             "yAxis": {
                 "title": {"text": "Album Score"},
                 "gridLineWidth": 1,
-                "gridLineColor": "#333" if is_dark else "#eee",
-                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "plotOptions": {
                 "series": {
@@ -496,7 +459,6 @@ def register(app: Dash) -> None:
                         "enabled": True,
                         "style": {
                             "textOutline": "none",
-                            "color": "#e0e0e0" if is_dark else "#000000",
                         },
                         "crop": False,
                         "overflow": "allow",
@@ -506,9 +468,6 @@ def register(app: Dash) -> None:
             },
             "tooltip": {
                 "useHTML": True,
-                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
-                "borderColor": "#444444" if is_dark else "#cccccc",
-                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 "pointFormat": "Album: {point.custom.album}<br/>Artist: {point.custom.artist}<br/>Album Score: {point.y:.1f}<br/>MQPC: {point.custom.mqpc:.1f}",
             },
             "series": [{"name": "Album Score", "data": series_data}],
@@ -523,9 +482,6 @@ def register(app: Dash) -> None:
         [Input("tab-1-data", "data")],
     )
     def render_top_genres_figure(data):
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or ("top_genres" not in data and "top_genres_sunburst" not in data):
             return empty_chart("No genre data for this selection")
         # Prefer precomputed hierarchical rows when available
@@ -624,15 +580,12 @@ def register(app: Dash) -> None:
                     pass  # Tooltip extra only; the wedge still renders.
             data_points.append(point)
         return {
-            "chart": {"height": 450, "backgroundColor": "#1e1e1e" if is_dark else "white"},
+            "chart": {"height": 450},
             "title": {"text": None},
             "credits": {"enabled": False},
             "colors": ["#1DB954", "#1ed760", "#21e065", "#5eb859", "#7dd069", "#9be082", "#b5e8a3"],
             "tooltip": {
                 "useHTML": True,
-                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
-                "borderColor": "#444444" if is_dark else "#cccccc",
-                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 # "Tagged plays", not "Plays": an artist carrying three genre
                 # tags contributes a play to all three wedges, so these values
                 # sum to more than the number of plays.
@@ -677,9 +630,6 @@ def register(app: Dash) -> None:
         [Input("tab-1-data", "data")],
     )
     def render_daily_heatmap(data):
-        # The clientside renderer merges the active theme over these options,
-        # so the values below are only defaults and need not branch on it.
-        is_dark = False
         if not data or "daily_counts" not in data:
             return empty_chart("No daily play data for this selection")
         df = pd.read_json(StringIO(data["daily_counts"]), orient="split")
@@ -853,25 +803,18 @@ def register(app: Dash) -> None:
             "chart": {
                 "type": "line",
                 "height": 400,
-                "backgroundColor": "#1e1e1e" if is_dark else "white",
             },
             "title": {"text": "Daily Song Plays Over Time"},
             "credits": {"enabled": False},
             "xAxis": {
                 "type": "datetime",
                 "title": {"text": "Date"},
-                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
             },
             "yAxis": {
                 "title": {"text": "Top Song Play Count"},
-                "labels": {"style": {"color": "#e0e0e0" if is_dark else "#000000"}},
-                "gridLineColor": "#333333" if is_dark else "#eeeeee",
             },
             "tooltip": {
                 "useHTML": True,
-                "backgroundColor": "#2a2a2a" if is_dark else "rgba(255,255,255,0.95)",
-                "borderColor": "#444444" if is_dark else "#cccccc",
-                "style": {"color": "#e0e0e0" if is_dark else "#000000"},
                 "formatter": "function(){var custom=this.point.custom||{};var topSongs=custom.top_songs||'N/A';return '<b>Date:</b> '+Highcharts.dateFormat('%Y-%m-%d', this.x)+'<br/><b>Top Song Play Count:</b> '+this.y+'<br/><b>Top Song(s):</b> '+topSongs;}",
             },
             "plotOptions": {
