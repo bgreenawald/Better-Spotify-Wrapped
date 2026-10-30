@@ -22,6 +22,11 @@ from src.preprocessing import get_filtered_plays
 
 DDL_PATH = Path(__file__).resolve().parents[1] / "DDL.sql"
 
+# For registering modules whose bounds-based callbacks a test does not exercise.
+_NO_BOUNDS = pd.DataFrame(
+    {"ts": pd.Series(dtype="datetime64[ns]"), "user_id": pd.Series(dtype=str)}
+)
+
 
 def _callback(app: Dash, name: str, *, output_prefix: str):
     """The undecorated function behind a registered callback.
@@ -300,7 +305,7 @@ def test_wrapped_tab_handles_a_year_with_no_plays() -> None:
     leaves nothing). It should produce an empty, zeroed summary instead.
     """
     app = Dash(__name__)
-    wrapped.register(app)
+    wrapped.register(app, _NO_BOUNDS)
     update = _callback(app, "update_tab_1_data", output_prefix="tab-1-data")
 
     data = update("u1", 2011, False, False, [], [], [], [])
@@ -314,9 +319,115 @@ def test_wrapped_tab_handles_a_year_with_no_plays() -> None:
 @pytest.mark.usefixtures("music_db")
 def test_wrapped_tab_still_summarizes_a_year_with_plays() -> None:
     app = Dash(__name__)
-    wrapped.register(app)
+    wrapped.register(app, _NO_BOUNDS)
     update = _callback(app, "update_tab_1_data", output_prefix="tab-1-data")
 
     data = update("u1", 2024, False, False, [], [], [], [])
 
     assert data["stats_summary"]["Unique Tracks"] == "1"
+
+
+# --------------------------------------------------------------------------
+# Year dropdown
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def year_options():
+    """The user -> year-dropdown callback over three users' bounds.
+
+    Mirrors the startup bounds frame: rows per (user, year), in local time.
+    Erin's history starts in 2011, before anyone else's.
+    """
+    bounds = pd.DataFrame(
+        {
+            "user_id": ["erin", "erin", "erin", "ben", "ben", "ben"],
+            "ts": pd.to_datetime(
+                [
+                    "2011-03-01",
+                    "2012-07-01",
+                    "2025-01-01",
+                    "2011-12-31 20:00",  # New Year's Eve, local time
+                    "2012-05-01",
+                    "2025-11-01",
+                ],
+                format="ISO8601",
+            ),
+        }
+    )
+    app = Dash(__name__)
+    wrapped.register(app, bounds)
+    return _callback(app, "update_year_options", output_prefix="year-dropdown.options")
+
+
+def _years(options: list[dict]) -> list[int]:
+    return [o["value"] for o in options]
+
+
+def test_years_are_only_the_selected_users(year_options) -> None:
+    """Listing every user's years offered ones this user has no plays in."""
+    options, _ = year_options("ben", 2025)
+    assert _years(options) == [2011, 2012, 2025]
+    options, _ = year_options("erin", 2025)
+    assert _years(options) == [2011, 2012, 2025]
+
+
+def test_years_with_no_plays_are_not_offered() -> None:
+    """A user with a gap in their history does not get the gap year."""
+    bounds = pd.DataFrame(
+        {
+            "user_id": ["margo", "margo", "erin"],
+            "ts": pd.to_datetime(["2013-02-01", "2015-02-01", "2014-06-01"]),
+        }
+    )
+    app = Dash(__name__)
+    wrapped.register(app, bounds)
+    update = _callback(app, "update_year_options", output_prefix="year-dropdown.options")
+
+    options, _ = update("margo", 2013)
+    assert _years(options) == [2013, 2015]
+
+
+def test_a_valid_year_is_kept_across_a_user_switch(year_options) -> None:
+    _, value = year_options("ben", 2012)
+    assert value == 2012
+
+
+def test_an_invalid_year_moves_to_the_users_latest() -> None:
+    """Switching to a user without the chosen year lands on their newest one."""
+    bounds = pd.DataFrame(
+        {
+            "user_id": ["erin", "margo", "margo"],
+            "ts": pd.to_datetime(["2011-03-01", "2013-02-01", "2016-02-01"]),
+        }
+    )
+    app = Dash(__name__)
+    wrapped.register(app, bounds)
+    update = _callback(app, "update_year_options", output_prefix="year-dropdown.options")
+
+    options, value = update("margo", 2011)
+    assert _years(options) == [2013, 2016]
+    assert value == 2016
+
+
+def test_a_missing_year_selects_the_latest(year_options) -> None:
+    _, value = year_options("ben", None)
+    assert value == 2025
+
+
+def test_no_user_falls_back_to_every_year(year_options) -> None:
+    options, value = year_options(None, 2012)
+    assert _years(options) == [2011, 2012, 2025]
+    assert value == 2012
+
+
+def test_an_unknown_user_gets_no_years(year_options) -> None:
+    """Better an empty dropdown than years that will all come back empty."""
+    options, value = year_options("nobody", 2025)
+    assert options == []
+    assert value is None
+
+
+def test_year_labels_are_strings(year_options) -> None:
+    options, _ = year_options("ben", 2025)
+    assert options[0] == {"label": "2011", "value": 2011}

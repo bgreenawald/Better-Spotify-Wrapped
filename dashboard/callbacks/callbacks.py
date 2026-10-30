@@ -34,6 +34,6 @@ def register_callbacks(app: Dash, df: pd.DataFrame) -> None:
     shell.register(app)
     search.register(app)
     date_range.register(app, df)
-    wrapped.register(app)
+    wrapped.register(app, df)
     social.register(app)
     trends.register(app, df)

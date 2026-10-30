@@ -13,7 +13,7 @@ from datetime import datetime
 from io import StringIO
 
 import pandas as pd
-from dash import Dash, Input, Output, html
+from dash import Dash, Input, Output, State, html
 from dash.exceptions import PreventUpdate
 
 from dashboard.callbacks.cache import (
@@ -39,8 +39,55 @@ from src.metrics.metrics import (
 from src.preprocessing import get_filtered_plays
 
 
-def register(app: Dash) -> None:
-    """Register the Wrapped tab's data store, figures and chart renderers."""
+def years_by_user(bounds: pd.DataFrame) -> tuple[dict[str, list[int]], list[int]]:
+    """Each user's years with plays, and every year across all users.
+
+    Args:
+        bounds: The startup bounds frame, with `user_id` and local-time `ts`.
+
+    Returns:
+        A sorted year list per user, and the sorted union of all of them.
+    """
+    if bounds.empty:
+        return {}, []
+    years = bounds.assign(year=bounds["ts"].dt.year.astype(int))
+    per_user = {
+        str(user): sorted(group["year"].unique().tolist())
+        for user, group in years.groupby("user_id")
+    }
+    return per_user, sorted(years["year"].unique().tolist())
+
+
+def register(app: Dash, df: pd.DataFrame) -> None:
+    """Register the Wrapped tab's data store, figures and chart renderers.
+
+    Args:
+        app: Dash application instance.
+        df: The startup bounds frame (`user_id`, local-time `ts`), which gives
+            each user's years for the year dropdown.
+    """
+    user_years, all_years = years_by_user(df)
+
+    @app.callback(
+        Output("year-dropdown", "options"),
+        Output("year-dropdown", "value"),
+        Input("user-id-dropdown", "value"),
+        State("year-dropdown", "value"),
+    )
+    def update_year_options(user_id, current_year):
+        """Offer only the years the selected user has plays in.
+
+        The layout builds the dropdown once from every user's years, so it
+        offered years in which the selected user had no plays and every chart
+        came back empty. The current year is kept when it is still valid;
+        otherwise the user's latest year is selected.
+        """
+        years = user_years.get(str(user_id), []) if user_id else all_years
+        options = [{"label": str(year), "value": year} for year in years]
+        if current_year in years:
+            return options, current_year
+        return options, (years[-1] if years else None)
+
     # --- Wrapped Tab (Tab 1): Build a single data store, then per-figure callbacks ---
 
     @app.callback(
