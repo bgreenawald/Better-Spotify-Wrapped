@@ -181,8 +181,19 @@ That is the full set of 13 objects. Genre data comes from `artist_genres` only. 
 - `get_db_connection()`: Returns DuckDB connection (read-only by default)
 - Database path from `MUSIC_DB` environment variable (default: `data/db/music.db`)
 
-**dashboard/callbacks/callbacks.py**:
-- Dash callbacks for interactive filtering and chart updates
+**dashboard/callbacks/**:
+- `callbacks.py`: `register_callbacks()` only wires the modules below together
+- `wrapped.py`, `trends.py`, `social.py`: one module per tab. Each tab builds one
+  filtered `dcc.Store` and per-chart callbacks read it
+- `search.py`: typed search for every filter dropdown (one factory, one query each)
+- `date_range.py`: reset/preset/manual-change controls, registered once per tab
+- `shell.py`: filter-panel collapse, tab chrome and the light/dark theme
+- `cache.py`: thread-safe LRU caches and their filter-hash keys
+- `helpers.py`: formatting, axis labels, `empty_chart()`, and
+  `register_highcharts_renderer()`, which wires an options store to its clientside chart
+- Server callbacks emit light-theme Highcharts options; the clientside renderer
+  (`assets/highcharts_renderer.js`) merges the active theme over them, so
+  `theme-store` is never a server-callback input
 
 **dashboard/components/**:
 - UI components (filters, graphs, stats cards)

@@ -30,10 +30,26 @@
 > **Deliberately deferred, with reasons:**
 > - Artist and track *trend series* remain keyed by display name: the Trends
 >   dropdowns pass names as their option values, so re-keying them changes a UI
->   contract and belongs with the `callbacks.py` split.
-> - Splitting `callbacks.py` (still ~2,400 lines) into modules, and the
->   remaining duplication (the 7 search callbacks, the 2 date-preset machines,
->   the 3 trend callbacks). Mechanical, large, and best done as its own change.
+>   contract. Not done with the split below, which deliberately changed no
+>   behaviour; it is its own change.
+> - **Since done:** `callbacks.py` is split into per-tab modules (`wrapped`,
+>   `trends`, `social`) plus `search`, `date_range`, `shell`, `cache` and
+>   `helpers`; it now only wires them together. The duplication is gone: the
+>   search callbacks (6, not 7) are one factory, the two date-preset machines
+>   are one registered twice, the three trend graphs share their series, table
+>   and chart-options builders, and the nine clientside renderer registrations
+>   are one helper. Verified as a pure refactor: the registered callback graph
+>   is identical (35 server + 10 clientside), the trend graphs give identical
+>   output on real data across 36 input combinations, and the new search and
+>   date-range tests pass against both the old and new code.
+> - Still open from the refactor section: moving figure construction into pure
+>   `dashboard/figures/` functions, and deleting the dead `is_dark = False`
+>   branches left in the Wrapped and Social figure callbacks (the clientside
+>   renderer already applies the theme; whether its theme options cover every
+>   key those branches set needs checking first).
+> - `update_tab_2_data` is not deterministic: the order of genres inside an
+>   artist's or track's genre list varies between identical calls (a list
+>   aggregate with no ORDER BY). Cosmetic, but it defeats output comparisons.
 > - The 21 MB `dcc.Store` payload still ships to the browser; the theme-flip
 >   re-render that made it hurt most is fixed, but moving it to a server-side
 >   cache is a separate piece of work.
