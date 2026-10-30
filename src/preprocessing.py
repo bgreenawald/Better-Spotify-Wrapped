@@ -377,37 +377,39 @@ def get_filtered_plays(
 
     df = con.execute(sql, params).df()
 
-    # Synthesize legacy-compatible columns for current UI/metrics
-    if not df.empty:
-        df["spotify_track_uri"] = df["track_id"].apply(
-            lambda x: f"spotify:track:{x}" if pd.notna(x) else None
-        )
-        df.rename(
-            columns={
-                "track_name": "master_metadata_track_name",
-                "artist_name": "master_metadata_album_artist_name",
-                "album_name": "master_metadata_album_album_name",
-            },
-            inplace=True,
-        )
-        # Normalize list/array to tuples for downstream stability
-        if "artist_genres" not in df.columns:
-            df["artist_genres"] = [() for _ in range(len(df))]
-        else:
+    # Synthesize legacy-compatible columns for current UI/metrics. This must
+    # run for an empty result too: it used to be skipped when nothing matched,
+    # so a year with no plays came back under the raw SQL names and every
+    # caller reading `master_metadata_*` raised KeyError.
+    df["spotify_track_uri"] = df["track_id"].apply(
+        lambda x: f"spotify:track:{x}" if pd.notna(x) else None
+    )
+    df.rename(
+        columns={
+            "track_name": "master_metadata_track_name",
+            "artist_name": "master_metadata_album_artist_name",
+            "album_name": "master_metadata_album_album_name",
+        },
+        inplace=True,
+    )
+    # Normalize list/array to tuples for downstream stability
+    if "artist_genres" not in df.columns:
+        df["artist_genres"] = [() for _ in range(len(df))]
+    else:
 
-            def _to_tuple(v):
-                try:
-                    if v is None:
-                        return ()
-                    if isinstance(v, list | tuple | set):
-                        return tuple(v)
-                    if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
-                        return tuple(v)
-                except (TypeError, ValueError):
-                    pass  # Not iterable after all; fall through to the default.
-                return ()
+        def _to_tuple(v):
+            try:
+                if v is None:
+                    return ()
+                if isinstance(v, list | tuple | set):
+                    return tuple(v)
+                if hasattr(v, "__iter__") and not isinstance(v, str | bytes | dict):
+                    return tuple(v)
+            except (TypeError, ValueError):
+                pass  # Not iterable after all; fall through to the default.
+            return ()
 
-            df["artist_genres"] = df["artist_genres"].apply(_to_tuple)
+        df["artist_genres"] = df["artist_genres"].apply(_to_tuple)
 
     # Ensure dtypes are pandas-friendly
     if "ts" in df.columns:

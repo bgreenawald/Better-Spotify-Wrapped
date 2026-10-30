@@ -17,7 +17,8 @@ import pytest
 from dash import Dash
 from dash.exceptions import PreventUpdate
 
-from dashboard.callbacks import date_range, search
+from dashboard.callbacks import date_range, search, wrapped
+from src.preprocessing import get_filtered_plays
 
 DDL_PATH = Path(__file__).resolve().parents[1] / "DDL.sql"
 
@@ -29,8 +30,10 @@ def _callback(app: Dash, name: str, *, output_prefix: str):
     tells them apart.
     """
     for key, cb in app.callback_map.items():
-        fn = getattr(cb["callback"], "__wrapped__", None)
-        if fn is not None and fn.__name__ == name and key.startswith(f"..{output_prefix}"):
+        # Clientside callbacks have no server function; multi-output keys
+        # start with "..", single-output ones do not.
+        fn = getattr(cb.get("callback"), "__wrapped__", None)
+        if fn is not None and fn.__name__ == name and key.lstrip(".").startswith(output_prefix):
             return fn
     raise LookupError(f"no callback {name} with output {output_prefix}")
 
@@ -147,8 +150,8 @@ def test_the_two_tabs_do_not_share_components(date_app: Dash) -> None:
 
 
 @pytest.fixture
-def search_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Dash:
-    """A tiny database behind `db_cursor`, and the search callbacks over it."""
+def music_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A tiny database behind `db_cursor`: two users, one play each in 2024."""
     db = tmp_path / "s.db"
     c = duckdb.connect(str(db))
     c.execute(DDL_PATH.read_text(encoding="utf-8"))
@@ -165,9 +168,10 @@ def search_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Dash:
         )
         c.execute("INSERT INTO bridge_track_artists VALUES (?, ?, 'primary')", [tid, artist])
     c.execute(
-        "INSERT INTO fact_plays (play_id, user_id, track_id, played_at, duration_ms) VALUES "
-        "('p1', 'u1', 't1', '2024-01-01', 200000), "
-        "('p2', 'u2', 't2', '2024-01-02', 200000)"
+        "INSERT INTO fact_plays "
+        "(play_id, user_id, track_id, played_at, duration_ms, reason_start, reason_end) VALUES "
+        "('p1', 'u1', 't1', '2024-06-01 12:00', 200000, 'clickrow', 'trackdone'), "
+        "('p2', 'u2', 't2', '2024-06-02 12:00', 200000, 'clickrow', 'trackdone')"
     )
     c.execute(
         "INSERT INTO dim_genres (genre_id, name, slug, level) VALUES "
@@ -176,6 +180,13 @@ def search_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Dash:
     c.close()
 
     monkeypatch.setenv("MUSIC_DB", str(db))
+    return db
+
+
+@pytest.fixture
+def search_app(music_db: Path) -> Dash:
+    """The search callbacks over `music_db`."""
+    assert music_db.exists()  # db_cursor() reads it through MUSIC_DB
     app = Dash(__name__)
     search.register(app)
     return app
@@ -253,3 +264,59 @@ def test_trend_artist_search_matches_the_filter_one(search_app: Dash) -> None:
     trend = _search_fn(search_app, "artist-filter-dropdown")
     excluded = _search_fn(search_app, "excluded-artists-filter-dropdown")
     assert trend("rad", "u1", None) == excluded("rad", "u1", None)
+
+
+# --------------------------------------------------------------------------
+# Empty selections
+# --------------------------------------------------------------------------
+
+
+def test_filtered_plays_keep_their_columns_when_nothing_matches(music_db: Path) -> None:
+    """The empty result used to keep the raw SQL names.
+
+    The renames to `master_metadata_*` only ran on a non-empty frame, so code
+    reading those columns worked for every year with plays and raised KeyError
+    for one without.
+    """
+    con = duckdb.connect(str(music_db), read_only=True)
+    try:
+        some = get_filtered_plays(con, user_id="u1", start_date=datetime(2024, 1, 1))
+        none = get_filtered_plays(con, user_id="u1", start_date=datetime(2030, 1, 1))
+    finally:
+        con.close()
+
+    assert not some.empty
+    assert none.empty
+    assert list(none.columns) == list(some.columns)
+
+
+@pytest.mark.usefixtures("music_db")
+def test_wrapped_tab_handles_a_year_with_no_plays() -> None:
+    """A selection matching no plays crashed the Wrapped data callback.
+
+    Reachable two ways: the year dropdown lists every user's years, not just
+    the selected user's, and the exclusions can empty a year that does have
+    plays (Ben's only 2011 plays fall on New Year's Eve, so "Exclude December"
+    leaves nothing). It should produce an empty, zeroed summary instead.
+    """
+    app = Dash(__name__)
+    wrapped.register(app)
+    update = _callback(app, "update_tab_1_data", output_prefix="tab-1-data")
+
+    data = update("u1", 2011, False, False, [], [], [], [])
+
+    stats = data["stats_summary"]
+    assert stats["Unique Tracks"] == "0"
+    assert stats["Days Listened"] == "0 of 0"
+    assert stats["Most Active Day"] == "—"
+
+
+@pytest.mark.usefixtures("music_db")
+def test_wrapped_tab_still_summarizes_a_year_with_plays() -> None:
+    app = Dash(__name__)
+    wrapped.register(app)
+    update = _callback(app, "update_tab_1_data", output_prefix="tab-1-data")
+
+    data = update("u1", 2024, False, False, [], [], [], [])
+
+    assert data["stats_summary"]["Unique Tracks"] == "1"
