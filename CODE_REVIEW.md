@@ -2,13 +2,47 @@
 
 **Last updated:** 2026-10-29 against `690f11c`.
 
-> **Fix progress (2026-10-29, through `d0b3f49`).** Every finding in this
-> document has been addressed except the items listed as deliberately deferred
-> below. Resolved: **all P0**, **all P1 (#5-#14)**, the P2 ingest, performance,
-> and dashboard-UX sections, the accessibility items, the code-structure items
-> (connection handling, the `WHERE` injection, the unbound `conn`, dead code,
-> error swallowing), and the docs/tooling section. Tests went **7 -> 128**,
-> covering the ingest pipeline, which previously had none.
+> **Fix progress (corrected 2026-10-31).** An earlier version of this note
+> said every finding had been addressed apart from the deferrals below. That
+> was wrong: a re-audit of each item against the code found the ones listed
+> under **Still open** below. Resolved: **all P0**, **P1 #1-#13**, repo
+> posture (license, seed data), the P2 ingest section, most of the docs and
+> tooling section, empty states, the palette, polling and most accessibility
+> items, the connection context manager, the `WHERE` injection, the unbound
+> `conn`, logging for every swallowed exception, and the `callbacks.py` split.
+> Tests went **7 -> 165**.
+>
+> **Still open (re-audit 2026-10-31), not deferred, just not done:**
+> - *Dashboard behaviour:* the daily chart still drops every day whose top
+>   song had one play (`wrapped.py` `> 1` filters) and keeps the legacy grid
+>   fallback; its layout heading duplicates its chart title; trend tables
+>   format percentages with `.2g` (renders `1.2e+01`) and wire
+>   `row_selectable`/`column_selectable` to nothing, outside any `dcc.Loading`;
+>   "Last 2y/5y" are `2*365`/`5*365` days; there is no active-filter summary
+>   or "Reset all filters" (only the toggle renames were done); "Percentage",
+>   "Top Song Play Count" and similar have no tooltips; no `role="status"`
+>   live region; no URL state; one media query.
+> - *#7:* filtering is still implemented separately in `get_filtered_plays`
+>   and `social._base_plays_sql` (aligned, but not one builder).
+> - *Code structure:* the `close_conn`/register boilerplate (Jun #4) remains
+>   in `metrics.py` and `trends.py`; `_register_list_param` is duplicated
+>   (`preprocessing.py`, `social.py`), as are the "top 2 artists"
+>   `STRING_AGG` (4x) and track-ID extraction (`db_ingest`, `metrics.utils`);
+>   the non-DuckDB branches in `metrics.py` are still there; one
+>   function-level import remains in `wrapped.py`; legacy entry points remain
+>   (`src/api/utils.py` click group, `src/link_artist_genres.py` `__main__`,
+>   `ingest-isrcs`/`ingest-duration-explicit`); `LIMIT {int(...)}` (2x);
+>   `tests/__init__.py`.
+> - *Performance:* the one-file-per-ID API cache; `REGEXP_REPLACE` in
+>   `artist_id` joins (3x); `v_primary_artist_per_track` recomputed per query;
+>   the pandas round-trips and re-registration; the sunburst's repeated CTEs.
+> - *Tests:* the Chrome fixture in `conftest.py` is still autouse for every
+>   test; nothing tests `get_genre_trends`, `get_artist_trends`,
+>   `get_track_trends`, `get_playcount_by_day`, `get_genre_sunburst_rows` or
+>   the `populate_*` functions.
+> - *Docs/tooling:* README screenshots are a placeholder; `openai` and
+>   `google-genai` are runtime dependencies though only `llm/` uses them; no
+>   `slopify pipeline` command.
 >
 > **Five defects were found that this review did not record:**
 > 1. The album cache had the same unreachable-writer problem as the artist
